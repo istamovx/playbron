@@ -1,0 +1,19 @@
+{
+  "name": "@playbron/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playbron/config": "workspace:*",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3"
+  }
+}

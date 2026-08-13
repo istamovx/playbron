@@ -1,0 +1,175 @@
+/* ============================================================
+   LIGHT MODE
+   Not an inversion. The dark console reads as an instrument because of three
+   things: hairlines carrying structure, colour reserved for data, and glow as
+   the accent. On light, glow is meaningless — so its job passes to WEIGHT:
+   firmer hairlines, a violet fill instead of a violet halo, and a graphite text
+   ramp rather than pure black. The surface is a cool paper grey, not white, so
+   panels can still sit *above* the app the way they do on dark.
+
+   Scope: [data-theme="light"] on <html> or any subtree. Components are untouched
+   — they read semantic tokens only.
+   ============================================================ */
+[data-theme="light"]{
+/* ---- Paper ramp. void-1 is the app, void-4/5 are panels — deliberately the
+        reverse relationship of dark, so elevation still reads. ---- */
+--void-0:#DDDDE3;
+--void-1:#EBEBF0;
+--void-2:#F1F1F5;
+--void-3:#F6F6F9;
+--void-4:#FFFFFF;
+--void-5:#FFFFFF;
+--void-6:#F4F4F8;
+--void-7:#E8E8EF;
+
+/* ---- Graphite text ramp. Never pure black — #14141A keeps the cool cast. ---- */
+--fg-1:#14141A;
+--fg-2:#3A3A46;
+--fg-3:#61616F;
+--fg-4:#8A8A98;
+--fg-5:#B4B4C0;
+
+/* ---- Hairlines are darker AND slightly stronger; on paper a 8% line vanishes. ---- */
+--line-1:rgba(20,20,26,.11);
+--line-2:rgba(20,20,26,.18);
+--line-3:rgba(20,20,26,.30);
+--line-4:rgba(20,20,26,.45);
+--grid-line:rgba(20,20,26,.045);
+--dot-grid:rgba(20,20,26,.16);
+
+/* ---- Brand: the bright #5700FF is used as a FILL only. For text and
+        hairlines on paper it drops to 300/400 for contrast. ---- */
+--violet-100:#3E08A6;
+--violet-200:#4500CC;
+--violet-300:#5700FF;
+--violet-400:#4E00E5;
+--violet-500:#5700FF;
+--violet-600:#5700FF;
+--line-violet:#5700FF;
+--line-violet-soft:rgba(87,0,255,.35);
+
+/* ---- Risk ramp retuned for paper. The tan and salmon are invisible on white,
+        so both darken; red keeps its identity but loses its glow. ---- */
+--risk-none:#9A9AA8;
+--risk-low:#B87333;
+--risk-med:#C4515C;
+--risk-high:#D91E32;
+--risk-crit:#D91E32;
+--risk-deep:#7A0033;
+--red-100:#D91E32;
+--red-200:#7A0033;
+--yellow-100:#B87333;
+--secondary-500:#0E8F5C;
+--purple-100:#6E2FA8;
+--green-400:#0E8F5C;
+--amber-400:#B87333;
+
+/* ================= SEMANTIC ================= */
+--bg-app:var(--void-1);
+--bg-frame:var(--void-2);
+--surface-panel:#FFFFFF;
+--surface-panel-quiet:rgba(20,20,26,.02);
+--surface-card:#FFFFFF;
+--surface-raised:var(--void-3);
+--surface-inset:var(--void-2);
+--surface-field:rgba(20,20,26,.028);
+--surface-hover:rgba(20,20,26,.055);
+--surface-press:rgba(20,20,26,.09);
+--surface-selected:rgba(87,0,255,.10);
+--surface-accent:#5700FF;
+--surface-accent-hover:#4500CC;
+
+--text-body:var(--fg-2);
+--text-title:var(--fg-1);
+--text-muted:var(--fg-3);
+--text-dim:var(--fg-4);
+--text-label:var(--fg-3);
+--text-accent:#4500CC;
+--text-on-accent:#FFFFFF;
+
+--border-panel:var(--line-1);
+--border-control:var(--line-2);
+--border-control-hover:var(--line-3);
+--border-accent:#5700FF;
+--border-focus:#4500CC;
+
+--status-active:#0E8F5C;
+--status-warn:#B87333;
+--status-danger:#D91E32;
+
+/* ---- Glow → weight. Halos become tight, low-alpha shadows; the "active" cue
+        is carried by fill and border, not by light. ---- */
+--glow-violet-sm:0 0 0 1px rgba(87,0,255,.22); /* @kind shadow */
+--glow-violet:0 2px 10px rgba(87,0,255,.20); /* @kind shadow */
+--glow-violet-lg:0 4px 24px rgba(87,0,255,.16); /* @kind shadow */
+--glow-risk:0 0 0 1px rgba(217,30,50,.28); /* @kind shadow */
+--glow-risk-lg:0 2px 14px rgba(217,30,50,.22); /* @kind shadow */
+--glow-text:none; /* @kind shadow */
+
+--shadow-panel:0 1px 2px rgba(20,20,26,.06),0 8px 24px rgba(20,20,26,.07);
+--shadow-pop:0 2px 6px rgba(20,20,26,.10),0 18px 44px rgba(20,20,26,.16);
+--inset-top:inset 0 1px 0 rgba(255,255,255,.9); /* @kind shadow */
+--scrim-panel:linear-gradient(180deg,rgba(20,20,26,.02),rgba(20,20,26,0)); /* @kind other */
+
+/* ---- Chart internals ---- */
+--chart-plot:rgba(20,20,26,.02);
+--chart-track:rgba(20,20,26,.07);
+--chart-grid:rgba(20,20,26,.10);
+--chart-neutral:rgba(20,20,26,.30);
+--chart-tick:rgba(20,20,26,.20);
+--chart-ring:rgba(20,20,26,.10);
+--chart-ring-edge:rgba(20,20,26,.18);
+--chart-spoke-from:rgba(20,20,26,.03);
+--chart-spoke-to:rgba(20,20,26,.10);
+--chart-sweep:linear-gradient(150deg,rgba(87,0,255,.10),rgba(87,0,255,0) 78%); /* @kind other */
+--chart-guide:rgba(20,20,26,.35);
+--chart-edge:rgba(20,20,26,.45);
+--chart-node-halo:rgba(255,255,255,.95);
+--chart-heat-0:rgba(20,20,26,.045);
+--chart-heat-1:rgba(184,115,51,.28);
+--chart-heat-2:rgba(196,81,92,.45);
+--chart-heat-3:rgba(217,30,50,.62);
+--chart-heat-4:#D91E32;
+--map-water:rgba(87,0,255,.07);
+--map-water-line:rgba(87,0,255,.30);
+--map-0:rgba(20,20,26,.045);
+--map-0-line:rgba(20,20,26,.22);
+--map-1:rgba(184,115,51,.20);
+--map-1-line:rgba(184,115,51,.50);
+--map-2:rgba(196,81,92,.24);
+--map-2-line:rgba(196,81,92,.60);
+--map-3:rgba(217,30,50,.26);
+--map-3-line:rgba(217,30,50,.80);
+--map-hover:rgba(87,0,255,.14);
+--map-selected:rgba(87,0,255,.22);
+
+--surface-pop:rgba(255,255,255,.98);
+--surface-pop-blur:rgba(255,255,255,.96);
+
+/* ---- Occupancy states ---- */
+--slot-free:#0E8F5C;
+--slot-free-bg:color-mix(in srgb,#0E8F5C 12%,transparent);
+--slot-taken:#8A8A98;
+--slot-taken-bg:rgba(20,20,26,.045);
+--slot-subscriber:#B87333;
+--slot-subscriber-bg:color-mix(in srgb,#B87333 16%,transparent);
+--slot-assigned:#5700FF;
+--slot-assigned-bg:color-mix(in srgb,#5700FF 12%,transparent);
+--slot-blocked:#D91E32;
+--slot-blocked-bg:color-mix(in srgb,#D91E32 12%,transparent);
+
+/* Camera feeds stay dark in both themes — a video frame has its own luminance
+   and a light chrome around it would blow out the image. */
+--video-bg:#000000;
+--video-chrome:rgba(255,255,255,.55);
+}
+
+/* Scrollbars follow the theme */
+[data-theme="light"] *::-webkit-scrollbar-thumb{background:rgba(20,20,26,.18)}
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover{background:rgba(20,20,26,.30)}
+[data-theme="light"] ::selection{background:rgba(87,0,255,.16);color:#14141A}
+
+/* Follow the OS unless a theme is pinned explicitly */
+@media (prefers-color-scheme:light){
+  html:not([data-theme]) body{color-scheme:light}
+}

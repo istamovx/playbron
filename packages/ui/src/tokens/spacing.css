@@ -1,0 +1,14 @@
+:root{
+--sp-0:0px;--sp-1:2px;--sp-2:4px;--sp-3:6px;--sp-4:8px;--sp-5:10px;--sp-6:12px;--sp-7:14px;--sp-8:16px;--sp-9:20px;--sp-10:24px;--sp-12:32px;--sp-14:40px;--sp-16:48px;
+
+/* control geometry lifted from the reference at 1x */
+--control-h-sm:22px;--control-h:26px;--control-h-md:30px;--control-h-lg:34px;
+--control-px:10px;--control-px-lg:14px;
+--panel-pad:14px;--panel-pad-lg:18px;--card-pad:12px;--field-h:28px;
+--rail-w:56px;--sidebar-w:290px;--aside-w:260px;
+
+/* radii — HUD geometry is near-square; the outer chassis is the one soft corner */
+--r-0:0px;--r-1:2px;--r-2:3px;--r-3:5px;--r-4:8px;--r-frame:18px;--r-pill:999px;
+--notch:14px; /* chamfer size used by clipped HUD corners */
+--stroke:1px;
+}

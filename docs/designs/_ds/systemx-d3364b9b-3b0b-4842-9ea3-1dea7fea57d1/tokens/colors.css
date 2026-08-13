@@ -1,0 +1,117 @@
+/* Exact values transcribed from the supplied brand colour sheet.
+   Ramps run 100 = lightest/most saturated → 800 = deepest. */
+:root,[data-theme="dark"]{
+/* ---- BRAND PRIMARY ---- */
+--primary-100:#5700FF;--primary-200:#4E00E5;--primary-300:#4500CC;--primary-400:#3E08A6;--primary-500:#390E8C;--primary-600:#2B0673;--primary-700:#1E0059;--primary-800:#160040;
+/* ---- BRAND SECONDARY ---- */
+--secondary-100:#F5BD99;--secondary-200:#EC7E84;--secondary-300:#E1327C;--secondary-400:#E481CF;--secondary-500:#32E197;
+/* ---- STATUS ---- */
+--red-200:#980043;--red-100:#FF505D;--purple-100:#B661DE;--yellow-100:#EDB07E;
+
+/* ---- Neutral / void ramp (the console lives on near-black) ---- */
+--void-0:#000000;--void-1:#07070A;--void-2:#0A0A0D;--void-3:#0D0D11;--void-4:#101014;--void-5:#15151B;--void-6:#1A1A22;--void-7:#24242E;
+
+/* ---- Foreground ramp ---- */
+--fg-1:#FFFFFF;--fg-2:#C9C9D4;--fg-3:#8E8E9C;--fg-4:#5C5C6B;--fg-5:#3A3A46;
+
+/* ---- Hairlines. Everything in this UI is a 1px line ---- */
+--line-1:rgba(255,255,255,.08);--line-2:rgba(255,255,255,.14);--line-3:rgba(255,255,255,.24);--line-4:rgba(255,255,255,.40);
+--line-violet:var(--primary-100);--line-violet-soft:rgba(87,0,255,.45);
+--grid-line:rgba(255,255,255,.035);--dot-grid:rgba(255,255,255,.10);
+
+/* ---- Violet aliases: what components reference ---- */
+--violet-100:var(--purple-100);--violet-200:var(--purple-100);--violet-300:var(--primary-100);--violet-400:var(--primary-200);--violet-500:var(--primary-100);--violet-600:var(--primary-500);--violet-700:var(--primary-700);--violet-800:var(--primary-800);--violet-900:#0F0030;
+
+/* ---- Risk ramp: size + colour both climb with severity ---- */
+--risk-none:#4A4A57;--risk-low:var(--yellow-100);--risk-med:var(--secondary-200);--risk-high:var(--red-100);--risk-crit:var(--red-100);--risk-deep:var(--red-200);
+--green-400:var(--secondary-500);--amber-400:var(--yellow-100);--amber-900:#3A2A0C;--red-400:var(--red-100);
+
+/* ================= SEMANTIC ALIASES ================= */
+--bg-app:var(--void-1);
+--bg-frame:var(--void-2);
+--surface-panel:var(--void-4);
+--surface-panel-quiet:rgba(255,255,255,.02);
+--surface-card:var(--void-5);
+--surface-raised:var(--void-6);
+--surface-inset:var(--void-3);
+--surface-field:rgba(255,255,255,.03);
+--surface-hover:rgba(255,255,255,.055);
+--surface-press:rgba(255,255,255,.02);
+--surface-selected:rgba(87,0,255,.18);
+--surface-accent:var(--primary-500);
+--surface-accent-hover:var(--primary-400);
+
+--text-body:var(--fg-2);
+--text-title:var(--fg-1);
+--text-muted:var(--fg-3);
+--text-dim:var(--fg-4);
+--text-label:var(--fg-3);
+--text-accent:var(--purple-100);
+--text-on-accent:#FFFFFF;
+
+--border-panel:var(--line-1);
+--border-control:var(--line-2);
+--border-control-hover:var(--line-3);
+--border-accent:var(--primary-100);
+--border-focus:var(--primary-200);
+
+--status-active:var(--secondary-500);
+--status-warn:var(--yellow-100);
+--status-danger:var(--red-100);
+
+/* ---- Chart internals. Named so light mode can retune them without touching
+        a single component. ---- */
+--chart-plot:rgba(255,255,255,.015);
+--chart-track:rgba(255,255,255,.05);
+--chart-grid:var(--line-1);
+--chart-neutral:rgba(255,255,255,.26);
+--chart-tick:rgba(255,255,255,.16);
+--chart-ring:rgba(255,255,255,.06);
+--chart-ring-edge:rgba(255,255,255,.10);
+--chart-spoke-from:rgba(255,255,255,.02);
+--chart-spoke-to:rgba(255,255,255,.07);
+--chart-sweep:linear-gradient(150deg,rgba(255,255,255,.09),rgba(255,255,255,0) 78%); /* @kind other */
+--chart-guide:rgba(255,255,255,.30);
+--chart-edge:rgba(255,255,255,.50);
+--chart-node-halo:rgba(0,0,0,.60);
+--chart-heat-0:rgba(255,255,255,.04);
+--chart-heat-1:rgba(237,176,126,.22);
+--chart-heat-2:rgba(236,126,132,.42);
+--chart-heat-3:rgba(255,80,93,.60);
+--chart-heat-4:var(--risk-high);
+--map-water:rgba(87,0,255,.07);
+--map-water-line:rgba(87,0,255,.35);
+--map-0:rgba(255,255,255,.045);
+--map-0-line:rgba(255,255,255,.18);
+--map-1:rgba(237,176,126,.16);
+--map-1-line:rgba(237,176,126,.45);
+--map-2:rgba(236,126,132,.20);
+--map-2-line:rgba(236,126,132,.55);
+--map-3:rgba(255,80,93,.26);
+--map-3-line:rgba(255,80,93,.75);
+--map-hover:rgba(87,0,255,.20);
+--map-selected:rgba(87,0,255,.30);
+
+/* ---- Popover / tooltip shell ---- */
+--surface-pop:rgba(10,10,13,.97);
+--surface-pop-blur:rgba(10,10,13,.96);
+
+/* ---- Occupancy states. A four-way categorical scale for slot grids and
+        capacity bars — free / taken / subscriber / assigned. Categorical, NOT
+        a severity ramp: none of these is "worse" than another. ---- */
+--slot-free:var(--secondary-500);
+--slot-free-bg:color-mix(in srgb,var(--secondary-500) 12%,transparent);
+--slot-taken:var(--fg-4);
+--slot-taken-bg:rgba(255,255,255,.035);
+--slot-subscriber:var(--secondary-100);
+--slot-subscriber-bg:color-mix(in srgb,var(--secondary-100) 14%,transparent);
+--slot-assigned:var(--primary-100);
+--slot-assigned-bg:color-mix(in srgb,var(--primary-100) 18%,transparent);
+--slot-blocked:var(--red-100);
+--slot-blocked-bg:color-mix(in srgb,var(--red-100) 14%,transparent);
+
+/* ---- Camera / video surfaces ---- */
+--video-bg:#000000;
+--video-chrome:rgba(255,255,255,.55);
+--video-scrim:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0) 22%,rgba(0,0,0,0) 78%,rgba(0,0,0,.55)); /* @kind other */
+}

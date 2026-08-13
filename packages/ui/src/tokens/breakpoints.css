@@ -1,0 +1,121 @@
+/* ============================================================
+   BREAKPOINTS & ADAPTIVE DENSITY
+   The console is authored dense (11–13px, 26px controls) for a desk operator.
+   Rather than forking every component, the SAME tokens are redefined per
+   breakpoint and per pointer type — so a component written once grows to a
+   touch-safe size on a phone with no extra code.
+   ============================================================ */
+:root{
+/* Reference values. Media queries can't read custom properties, so these are
+   documentation + JS (useBreakpoint reads them); the @media blocks below carry
+   the same numbers literally. Keep them in sync. */
+--bp-xs:0px;      /* phone portrait        <600  */
+--bp-sm:600px;    /* phone landscape / small tablet */
+--bp-md:905px;    /* tablet portrait       */
+--bp-lg:1240px;   /* laptop                */
+--bp-xl:1600px;   /* desk / control room   */
+
+/* Layout shells, consumed by components and kit screens */
+--nav-w:208px;          /* open sidebar            */
+--nav-w-collapsed:56px; /* icon rail               */
+--nav-h-bar:52px;       /* horizontal command bar  */
+--aside-w:268px;        /* action-items column     */
+--detail-w:352px;       /* investigation detail    */
+--gutter:22px;          /* workspace padding       */
+--gap-panel:14px;       /* gap between panels      */
+
+/* Fluid type: shrinks the hero numbers on small screens without a media query */
+--fs-metric-fluid:clamp(26px,4.6vw,38px); /* @kind font */
+--fs-title-fluid:clamp(18px,2.6vw,30px); /* @kind font */
+--fs-panel-fluid:clamp(14px,1.5vw,16px); /* @kind font */
+}
+
+/* ---- Tablet portrait and below: loosen the grid, keep the density ---- */
+@media (max-width:905px){
+  :root{
+    --gutter:14px;
+    --gap-panel:10px;
+    --panel-pad:12px;
+    --aside-w:100%;
+    --detail-w:100%;
+    --rail-w:56px;
+  }
+}
+
+/* ---- Phone: the console becomes a single column ---- */
+@media (max-width:600px){
+  :root{
+    --gutter:12px;
+    --gap-panel:8px;
+    --panel-pad:12px;
+    --card-pad:12px;
+    --fs-metric:30px;
+  }
+}
+
+/* ---- Touch pointers: every control grows to a 44px-safe target ----
+   This is the single most important rule in the file. Because all controls are
+   sized from these four tokens, one block makes the entire system touch-ready. */
+@media (pointer:coarse){
+  :root{
+    --control-h-sm:32px;
+    --control-h:40px;
+    --control-h-md:44px;
+    --control-h-lg:48px;
+    --field-h:44px;
+    --control-px:14px;
+    --control-px-lg:18px;
+  }
+}
+
+/* ---- Very wide: let the control room breathe ---- */
+@media (min-width:1600px){
+  :root{
+    --gutter:28px;
+    --gap-panel:18px;
+    --panel-pad:18px;
+    --aside-w:300px;
+    --detail-w:390px;
+  }
+}
+
+/* ============================================================
+   RESPONSIVE UTILITIES
+   Use these classes when plain CSS is enough; use <Show>/<Grid> from
+   components/layout/Responsive.jsx when the change is structural.
+   ============================================================ */
+.ds-app{min-height:100vh;background:var(--bg-app)}
+.ds-workspace{padding:var(--gutter);display:grid;gap:var(--gap-panel);min-width:0}
+
+/* Auto-fitting panel grid: the default answer to "how do I lay these out?" */
+.ds-grid{display:grid;gap:var(--gap-panel);min-width:0;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))}
+.ds-grid-wide{display:grid;gap:var(--gap-panel);min-width:0;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr))}
+.ds-grid-tight{display:grid;gap:var(--sp-4);min-width:0;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr))}
+
+/* The console's three-column shell, collapsing on its own */
+.ds-console{display:grid;gap:var(--gap-panel);min-width:0;grid-template-columns:var(--detail-w) minmax(0,1fr) var(--aside-w)}
+@media (max-width:1240px){.ds-console{grid-template-columns:var(--detail-w) minmax(0,1fr)}}
+@media (max-width:905px){.ds-console{grid-template-columns:minmax(0,1fr)}}
+
+.ds-split{display:grid;gap:var(--gap-panel);min-width:0;grid-template-columns:minmax(0,1fr) var(--aside-w)}
+@media (max-width:905px){.ds-split{grid-template-columns:minmax(0,1fr)}}
+
+/* Visibility helpers */
+.ds-only-desktop{display:revert}
+.ds-only-mobile{display:none}
+@media (max-width:905px){.ds-only-desktop{display:none}.ds-only-mobile{display:revert}}
+@media (max-width:600px){.ds-hide-xs{display:none}}
+@media (min-width:906px){.ds-hide-desktop{display:none}}
+
+/* Horizontal escape hatch for dense tables — the ONE place scrolling sideways
+   is acceptable, because collapsing a telemetry table loses meaning */
+.ds-scroll-x{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.ds-scroll-x>*{min-width:max-content}
+
+/* Charts never overflow their column */
+.ds-chart{min-width:0;width:100%}
+.ds-chart>svg{display:block;width:100%;height:auto}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}

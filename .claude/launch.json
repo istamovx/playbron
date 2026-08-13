@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "admin", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "miniapp",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "miniapp", "dev"],
+      "port": 5174
+    }
+  ]
+}

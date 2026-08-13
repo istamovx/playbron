@@ -1,0 +1,36 @@
+:root,[data-theme="dark"]{
+/* glows: primary violet for interactive/selected, red for risk */
+--glow-violet-sm:0 0 8px rgba(87,0,255,.6); /* @kind shadow */
+--glow-violet:0 0 18px rgba(87,0,255,.55); /* @kind shadow */
+--glow-violet-lg:0 0 34px rgba(87,0,255,.5),0 0 90px rgba(87,0,255,.25); /* @kind shadow */
+--glow-risk:0 0 10px rgba(255,80,93,.75); /* @kind shadow */
+--glow-risk-lg:0 0 26px rgba(255,80,93,.5); /* @kind shadow */
+--glow-text:0 0 12px rgba(255,255,255,.25); /* @kind shadow */
+
+--shadow-panel:0 10px 30px rgba(0,0,0,.55);
+--shadow-pop:0 18px 48px rgba(0,0,0,.7);
+--inset-hairline:inset 0 0 0 1px var(--line-1);
+--inset-top:inset 0 1px 0 rgba(255,255,255,.05);
+
+/* backgrounds: faint square grid + dot field, never gradients-as-decoration */
+--bg-grid:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px); /* @kind other */
+--bg-grid-size:96px 96px; /* @kind other */
+--bg-dots:radial-gradient(var(--dot-grid) 1px,transparent 1px); /* @kind other */
+--bg-dots-size:8px 8px; /* @kind other */
+--scrim-panel:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,0)); /* @kind other */
+
+/* motion: short, linear-ish, no bounce. this UI feels instrument-like */
+--ease-out:cubic-bezier(.22,.61,.36,1); /* @kind other */
+--ease-in-out:cubic-bezier(.45,.05,.55,.95); /* @kind other */
+--dur-1:90ms; /* @kind other */
+--dur-2:140ms; /* @kind other */
+--dur-3:220ms; /* @kind other */
+--dur-4:400ms; /* @kind other */
+--t-control:background var(--dur-2) var(--ease-out),border-color var(--dur-2) var(--ease-out),color var(--dur-2) var(--ease-out),box-shadow var(--dur-2) var(--ease-out); /* @kind other */
+
+/* HUD clip paths (chamfered corners) */
+--clip-tr:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%); /* @kind other */
+--clip-tl:polygon(14px 0,100% 0,100% 100%,0 100%,0 14px); /* @kind other */
+--clip-br:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%); /* @kind other */
+--clip-diag:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px); /* @kind other */
+}

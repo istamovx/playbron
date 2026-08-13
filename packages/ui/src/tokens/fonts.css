@@ -1,0 +1,13 @@
+/* TYPE — SUBSTITUTION NOTE: no font binaries came with the source. Chakra Petch
+   (squarish techno sans) and JetBrains Mono (telemetry/data) are the closest
+   Google Fonts matches. Swap these for local @font-face rules when the real
+   files arrive.
+   ICONS — the source sheet shows a bespoke *filled* security glyph set (~130
+   glyphs) that was not supplied as SVG. Material Symbols Rounded at FILL=1 is
+   the closest CDN substitute in weight and fill style; see readme ICONOGRAPHY. */
+@import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap");
+/* Remix Icon 4.5.0 — line + fill variants; the closer match for the brand's
+   solid security glyphs. Use "ri-*" names via <Icon />. */
+@import url("https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css");

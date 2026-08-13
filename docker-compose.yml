@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: playbron
+      POSTGRES_PASSWORD: playbron
+      POSTGRES_DB: playbron
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U playbron -d playbron']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Cover rasmlar uchun (Faza 3 da ishlatiladi)
+  minio:
+    image: minio/minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: playbron
+      MINIO_ROOT_PASSWORD: playbron123
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+
+  # Migratsiya alohida qadam — ilova konteyneri migratsiya qilmaydi
+  migrate:
+    build: ./api
+    command: ['alembic', 'upgrade', 'head']
+    env_file: ./api/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ['migrate']
+
+  api:
+    build: ./api
+    command:
+      ['uvicorn', 'playbron.main:app', '--host', '0.0.0.0', '--port', '8000', '--reload']
+    env_file: ./api/.env
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./api/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

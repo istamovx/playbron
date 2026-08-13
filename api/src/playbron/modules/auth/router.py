@@ -1,0 +1,219 @@
+"""Auth marshrutlari — `/api/v1/auth/*`."""
+
+from datetime import datetime
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Header, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from playbron.core.config import settings
+from playbron.core.errors import NotFound
+from playbron.core.security import now
+from playbron.deps import db, public_db
+from playbron.modules.auth import service
+from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ── Sxemalar ──────────────────────────────────────────────────────────────
+
+
+class InitDataIn(BaseModel):
+    init_data: str = Field(min_length=1, description="window.Telegram.WebApp.initData")
+
+
+class WidgetIn(BaseModel):
+    """Telegram Login Widget qaytargan tekis obyekt."""
+
+    id: int
+    first_name: str
+    auth_date: int
+    hash: str
+    last_name: str | None = None
+    username: str | None = None
+    photo_url: str | None = None
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str = Field(min_length=10)
+
+
+class MembershipOut(BaseModel):
+    club_id: int
+    club_name: str
+    role: str
+
+
+class UserOut(BaseModel):
+    id: int
+    telegram_id: int
+    first_name: str
+    last_name: str | None
+    username: str | None
+    phone: str | None
+    phone_verified: bool
+
+
+class SessionOut(BaseModel):
+    access_token: str
+    access_expires_at: datetime
+    refresh_token: str
+    refresh_expires_at: datetime
+    user: UserOut
+    memberships: list[MembershipOut]
+    is_super_admin: bool
+    entitlements: dict[str, Any] | None = None
+
+
+def _to_session(payload: dict[str, Any], entitlements: dict[str, Any] | None) -> SessionOut:
+    user = payload["user"]
+    return SessionOut(
+        access_token=payload["access_token"],
+        access_expires_at=payload["access_expires_at"],
+        refresh_token=payload["refresh_token"],
+        refresh_expires_at=payload["refresh_expires_at"],
+        user=UserOut(
+            id=user.id,
+            telegram_id=user.telegram_id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            username=user.username,
+            phone=user.phone,
+            phone_verified=user.phone_verified_at is not None,
+        ),
+        memberships=[
+            MembershipOut(club_id=m["club_id"], club_name=m["club_name"], role=m["role"])
+            for m in payload["memberships"]
+        ],
+        is_super_admin=payload["is_super_admin"],
+        entitlements=entitlements,
+    )
+
+
+IP_MAX_LEN = 45  # `refresh_tokens.ip` ustuni kengligi (IPv6 + zona)
+UA_MAX_LEN = 512
+
+
+def _client(request: Request, user_agent: str | None) -> tuple[str | None, str | None]:
+    """Sessiya yozuvi uchun mijoz belgilari.
+
+    `X-Forwarded-For` **ishlatilmaydi**: uning eng chap elementi mijoz tomonidan
+    to'liq boshqariladi. Proksi ortida uvicorn `--proxy-headers` bilan yurgiziladi
+    va `request.client.host` ni proksining o'zi to'g'rilaydi.
+    """
+    ip = request.client.host if request.client else None
+    return (
+        (user_agent[:UA_MAX_LEN] if user_agent else None),
+        (ip[:IP_MAX_LEN] if ip else None),
+    )
+
+
+# ── Marshrutlar ───────────────────────────────────────────────────────────
+
+
+@router.post("/telegram/initdata", response_model=SessionOut)
+async def sign_in_initdata(
+    body: InitDataIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    """Mini App ichidan kirish."""
+    identity = verify_init_data(body.init_data)
+    ua, ip = _client(request, user_agent)
+    payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+    return _to_session(payload, entitlements)
+
+
+@router.post("/telegram/widget", response_model=SessionOut)
+async def sign_in_widget(
+    body: WidgetIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    """Landing'dagi Telegram Login Widget orqali kirish."""
+    identity = verify_widget(body.model_dump(exclude_none=True))
+    ua, ip = _client(request, user_agent)
+    payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+    return _to_session(payload, entitlements)
+
+
+@router.post("/refresh", response_model=SessionOut)
+async def refresh(
+    body: RefreshIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    ua, ip = _client(request, user_agent)
+    payload = await service.rotate_refresh(
+        session, presented=body.refresh_token, user_agent=ua, ip=ip
+    )
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+    return _to_session(payload, entitlements)
+
+
+class DevLoginIn(BaseModel):
+    """Faqat lokal ishlab chiqish uchun."""
+
+    telegram_id: int
+    first_name: str = "Dev"
+
+
+@router.post("/dev/login", response_model=SessionOut)
+async def dev_login(
+    body: DevLoginIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    """Telegramsiz kirish — **faqat lokal muhitda**.
+
+    Telegram Login Widget `localhost` da ishlamaydi (@BotFather'da haqiqiy domen
+    talab qilinadi), shuning uchun konsolni lokal ishlab chiqishda sinash uchun
+    shu yo'l bor. Prod'da endpoint umuman javob bermaydi.
+    """
+    if settings.env not in {"local", "test"}:
+        raise NotFound("Topilmadi")
+
+    identity = TelegramIdentity(
+        telegram_id=body.telegram_id,
+        first_name=body.first_name,
+        last_name=None,
+        username=None,
+        language_code="uz",
+        photo_url=None,
+        auth_date=int(now().timestamp()),
+        # Replay guard uchun har chaqiruvda boshqa qiymat
+        raw_hash=f"dev-{body.telegram_id}-{now().timestamp()}",
+        source="widget",
+    )
+
+    ua, ip = _client(request, user_agent)
+    payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+    return _to_session(payload, entitlements)
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    body: RefreshIn,
+    # `db` — `current_claims` dan **keyin** ochiladigan sessiya. `public_db` bo'lsa
+    # tranzaksiya token ochilishidan oldin boshlanib, `app.user_id` 0 qolardi va
+    # RLS `WITH CHECK` yozishga yo'l bermasdi.
+    session: Annotated[AsyncSession, Depends(db)],
+) -> None:
+    await service.sign_out(session, refresh_token=body.refresh_token)

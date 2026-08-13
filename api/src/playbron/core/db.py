@@ -1,0 +1,148 @@
+"""Ulanish va tenant konteksti.
+
+Ikkita alohida pool:
+  • `app_engine`      — `playbron_app` roli, RLS ostida. Barcha oddiy so'rovlar.
+  • `platform_engine` — `playbron_platform` roli, BYPASSRLS. Faqat `/platform/*`.
+
+RLS policy'lari `current_setting('app.*')` ni o'qiydi, shuning uchun har bir tranzaksiya
+boshida `SET LOCAL` qilinadi. `SET LOCAL` tranzaksiya tugashi bilan o'zi bekor bo'ladi —
+pool'dagi ulanish keyingi so'rovga «iflos» holda o'tmaydi.
+"""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
+
+from playbron.core import context
+from playbron.core.config import settings
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+app_engine: AsyncEngine = create_async_engine(
+    settings.database_url,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_pre_ping=True,
+    echo=settings.debug,
+)
+
+platform_engine: AsyncEngine = create_async_engine(
+    settings.platform_database_url,
+    pool_size=3,
+    max_overflow=2,
+    pool_pre_ping=True,
+    echo=settings.debug,
+)
+
+AppSession = async_sessionmaker(app_engine, expire_on_commit=False)
+PlatformSession = async_sessionmaker(platform_engine, expire_on_commit=False)
+
+
+async def _apply_context(session: AsyncSession) -> None:
+    """Joriy so'rov kontekstini `SET LOCAL app.*` ga yozadi.
+
+    `set_config(..., true)` — `true` = local, ya'ni tranzaksiya doirasida.
+    Parametrlar bind qilinadi, satr birlashtirish yo'q (SQL injection'dan himoya).
+    """
+    ctx = context.current()
+    await session.execute(
+        text(
+            "SELECT set_config('app.user_id', :user_id, true),"
+            "       set_config('app.org_id', :org_id, true),"
+            "       set_config('app.club_id', :club_id, true),"
+            "       set_config('app.telegram_id', :telegram_id, true),"
+            "       set_config('app.is_super_admin', :sa, true)"
+        ),
+        {
+            "user_id": str(ctx.user_id or 0),
+            "org_id": str(ctx.org_id or 0),
+            "club_id": str(ctx.club_id or 0),
+            "telegram_id": str(ctx.telegram_id or 0),
+            "sa": "true" if ctx.is_super_admin else "false",
+        },
+    )
+
+
+async def set_current_user(session: AsyncSession, user_id: int) -> None:
+    """Tranzaksiya o'rtasida `app.user_id` ni yangilaydi.
+
+    Kirish oqimida foydalanuvchi tranzaksiya boshlanganidan **keyin** yaratiladi;
+    Python kontekstini o'zgartirish DB sozlamasini yangilamaydi, shuning uchun
+    `set_config` qayta chaqiriladi — aks holda keyingi yozuvlar RLS ostida rad etiladi.
+    """
+    await session.execute(
+        text("SELECT set_config('app.user_id', :user_id, true)"),
+        {"user_id": str(user_id)},
+    )
+
+
+async def set_telegram_scope(session: AsyncSession, telegram_id: int) -> None:
+    """Kirish tranzaksiyasi uchun `users` dagi bitta qatorni ochadi."""
+    await session.execute(
+        text("SELECT set_config('app.telegram_id', :telegram_id, true)"),
+        {"telegram_id": str(telegram_id)},
+    )
+
+
+async def set_refresh_scope(session: AsyncSession, token_hash: str) -> None:
+    """Refresh almashtirishda `refresh_tokens` dagi bitta qatorni ochadi.
+
+    Token — 48 baytli tasodifiy sir; uning xeshini bilish o'zi huquq beradi,
+    shuning uchun policy aynan shu xeshli qatorga ruxsat beradi, boshqasiga emas.
+    """
+    await session.execute(
+        text("SELECT set_config('app.refresh_hash', :token_hash, true)"),
+        {"token_hash": token_hash},
+    )
+
+
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
+    """RLS ostidagi sessiya. Kontekst tranzaksiya ichida o'rnatiladi."""
+    async with AppSession() as session:
+        async with session.begin():
+            await _apply_context(session)
+            yield session
+
+
+@asynccontextmanager
+async def platform_scope() -> AsyncIterator[AsyncSession]:
+    """Cross-tenant o'qish. Faqat super admin marshrutlari uchun.
+
+    Bu pool RLS'ni chetlab o'tadi, shuning uchun chaqiruvchi **oldindan**
+    super admin ekanini tekshirgan bo'lishi shart.
+    """
+    if not context.current().is_super_admin:
+        raise PermissionError("platform_scope faqat super admin uchun")
+
+    async with PlatformSession() as session:
+        async with session.begin():
+            yield session
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency."""
+    async with session_scope() as session:
+        yield session
+
+
+async def ping() -> bool:
+    async with app_engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+    return True
+
+
+async def dispose() -> None:
+    await app_engine.dispose()
+    await platform_engine.dispose()

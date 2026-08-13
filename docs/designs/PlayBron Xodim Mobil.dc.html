@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/colors.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/typography.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/effects.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/theme-light.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/breakpoints.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/tokens/base.css">
+<link rel="stylesheet" href="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/styles.css">
+<script src="_ds/systemx-d3364b9b-3b0b-4842-9ea3-1dea7fea57d1/_ds_bundle.js"></script>
+<style>
+html,body{margin:0;padding:0;background:var(--void-0);}
+a{color:var(--purple-100);text-decoration:none;}
+a:hover{color:var(--fg-1);}
+::-webkit-scrollbar{width:0;height:0}
+.pb-phone{--gutter:16px;--gap-panel:16px;--panel-pad:16px;--panel-pad-lg:16px;--card-pad:16px;--gap-block:16px;--gap-tight:8px;width:100%;max-width:420px;height:100dvh;max-height:880px;border:1px solid var(--primary-100);border-radius:18px;box-shadow:var(--glow-violet-lg);overflow:hidden}
+@media (max-width:600px){.pb-phone{max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}}
+</style>
+</helmet>
+
+<div style="min-height:100dvh;background:var(--void-0);background-image:var(--bg-grid);background-size:var(--bg-grid-size);display:flex;align-items:center;justify-content:center;padding:0">
+  <div class="pb-phone" style="background:var(--bg-frame);display:flex;flex-direction:column;font:var(--type-body);color:var(--text-body);position:relative">
+
+    <div style="flex:none;height:52px;display:flex;align-items:center;gap:10px;padding:0 var(--gutter);background:var(--void-2);border-bottom:1px solid var(--line-1)">
+      <sc-if value="{{ canBack }}" hint-placeholder-val="{{ false }}">
+        <span onClick="{{ goBack }}" style="cursor:pointer;width:30px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--text-muted)" style-hover="color:var(--fg-1)">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="arrow_back" size="{{ 20 }}" hint-size="20px,20px"></x-import>
+        </span>
+      </sc-if>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+        <span style="font:var(--fw-medium) 14px/1.1 var(--font-display);color:var(--text-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ navTitle }}</span>
+        <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-dim)">{{ navSub }}</span>
+      </div>
+      <span style="font:var(--type-data-xs);color:var(--text-dim)">{{ clockText }}</span>
+      <span onClick="{{ openScan }}" style="cursor:pointer;flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);color:var(--purple-100)" style-hover="border-color:var(--primary-100)">
+        <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="qr_code_scanner" size="{{ 18 }}" hint-size="18px,18px"></x-import>
+      </span>
+    </div>
+
+    <div style="flex:1;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;padding:var(--gutter)">
+
+      <sc-if value="{{ isRooms }}" hint-placeholder-val="{{ true }}">
+        <div data-screen-label="Xonalar" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:var(--gap-tight)">
+            <sc-for list="{{ counters }}" as="c" hint-placeholder-count="4">
+              <div style="padding:8px 6px;background:var(--surface-card);border:1px solid var(--line-1);clip-path:var(--clip-tr);display:flex;flex-direction:column;gap:3px;align-items:center">
+                <span style="font:500 22px/1 var(--font-display);color:{{ c.tone }}">{{ c.v }}</span>
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-dim);white-space:nowrap">{{ c.k }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;gap:6px;overflow:auto;padding-bottom:2px">
+            <sc-for list="{{ roomFilters }}" as="c" hint-placeholder-count="4">
+              <span style="flex:none;white-space:nowrap">
+                <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Chip" selected="{{ c.on }}" onClick="{{ c.pick }}" hint-size="auto,26px">{{ c.label }}</x-import>
+              </span>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:var(--gap-tight)">
+            <sc-for list="{{ roomList }}" as="r" hint-placeholder-count="6">
+              <div onClick="{{ r.open }}" style="cursor:pointer;padding:var(--card-pad);background:{{ r.bg }};border:1px solid {{ r.ln }};border-left:3px solid {{ r.rail }};clip-path:var(--clip-tr);display:flex;flex-direction:column;gap:8px" style-hover="background:var(--surface-hover)">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="flex:1;min-width:0;font:var(--type-section);color:var(--text-title)">{{ r.code }}</span>
+                  <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:{{ r.rail }}">{{ r.status }}</span>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span style="flex:1;min-width:0;font:var(--type-body-sm);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+                  <span style="font:var(--type-data);color:{{ r.timerTone }}">{{ r.timer }}</span>
+                </div>
+                <div style="height:3px;background:var(--chart-track)">
+                  <div style="height:3px;width:{{ r.pct }};background:{{ r.rail }}"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRoom }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Xona detali" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.StatusLine" parts="{{ roomStatus }}" tone="{{ roomTone }}" icon="{{ roomIcon }}" hint-size="100%,20px"></x-import>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ roomFields }}" as="f" hint-placeholder-count="8">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--field-h,30px);padding:5px 10px;background:var(--surface-field);border:1px solid var(--line-1)">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">{{ f.k }}</span>
+                <span style="font:var(--type-data);color:{{ f.tone }};text-align:right">{{ f.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ roomLate }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:var(--card-pad);border:1px solid var(--red-100);background:rgba(255,80,93,.06);display:flex;flex-direction:column;gap:6px">
+              <span style="font:var(--type-section);color:var(--red-100)">Mijoz kelmadi</span>
+              <span style="font:var(--type-body-sm);color:var(--text-body);text-wrap:pretty">{{ roomLateText }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ extOpen }}" hint-placeholder-val="{{ false }}">
+            <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Panel" title="Uzaytirish" notch="{{ true }}" hint-size="100%,240px">
+              <div style="display:flex;flex-direction:column;gap:var(--gap-block)">
+                <span style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Mijozdan so'rang: hali o'ynaysizmi yoki hisobni yopamizmi?</span>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+                  <sc-for list="{{ extOptions }}" as="o" hint-placeholder-count="4">
+                    <div onClick="{{ o.pick }}" style="cursor:pointer;padding:10px;text-align:center;background:{{ o.bg }};border:1px solid {{ o.ln }};font:var(--type-control);color:{{ o.fg }}" style-hover="border-color:var(--primary-100)">{{ o.label }}</div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <sc-for list="{{ extRows }}" as="f" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--field-h,30px);padding:5px 10px;background:var(--surface-field);border:1px solid var(--line-1)">
+                      <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">{{ f.k }}</span>
+                      <span style="font:var(--type-data);color:{{ f.tone }}">{{ f.v }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ extBlocked }}" hint-placeholder-val="{{ false }}">
+                  <span style="font:var(--type-body-sm);color:var(--red-100);text-wrap:pretty">{{ extBlockText }}</span>
+                </sc-if>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="primary" size="lg" block="{{ true }}" icon="update" disabled="{{ extBlocked }}" onClick="{{ extApply }}" hint-size="100%,44px">{{ extLabel }}</x-import>
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="secondary" size="lg" block="{{ true }}" icon="lock" onClick="{{ goBill }}" hint-size="100%,44px">Yopamiz</x-import>
+                </div>
+              </div>
+            </x-import>
+          </sc-if>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+            <sc-for list="{{ roomActions }}" as="a" hint-placeholder-count="4">
+              <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="secondary" size="lg" block="{{ true }}" icon="{{ a.icon }}" onClick="{{ a.go }}" hint-size="100%,44px">{{ a.label }}</x-import>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isScan }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Check-in" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="position:relative;height:190px;background:var(--surface-inset);border:1px solid var(--line-1);display:flex;align-items:center;justify-content:center">
+            <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-dim)">Kamera · QR</span>
+            <div style="position:absolute;inset:22%;border:1px solid var(--primary-100);box-shadow:var(--glow-violet-sm)"></div>
+          </div>
+          <div>
+            <div style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label);margin-bottom:8px">Yoki 6 xonali kod</div>
+            <div style="display:flex;gap:var(--gap-tight);justify-content:space-between">
+              <sc-for list="{{ codeCells }}" as="c" hint-placeholder-count="6">
+                <div style="flex:1;min-width:0;height:52px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid {{ c.ln }};font:500 20px/1 var(--font-mono);color:var(--text-title)">{{ c.v }}</div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap-tight)">
+            <sc-for list="{{ keypad }}" as="k" hint-placeholder-count="12">
+              <div onClick="{{ k.tap }}" style="cursor:pointer;height:52px;display:flex;align-items:center;justify-content:center;background:var(--surface-card);border:1px solid var(--line-1);font:500 20px/1 var(--font-mono);color:{{ k.fg }}" style-hover="background:var(--surface-hover)">{{ k.label }}</div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ codeFound }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:var(--card-pad);border:1px solid var(--secondary-500);background:var(--surface-card);display:flex;flex-direction:column;gap:4px">
+              <span style="font:var(--type-section);color:var(--secondary-500)">Bron topildi</span>
+              <span style="font:var(--type-body-sm);color:var(--text-body)">{{ codeFoundText }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isOrders }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Buyurtmalar" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.SegmentedControl" items="{{ orderTabs }}" value="{{ orderTab }}" onChange="{{ setOrderTab }}" hint-size="100%,40px"></x-import>
+          <div style="display:flex;flex-direction:column;gap:var(--gap-tight)">
+            <sc-for list="{{ orderList }}" as="o" hint-placeholder-count="3">
+              <div style="padding:var(--card-pad);background:var(--surface-card);border:1px solid var(--line-1);border-left:3px solid {{ o.rail }};clip-path:var(--clip-tr);display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span style="flex:1;min-width:0;font:var(--type-section);color:var(--text-title)">{{ o.room }}</span>
+                  <span style="font:var(--type-data-xs);color:var(--text-dim)">{{ o.ago }}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px">
+                  <sc-for list="{{ o.lines }}" as="l" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+                      <span style="font:var(--type-body-sm);color:var(--text-body)">{{ l.name }}</span>
+                      <span style="font:var(--type-data-xs);color:var(--text-muted)">{{ l.qty }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--gap-tight)">
+                  <span style="flex:1;font:var(--type-data);color:var(--purple-100)">{{ o.total }}</span>
+                  <span style="flex:none;min-width:140px">
+                    <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="{{ o.variant }}" size="lg" block="{{ true }}" icon="{{ o.icon }}" onClick="{{ o.advance }}" hint-size="100%,44px">{{ o.action }}</x-import>
+                  </span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ ordersEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px dashed var(--line-2);padding:24px;text-align:center;font:var(--type-body-sm);color:var(--text-dim)">Bu holatda buyurtma yo'q</div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isKassa }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Kassa" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:var(--card-pad);border:1px dashed var(--line-2)">
+            <span style="flex:none;color:var(--text-dim);display:flex">
+              <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="lock" size="{{ 15 }}" hint-size="15px,15px"></x-import>
+            </span>
+            <span style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Katalog, narx va kirim faqat admin tomonidan kiritiladi. Siz sotasiz — qoldiq avtomatik kamayadi.</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--gap-tight)">
+            <sc-for list="{{ openBills }}" as="b" hint-placeholder-count="5">
+              <div onClick="{{ b.pick }}" style="cursor:pointer;padding:var(--card-pad);background:var(--surface-card);border:1px solid var(--line-1);clip-path:var(--clip-tr);display:flex;flex-direction:column;gap:6px" style-hover="background:var(--surface-hover)">
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span style="flex:1;min-width:0;font:var(--type-section);color:var(--text-title)">{{ b.code }}</span>
+                  <span style="font:var(--type-data-xs);color:{{ b.timerTone }}">{{ b.timer }}</span>
+                </div>
+                <span style="font:var(--type-body-sm);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.guest }}</span>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                  <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-dim)">To'lanadi</span>
+                  <span style="font:var(--type-data);color:var(--purple-100)">{{ b.total }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ noOpenBills }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px dashed var(--line-2);padding:24px;text-align:center;font:var(--type-body-sm);color:var(--text-dim)">Ochiq hisob yo'q</div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBill }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Hisob" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ billHead }}" as="f" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--field-h,30px);padding:5px 10px;background:var(--surface-field);border:1px solid var(--line-1)">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">{{ f.k }}</span>
+                <span style="font:var(--type-data);color:var(--text-body)">{{ f.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="flex:1;font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">Buyurtmalar</span>
+              <span style="flex:none">
+                <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="ghost" icon="add" onClick="{{ openBar }}" hint-size="auto,30px">Bar qo'shish</x-import>
+              </span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <sc-for list="{{ cartLines }}" as="l" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:var(--gap-tight)">
+                  <span style="flex:1;min-width:0;font:var(--type-body-sm);color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.name }}</span>
+                  <span onClick="{{ l.dec }}" style="cursor:pointer;flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);font:var(--type-data);color:var(--text-muted)" style-hover="border-color:var(--primary-100)">−</span>
+                  <span style="flex:none;width:22px;text-align:center;font:var(--type-data);color:var(--text-title)">{{ l.qty }}</span>
+                  <span onClick="{{ l.inc }}" style="cursor:pointer;flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);font:var(--type-data);color:var(--text-muted)" style-hover="border-color:var(--primary-100)">+</span>
+                  <span style="flex:none;min-width:66px;text-align:right;font:var(--type-data);color:var(--text-body)">{{ l.sum }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line-1)">
+            <sc-for list="{{ billLines }}" as="l" hint-placeholder-count="5">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+                <span style="font:var(--type-body-sm);color:var(--text-muted)">{{ l.k }}</span>
+                <span style="font:var(--type-data);color:{{ l.tone }}">{{ l.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px var(--card-pad);background:var(--surface-selected);border:1px solid var(--primary-100)">
+            <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-muted)">To'lanadi</span>
+            <span style="font:500 22px/1 var(--font-display);color:var(--text-title)">{{ dueText }}</span>
+          </div>
+
+          <div>
+            <div style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label);margin-bottom:8px">To'lov usuli</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+              <sc-for list="{{ payMethods }}" as="p" hint-placeholder-count="2">
+                <div onClick="{{ p.pick }}" style="cursor:pointer;padding:12px 10px;text-align:center;background:{{ p.bg }};border:1px solid {{ p.ln }};font:var(--type-control);color:{{ p.fg }}" style-hover="border-color:var(--primary-100)">{{ p.label }}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <sc-if value="{{ isTransfer }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:var(--card-pad);border:1px solid {{ receiptLn }};background:var(--surface-card);display:flex;flex-direction:column;gap:10px">
+              <span style="font:var(--type-section);color:var(--text-title)">Mijoz cheki</span>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--surface-inset);border:1px solid var(--line-1);color:var(--text-dim)">
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="receipt_long" size="{{ 18 }}" hint-size="18px,18px"></x-import>
+                </span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font:var(--type-data-xs);color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ receiptFile }}</span>
+                  <span style="font:var(--type-body-sm);color:var(--text-dim)">{{ receiptMeta }}</span>
+                </div>
+              </div>
+              <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.StatusLine" parts="{{ receiptStatus }}" tone="{{ receiptTone }}" icon="{{ receiptIcon }}" hint-size="100%,20px"></x-import>
+              <sc-if value="{{ receiptPending }}" hint-placeholder-val="{{ true }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="primary" size="lg" block="{{ true }}" icon="check" onClick="{{ okReceipt }}" hint-size="100%,44px">Tasdiqlash</x-import>
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Button" variant="secondary" size="lg" block="{{ true }}" icon="close" onClick="{{ noReceipt }}" hint-size="100%,44px">Rad etish</x-import>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBar }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Bar qo'shish" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="display:flex;gap:6px;overflow:auto;padding-bottom:2px">
+            <sc-for list="{{ catChips }}" as="c" hint-placeholder-count="3">
+              <span style="flex:none;white-space:nowrap">
+                <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Chip" selected="{{ c.on }}" onClick="{{ c.pick }}" hint-size="auto,26px">{{ c.label }}</x-import>
+              </span>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--gap-tight)">
+            <sc-for list="{{ barItems }}" as="m" hint-placeholder-count="6">
+              <div style="display:flex;align-items:center;gap:var(--gap-tight);padding:10px var(--card-pad);background:var(--surface-card);border:1px solid var(--line-1);opacity:{{ m.op }}">
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+                  <span style="font:var(--type-body-sm);color:var(--text-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.name }}</span>
+                  <span style="font:var(--type-data-xs);color:{{ m.stockTone }}">{{ m.stock }}</span>
+                </div>
+                <span style="flex:none;font:var(--type-data);color:var(--text-muted)">{{ m.price }}</span>
+                <span onClick="{{ m.add }}" style="cursor:pointer;flex:none;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);color:var(--purple-100)" style-hover="border-color:var(--primary-100)">
+                  <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="add" size="{{ 18 }}" hint-size="18px,18px"></x-import>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReceipt }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Chek" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.StatusLine" parts="{{ closedStatus }}" tone="ok" icon="check_circle" hint-size="100%,20px"></x-import>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ closedFields }}" as="f" hint-placeholder-count="8">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--field-h,30px);padding:5px 10px;background:var(--surface-field);border:1px solid var(--line-1)">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">{{ f.k }}</span>
+                <span style="font:var(--type-data);color:{{ f.tone }};text-align:right">{{ f.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border:1px solid var(--line-1);background:var(--surface-card)">
+            <div style="display:flex;align-items:center;gap:8px;padding:10px var(--card-pad);border-bottom:1px solid var(--line-1);color:var(--text-muted)">
+              <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="send" size="{{ 15 }}" hint-size="15px,15px"></x-import>
+              <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase">Mijozga yuborildi</span>
+            </div>
+            <div style="padding:var(--card-pad);font:var(--type-data-xs);color:var(--text-body);white-space:pre-line;line-height:1.6">{{ tgMessage }}</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isShift }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Smena" style="display:flex;flex-direction:column;gap:var(--gap-panel)">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ shiftHead }}" as="f" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--field-h,30px);padding:5px 10px;background:var(--surface-field);border:1px solid var(--line-1)">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">{{ f.k }}</span>
+                <span style="font:var(--type-data);color:{{ f.tone }}">{{ f.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--gap-tight)">
+            <sc-for list="{{ shiftCells }}" as="c" hint-placeholder-count="4">
+              <div style="padding:var(--card-pad);background:var(--surface-card);border:1px solid var(--line-1);clip-path:var(--clip-tr);display:flex;flex-direction:column;gap:5px">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-dim)">{{ c.k }}</span>
+                <span style="font:500 22px/1 var(--font-display);color:{{ c.tone }}">{{ c.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Panel" title="Tovar reestri" notch="{{ true }}" hint-size="100%,320px">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ stockRows }}" as="r" hint-placeholder-count="5">
+                <div style="display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--line-1)">
+                  <div style="display:flex;align-items:baseline;gap:8px">
+                    <span style="flex:1;min-width:0;font:var(--type-body-sm);color:var(--text-title)">{{ r.name }}</span>
+                    <span style="font:var(--type-data-xs);color:var(--text-dim)">{{ r.meta }}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:var(--gap-tight)">
+                    <span style="flex:1;font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">Sanaldi</span>
+                    <span onClick="{{ r.dec }}" style="cursor:pointer;flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);font:var(--type-data);color:var(--text-muted)" style-hover="border-color:var(--primary-100)">−</span>
+                    <span style="flex:none;width:34px;text-align:center;font:var(--type-data);color:var(--text-title)">{{ r.counted }}</span>
+                    <span onClick="{{ r.inc }}" style="cursor:pointer;flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface-field);border:1px solid var(--line-2);font:var(--type-data);color:var(--text-muted)" style-hover="border-color:var(--primary-100)">+</span>
+                    <span style="flex:none;min-width:44px;text-align:right;font:var(--type-data);color:{{ r.diffTone }}">{{ r.diff }}</span>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+                <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--text-label)">Kamomad</span>
+                <span style="font:500 20px/1 var(--font-mono);color:{{ shortTone }}">{{ shortText }}</span>
+              </div>
+            </div>
+          </x-import>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <sc-if value="{{ hasMain }}" hint-placeholder-val="{{ true }}">
+      <div onClick="{{ mainAction }}" style="flex:none;cursor:pointer;min-height:50px;display:flex;align-items:center;justify-content:center;gap:8px;background:{{ mainBg }};color:{{ mainFg }};font:var(--type-control);letter-spacing:.02em;border-top:1px solid var(--line-1)" style-hover="filter:brightness(1.08)">
+        <span style="display:flex">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="{{ mainIcon }}" size="{{ 17 }}" hint-size="17px,17px"></x-import>
+        </span>
+        {{ mainLabel }}
+      </div>
+    </sc-if>
+
+    <div style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);background:var(--void-2);border-top:1px solid var(--line-1)">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <div onClick="{{ t.go }}" style="cursor:pointer;position:relative;min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:{{ t.fg }};background:{{ t.bg }}" style-hover="color:var(--fg-1)">
+          <x-import component-from-global-scope="SentinelSOCDesignSystem_d3364b.Icon" name="{{ t.icon }}" size="{{ 19 }}" hint-size="19px,19px"></x-import>
+          <span style="font:var(--type-label);letter-spacing:var(--ls-label);text-transform:uppercase">{{ t.label }}</span>
+          <sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}">
+            <span style="position:absolute;top:8px;right:50%;margin-right:-22px;min-width:16px;height:16px;padding:0 4px;display:flex;align-items:center;justify-content:center;background:var(--red-100);color:var(--fg-1);font:var(--type-label)">{{ t.badgeText }}</span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:880}}">
+const BASE = 20 * 3600 + 14 * 60 + 38;
+const S = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const HM = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const CLK = (s) => [Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, "0")).join(":");
+const DUR = (s) => (s < 0 ? "+" : "") + Math.floor(Math.abs(s) / 3600) + ":" + String(Math.floor(Math.abs(s) / 60) % 60).padStart(2, "0") + ":" + String(Math.abs(s) % 60).padStart(2, "0");
+
+const ROOMS = [
+  { id: 1, code: "1-xona", kind: "Standart", dev: "PS5 · 55\" · 2 pad", status: "OCCUPIED", guest: "Jasur Aliyev", phone: "+998 90 123-45-67", c6: "482013", a: 1170, b: 1290, rate: 40000 },
+  { id: 2, code: "2-xona", kind: "Standart", dev: "PS5 · 55\" · 2 pad", status: "OCCUPIED", guest: "Sardor Rahimov", phone: "+998 93 771-22-08", c6: "119640", a: 1200, b: 1320, rate: 40000 },
+  { id: 3, code: "3-xona", kind: "Standart", dev: "PS5 · 55\" · 2 pad", status: "FREE", guest: null, a: 0, b: 0, rate: 40000 },
+  { id: 4, code: "4-xona", kind: "Standart", dev: "PS4 Pro · 43\" · 2 pad", status: "RESERVED", guest: "Doston Yo'ldoshev", phone: "+998 94 330-19-55", c6: "706311", a: 1260, b: 1380, rate: 25000 },
+  { id: 5, code: "5-xona", kind: "Standart", dev: "PS5 · 55\" · 2 pad", status: "OCCUPIED", guest: "Aziz Karimov", phone: "+998 97 555-40-12", c6: "331902", a: 1080, b: 1200, rate: 40000 },
+  { id: 6, code: "6-xona", kind: "Standart", dev: "PS4 Pro · 43\" · 2 pad", status: "NOSHOW", guest: "Kamron Halilov", phone: "+998 99 118-73-40", c6: "550274", a: 1190, b: 1310, rate: 25000 },
+  { id: 7, code: "7-xona", kind: "Standart", dev: "PS5 · 55\" · 2 pad", status: "MAINT", guest: null, a: 0, b: 0, rate: 40000 },
+  { id: 8, code: "8-xona", kind: "Turnir", dev: "PS5 · 65\" · 4 pad", status: "OCCUPIED", guest: "Bekzod Toshev", phone: "+998 90 907-66-31", c6: "884120", a: 1200, b: 1380, rate: 50000 },
+  { id: 9, code: "VIP-1", kind: "VIP", dev: "PS5 Pro · 75\" · 4 pad", status: "OCCUPIED", guest: "Nodira Qodirova", phone: "+998 91 402-88-19", c6: "263775", a: 1140, b: 1320, rate: 60000 },
+  { id: 10, code: "VIP-2", kind: "VIP", dev: "PS5 Pro · 75\" · 4 pad", status: "FREE", guest: null, a: 0, b: 0, rate: 60000 },
+];
+const NEXT = { 1: 1320, 5: 1260, 9: 1380 };
+const BONUS = { 1: 12000, 9: 24000 };
+
+const MENU = [
+  { id: "m1", cat: "Ichimliklar", name: "Pepsi 0.5", price: 12000 },
+  { id: "m2", cat: "Ichimliklar", name: "Coca-Cola 0.5", price: 12000 },
+  { id: "m3", cat: "Ichimliklar", name: "Ko'k choy", price: 8000 },
+  { id: "m4", cat: "Ichimliklar", name: "Energetik", price: 15000 },
+  { id: "m5", cat: "Snack", name: "Lay's", price: 10000 },
+  { id: "m6", cat: "Snack", name: "Snickers", price: 9000 },
+  { id: "m7", cat: "Snack", name: "Popcorn", price: 11000 },
+  { id: "m8", cat: "Ovqat", name: "Lavash", price: 32000 },
+  { id: "m9", cat: "Ovqat", name: "Hot-dog", price: 18000 },
+  { id: "m10", cat: "Ovqat", name: "Cheeseburger", price: 32000 },
+  { id: "m11", cat: "Ovqat", name: "Somsa", price: 14000 },
+];
+const STOCK = [
+  { id: "m1", start: 48, sold: 14 },
+  { id: "m2", start: 36, sold: 9 },
+  { id: "m5", start: 30, sold: 11 },
+  { id: "m6", start: 24, sold: 6 },
+  { id: "m9", start: 20, sold: 7 },
+];
+const ORDERS = [
+  { id: "OR-118", room: 5, at: 1206, state: "NEW", lines: [["Pepsi 0.5", 2], ["Lay's", 1]] },
+  { id: "OR-119", room: 9, at: 1210, state: "NEW", lines: [["Lavash", 1], ["Ko'k choy", 1]] },
+  { id: "OR-116", room: 2, at: 1198, state: "ACCEPTED", lines: [["Hot-dog", 2]] },
+  { id: "OR-115", room: 8, at: 1192, state: "PREPARING", lines: [["Cheeseburger", 1]] },
+  { id: "OR-112", room: 1, at: 1181, state: "DELIVERED", lines: [["Pepsi 0.5", 2]] },
+];
+const FLOW = ["NEW", "ACCEPTED", "PREPARING", "DELIVERED"];
+const FLOW_UZ = { NEW: "Yangi", ACCEPTED: "Qabul qilindi", PREPARING: "Tayyorlanmoqda", DELIVERED: "Yetkazildi" };
+const NEXT_ACTION = { NEW: "Qabul qilish", ACCEPTED: "Tayyorlash", PREPARING: "Yetkazdim", DELIVERED: "Hisobga qo'shildi" };
+const EXT_ITEMS = [30, 60, 90, 120];
+
+class Component extends DCLogic {
+  state = {
+    tick: 0, screen: "rooms", stack: [], sel: 1, filter: "Hammasi",
+    orderTab: "Yangi", states: {}, carts: { 1: { m1: 2, m7: 1 }, 2: { m1: 2, m11: 1 }, 5: { m4: 1 }, 8: { m4: 1 }, 9: { m8: 2, m3: 2 } },
+    cat: "Ichimliklar", pay: "Naqd", receipt: "PENDING", closed: null, closedRooms: {},
+    extOpen: false, ext: 30, extended: {}, nsMarked: false,
+    code: "", counted: {},
+  };
+  componentDidMount() { this.t = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000); }
+  componentWillUnmount() { clearInterval(this.t); }
+  go(screen) { this.setState((s) => ({ stack: s.stack.concat([s.screen]), screen })); }
+  back() { this.setState((s) => (s.stack.length ? { screen: s.stack[s.stack.length - 1], stack: s.stack.slice(0, -1), extOpen: false } : {})); }
+  tab(screen) { this.setState({ screen, stack: [], extOpen: false, closed: null }); }
+  bump(id, d) {
+    this.setState((s) => {
+      const carts = Object.assign({}, s.carts), c = Object.assign({}, carts[s.sel] || {});
+      c[id] = (c[id] || 0) + d;
+      if (c[id] <= 0) delete c[id];
+      carts[s.sel] = c;
+      return { carts };
+    });
+  }
+  countBump(id, d, base) {
+    this.setState((s) => {
+      const cn = Object.assign({}, s.counted);
+      cn[id] = Math.max(0, (cn[id] === undefined ? base : cn[id]) + d);
+      return { counted: cn };
+    });
+  }
+
+  renderVals() {
+    const st = this.state, now = BASE + st.tick;
+    const LIVE = ROOMS.map((r) => {
+      if (st.nsMarked && r.id === 6) return Object.assign({}, r, { status: "FREE", guest: null, a: 0, b: 0 });
+      if (st.closedRooms[r.id]) return Object.assign({}, r, { status: "FREE", guest: null, a: 0, b: 0 });
+      if (st.extended[r.id]) return Object.assign({}, r, { b: r.b + st.extended[r.id] });
+      return r;
+    });
+    const LB = { OCCUPIED: "Band", FREE: "Bo'sh", RESERVED: "Rezerv", MAINT: "Ta'mirda", NOSHOW: "Kelmadi?" };
+    const RAIL = { OCCUPIED: "var(--primary-100)", FREE: "var(--line-2)", RESERVED: "var(--violet-200)", MAINT: "var(--yellow-100)", NOSHOW: "var(--red-100)" };
+
+    const allCart = {};
+    Object.keys(st.carts).forEach((rid) => {
+      const c = st.carts[rid] || {};
+      Object.keys(c).forEach((k) => { allCart[k] = (allCart[k] || 0) + c[k]; });
+    });
+    const stockOf = (id) => {
+      const row = STOCK.find((r) => r.id === id);
+      return row ? row.start - row.sold - (allCart[id] || 0) : null;
+    };
+
+    const sel = LIVE.find((r) => r.id === st.sel) || LIVE[0];
+    const cart = st.carts[st.sel] || {};
+    const cartLines = Object.keys(cart).map((id) => {
+      const m = MENU.find((x) => x.id === id);
+      return { name: m.name, qty: cart[id], sum: S(m.price * cart[id]), inc: () => this.bump(id, 1), dec: () => this.bump(id, -1) };
+    });
+    const ordersAmount = Object.keys(cart).reduce((a, id) => a + MENU.find((x) => x.id === id).price * cart[id], 0);
+    const hours = sel.status === "OCCUPIED" ? (sel.b - sel.a) / 60 : 0;
+    const hoursText = hours.toFixed(1).replace(".0", "") + " soat";
+    const play = Math.round(hours * sel.rate);
+    const deposit = play ? Math.max(20000, Math.ceil((play * 0.3) / 1000) * 1000) : 0;
+    const bonus = BONUS[sel.id] || 0;
+    const due = Math.max(0, play + ordersAmount - deposit - bonus);
+
+    const orderState = (o) => st.states[o.id] || o.state;
+    const shown = ORDERS.filter((o) => FLOW_UZ[orderState(o)] === st.orderTab);
+    const nsCard = LIVE.find((r) => r.status === "NOSHOW");
+    const newCount = ORDERS.filter((o) => orderState(o) === "NEW").length;
+
+    const extEnd = sel.b + st.ext;
+    const nextAt = NEXT[sel.id];
+    const extBlocked = !!nextAt && extEnd > nextAt;
+
+    const scr = st.screen;
+    const TITLES = {
+      rooms: ["Xonalar", "Neon Arena · A-blok"], room: [sel.code, sel.kind + " xona"],
+      scan: ["Check-in", "QR yoki kod"], orders: ["Buyurtmalar", newCount + " ta yangi"],
+      kassa: ["Kassa", "Ochiq hisoblar"], bill: ["Hisob · " + sel.code, sel.guest || ""],
+      bar: ["Bar qo'shish", sel.code], receipt: ["Chek", st.closed ? st.closed.code : ""],
+      shift: ["Smenam", "Kechki · Kamola R."],
+    };
+
+    const MAIN = {
+      rooms: { label: "QR bilan check-in", icon: "qr_code_scanner", go: () => this.go("scan") },
+      scan: { label: st.code.length === 6 ? "Check-in qilish" : "Kodni kiriting", icon: "login", go: () => (st.code.length === 6 ? this.tab("rooms") : null) },
+      bill: {
+        label: st.pay === "O'tkazma" && st.receipt !== "OK" ? "Chek tasdiqlanmagan" : "Hisobni yopish",
+        icon: "lock",
+        go: () => {
+          if (st.pay === "O'tkazma" && st.receipt !== "OK") return;
+          this.setState((s) => {
+            const rooms = Object.assign({}, s.closedRooms);
+            rooms[s.sel] = true;
+            return {
+              closedRooms: rooms, screen: "receipt", stack: [],
+              closed: {
+                code: "CS-" + (2040 + s.sel), room: sel.code, guest: sel.guest, hours: hoursText,
+                play: S(play), bar: S(ordersAmount), total: S(due), method: s.pay, at: CLK(now),
+                points: Math.floor(due / 1000),
+              },
+            };
+          });
+        },
+      },
+      bar: { label: "Hisobga qaytish", icon: "check", go: () => this.back() },
+      receipt: { label: "Yangi hisob", icon: "add", go: () => this.tab("kassa") },
+      shift: { label: "Smenani yopish", icon: "lock", go: () => {} },
+      room: sel.status === "NOSHOW"
+        ? { label: "Kelmadi deb belgilash", icon: "person_off", go: () => this.setState({ nsMarked: true, screen: "rooms", stack: [] }) }
+        : sel.status === "RESERVED"
+        ? { label: "Check-in qilish", icon: "login", go: () => this.go("scan") }
+        : sel.status === "OCCUPIED"
+        ? { label: "Hisobni yopish", icon: "lock", go: () => this.go("bill") }
+        : sel.status === "FREE"
+        ? { label: "Walk-in boshlash", icon: "play_arrow", go: () => this.go("scan") }
+        : { label: "Ta'mirdan chiqarish", icon: "build", go: () => {} },
+    };
+    const main = MAIN[scr];
+
+    return {
+      clockText: CLK(now),
+      navTitle: (TITLES[scr] || ["", ""])[0], navSub: (TITLES[scr] || ["", ""])[1],
+      canBack: st.stack.length > 0, goBack: () => this.back(),
+      openScan: () => this.go("scan"),
+
+      isRooms: scr === "rooms", isRoom: scr === "room", isScan: scr === "scan",
+      isOrders: scr === "orders", isKassa: scr === "kassa", isBill: scr === "bill",
+      isBar: scr === "bar", isReceipt: scr === "receipt", isShift: scr === "shift",
+
+      hasMain: !!main, mainLabel: main ? main.label : "", mainIcon: main ? main.icon : "check",
+      mainAction: main ? main.go : () => {},
+      mainBg: main && /kiriting|tasdiqlanmagan/.test(main.label) ? "var(--surface-inset)" : "var(--primary-100)",
+      mainFg: main && /kiriting|tasdiqlanmagan/.test(main.label) ? "var(--text-dim)" : "var(--text-on-accent)",
+
+      tabs: [
+        { label: "Xonalar", icon: "grid_view", key: "rooms" },
+        { label: "Buyurtma", icon: "receipt_long", key: "orders", badge: newCount > 0, badgeText: String(newCount) },
+        { label: "Kassa", icon: "point_of_sale", key: "kassa" },
+        { label: "Smena", icon: "savings", key: "shift" },
+      ].map((t) => ({
+        label: t.label, icon: t.icon, badge: !!t.badge, badgeText: t.badgeText || "",
+        fg: scr === t.key ? "var(--purple-100)" : "var(--text-dim)",
+        bg: scr === t.key ? "var(--surface-selected)" : "transparent",
+        go: () => this.tab(t.key),
+      })),
+
+      counters: [
+        { k: "Band", v: LIVE.filter((r) => r.status === "OCCUPIED").length + "/10", tone: "var(--text-title)" },
+        { k: "Bo'sh", v: String(LIVE.filter((r) => r.status === "FREE").length), tone: "var(--secondary-500)" },
+        { k: "Rezerv", v: String(LIVE.filter((r) => r.status === "RESERVED").length), tone: "var(--violet-200)" },
+        { k: "Overtime", v: String(LIVE.filter((r) => r.status === "OCCUPIED" && r.b * 60 < now).length), tone: "var(--red-100)" },
+      ],
+
+      roomFilters: ["Hammasi", "Band", "Bo'sh", "Diqqat"].map((l) => ({
+        label: l, on: st.filter === l, pick: () => this.setState({ filter: l }),
+      })),
+
+      roomList: LIVE.filter((r) => {
+        if (st.filter === "Band") return r.status === "OCCUPIED";
+        if (st.filter === "Bo'sh") return r.status === "FREE";
+        if (st.filter === "Diqqat") return r.status === "NOSHOW" || r.status === "MAINT" || (r.status === "OCCUPIED" && r.b * 60 - now < 900);
+        return true;
+      }).map((r) => {
+        const rem = r.b * 60 - now, live = r.status === "OCCUPIED";
+        const late = r.status === "NOSHOW" ? now - r.a * 60 : 0;
+        return {
+          code: r.code, status: LB[r.status], rail: RAIL[r.status],
+          sub: live || r.status === "RESERVED" || r.status === "NOSHOW" ? r.guest + " · " + HM(r.a) + (live ? " → " + HM(r.b) : "") : r.dev,
+          timer: live ? DUR(rem) : r.status === "NOSHOW" ? "+" + Math.floor(late / 60) + " daq" : r.status === "RESERVED" ? HM(r.a) : "—",
+          timerTone: live ? (rem < 0 ? "var(--red-100)" : rem < 900 ? "var(--yellow-100)" : "var(--text-body)") : r.status === "NOSHOW" ? "var(--red-100)" : "var(--text-dim)",
+          pct: live ? Math.max(0, Math.min(100, ((now - r.a * 60) / ((r.b - r.a) * 60)) * 100)) + "%" : "0%",
+          bg: r.status === "NOSHOW" ? "rgba(255,80,93,.06)" : "var(--surface-card)",
+          ln: r.status === "NOSHOW" ? "var(--red-100)" : "var(--line-1)",
+          open: () => this.setState((s) => ({ sel: r.id, screen: "room", stack: [s.screen], extOpen: false })),
+        };
+      }),
+
+      roomStatus: [sel.code, LB[sel.status], sel.status === "OCCUPIED" ? DUR(sel.b * 60 - now) + " qoldi" : sel.dev],
+      roomTone: sel.status === "NOSHOW" ? "risk" : sel.status === "OCCUPIED" ? "ok" : "neutral",
+      roomIcon: sel.status === "NOSHOW" ? "person_off" : sel.status === "OCCUPIED" ? "sports_esports" : "meeting_room",
+      roomFields: sel.status === "FREE" || sel.status === "MAINT"
+        ? [
+            { k: "Turi", v: sel.kind + " xona", tone: "var(--text-body)" },
+            { k: "Konsol", v: sel.dev, tone: "var(--text-body)" },
+            { k: "Tarif", v: S(sel.rate) + " / soat", tone: "var(--text-body)" },
+          ]
+        : [
+            { k: "Mijoz", v: sel.guest, tone: "var(--text-title)" },
+            { k: "Telefon", v: sel.phone, tone: "var(--text-body)" },
+            { k: "Kod", v: sel.c6, tone: "var(--purple-100)" },
+            { k: "Konsol", v: sel.dev, tone: "var(--text-body)" },
+            { k: "Vaqt", v: HM(sel.a) + " → " + HM(sel.b), tone: "var(--text-body)" },
+            { k: "Tarif", v: S(sel.rate) + " / soat", tone: "var(--text-body)" },
+            { k: "O'yin summasi", v: S(play), tone: "var(--text-body)" },
+            { k: "Bar", v: S(ordersAmount), tone: "var(--text-body)" },
+            { k: "Deposit", v: S(deposit), tone: "var(--secondary-500)" },
+          ],
+      roomLate: sel.status === "NOSHOW",
+      roomLateText: nsCard ? "Bron " + HM(sel.a) + " ga edi, " + Math.floor((now - sel.a * 60) / 60) + " daqiqa kechikdi. Oldingi no-show: 2 marta — belgilasangiz mijoz avtomatik bloklanadi, deposit klubda qoladi." : "",
+
+      roomActions: sel.status === "OCCUPIED"
+        ? [
+            { label: "Uzaytirish", icon: "update", go: () => this.setState({ extOpen: true }) },
+            { label: "Buyurtma", icon: "add_shopping_cart", go: () => this.go("bar") },
+            { label: "Qo'ng'iroq", icon: "call", go: () => {} },
+            { label: "Buyurtmalar", icon: "receipt_long", go: () => this.tab("orders") },
+          ]
+        : sel.status === "NOSHOW"
+        ? [
+            { label: "Yana 10 daqiqa", icon: "schedule", go: () => {} },
+            { label: "Qo'ng'iroq", icon: "call", go: () => {} },
+          ]
+        : [{ label: "Xonalar", icon: "grid_view", go: () => this.tab("rooms") }],
+
+      extOpen: st.extOpen,
+      extOptions: EXT_ITEMS.map((m) => ({
+        label: m < 60 ? m + " daq" : (m / 60).toString().replace(".5", ",5") + " soat",
+        bg: st.ext === m ? "var(--surface-selected)" : "var(--surface-field)",
+        ln: st.ext === m ? "var(--primary-100)" : "var(--line-2)",
+        fg: st.ext === m ? "var(--text-title)" : "var(--text-muted)",
+        pick: () => this.setState({ ext: m }),
+      })),
+      extRows: [
+        { k: "Joriy tugash", v: HM(sel.b), tone: "var(--text-body)" },
+        { k: "Yangi tugash", v: HM(extEnd), tone: "var(--text-title)" },
+        { k: "Qo'shimcha", v: S(Math.round((st.ext / 60) * sel.rate)), tone: "var(--purple-100)" },
+      ],
+      extBlocked, extBlockText: nextAt ? "Keyingi bron " + HM(nextAt) + " da — maksimal " + (nextAt - sel.b) + " daqiqa uzaytirish mumkin." : "",
+      extLabel: extBlocked ? "Vaqt yetarli emas" : "Tasdiqlash",
+      extApply: () => this.setState((s) => {
+        const e = Object.assign({}, s.extended);
+        e[s.sel] = (e[s.sel] || 0) + s.ext;
+        return { extended: e, extOpen: false };
+      }),
+      goBill: () => this.setState((s) => ({ screen: "bill", stack: s.stack.concat(["room"]), extOpen: false })),
+
+      codeCells: [0, 1, 2, 3, 4, 5].map((i) => ({
+        v: st.code[i] || "", ln: st.code.length === i ? "var(--primary-100)" : "var(--line-2)",
+      })),
+      keypad: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "⌫"].map((k) => ({
+        label: k, fg: /[0-9]/.test(k) ? "var(--text-title)" : "var(--text-muted)",
+        tap: () => this.setState((s) => ({
+          code: k === "C" ? "" : k === "⌫" ? s.code.slice(0, -1) : (s.code + k).slice(0, 6),
+        })),
+      })),
+      codeFound: st.code.length === 6,
+      codeFoundText: (ROOMS.find((r) => r.c6 === st.code) || { code: "4-xona", guest: "Doston Yo'ldoshev" }).guest + " · " + (ROOMS.find((r) => r.c6 === st.code) || { code: "4-xona" }).code,
+
+      orderTabs: ["Yangi", "Qabul qilindi", "Tayyorlanmoqda", "Yetkazildi"],
+      orderTab: st.orderTab, setOrderTab: (v) => this.setState({ orderTab: v }),
+      ordersEmpty: shown.length === 0,
+      orderList: shown.map((o) => {
+        const state = orderState(o);
+        const room = ROOMS.find((r) => r.id === o.room);
+        const total = o.lines.reduce((a, l) => a + (MENU.find((m) => m.name === l[0]) || { price: 0 }).price * l[1], 0);
+        const at = FLOW.indexOf(state);
+        return {
+          room: room.code + " · " + o.id, ago: Math.max(0, Math.floor(now / 60) - o.at) + " daq oldin",
+          lines: o.lines.map((l) => ({ name: l[0], qty: "× " + l[1] })),
+          total: S(total),
+          rail: state === "NEW" ? "var(--red-100)" : state === "DELIVERED" ? "var(--line-2)" : "var(--primary-100)",
+          action: NEXT_ACTION[state], icon: state === "DELIVERED" ? "check" : "arrow_forward",
+          variant: state === "DELIVERED" ? "secondary" : "primary",
+          advance: () => this.setState((s) => {
+            if (at >= 3) return {};
+            const m = Object.assign({}, s.states);
+            m[o.id] = FLOW[at + 1];
+            return { states: m, orderTab: FLOW_UZ[FLOW[at + 1]] };
+          }),
+        };
+      }),
+
+      openBills: LIVE.filter((r) => r.status === "OCCUPIED").map((r) => {
+        const c = st.carts[r.id] || {};
+        const bar = Object.keys(c).reduce((a, id) => a + MENU.find((x) => x.id === id).price * c[id], 0);
+        const p = Math.round(((r.b - r.a) / 60) * r.rate);
+        const dep = Math.max(20000, Math.ceil((p * 0.3) / 1000) * 1000);
+        const rem = r.b * 60 - now;
+        return {
+          code: r.code, guest: r.guest, timer: DUR(rem),
+          timerTone: rem < 0 ? "var(--red-100)" : rem < 900 ? "var(--yellow-100)" : "var(--text-muted)",
+          total: S(Math.max(0, p + bar - dep - (BONUS[r.id] || 0))),
+          pick: () => this.setState((s) => ({ sel: r.id, screen: "bill", stack: [s.screen], closed: null })),
+        };
+      }),
+      noOpenBills: LIVE.filter((r) => r.status === "OCCUPIED").length === 0,
+
+      billHead: [
+        { k: "Xona", v: sel.code },
+        { k: "Mijoz", v: sel.guest || "—" },
+        { k: "Seans", v: HM(sel.a) + " → " + HM(sel.b) },
+        { k: "O'ynadi", v: hoursText },
+        { k: "Tarif", v: S(sel.rate) + " / soat" },
+      ],
+      cartLines,
+      billLines: [
+        { k: "O'yin (" + hoursText + ")", v: S(play), tone: "var(--text-body)" },
+        { k: "Bar", v: S(ordersAmount), tone: "var(--text-body)" },
+        { k: "Deposit hisobga olindi", v: "− " + S(deposit), tone: "var(--secondary-500)" },
+        { k: "Bonus ball", v: "− " + S(bonus), tone: "var(--secondary-500)" },
+      ],
+      dueText: S(due),
+      payMethods: ["Naqd", "O'tkazma"].map((p) => ({
+        label: p, bg: st.pay === p ? "var(--surface-selected)" : "var(--surface-field)",
+        ln: st.pay === p ? "var(--primary-100)" : "var(--line-2)",
+        fg: st.pay === p ? "var(--text-title)" : "var(--text-muted)",
+        pick: () => this.setState({ pay: p }),
+      })),
+      isTransfer: st.pay === "O'tkazma",
+      receiptFile: "chek_20-11-38.jpg",
+      receiptMeta: (sel.guest || "") + " · " + S(due) + " so'm",
+      receiptLn: st.receipt === "OK" ? "var(--secondary-500)" : st.receipt === "NO" ? "var(--red-100)" : "var(--yellow-100)",
+      receiptStatus: st.receipt === "OK" ? ["Chek tasdiqlandi", "PAY-2041"] : st.receipt === "NO" ? ["Rad etildi", "Mijozdan chek qayta so'raldi"] : ["Tasdiqlash kutilmoqda", "Summani solishtiring"],
+      receiptTone: st.receipt === "OK" ? "ok" : st.receipt === "NO" ? "risk" : "warn",
+      receiptIcon: st.receipt === "OK" ? "check_circle" : st.receipt === "NO" ? "cancel" : "schedule",
+      receiptPending: st.receipt === "PENDING",
+      okReceipt: () => this.setState({ receipt: "OK" }),
+      noReceipt: () => this.setState({ receipt: "NO" }),
+
+      openBar: () => this.go("bar"),
+      catChips: ["Ichimliklar", "Snack", "Ovqat"].map((c) => ({
+        label: c, on: st.cat === c, pick: () => this.setState({ cat: c }),
+      })),
+      barItems: MENU.filter((m) => m.cat === st.cat).map((m) => {
+        const left = stockOf(m.id), out = left !== null && left <= 0;
+        return {
+          name: m.name, price: S(m.price), op: out ? ".4" : "1",
+          stock: left === null ? "Cheksiz" : out ? "Tugadi" : left + " dona",
+          stockTone: out ? "var(--red-100)" : left !== null && left < 8 ? "var(--yellow-100)" : "var(--text-dim)",
+          add: () => (out ? null : this.bump(m.id, 1)),
+        };
+      }),
+
+      closedStatus: st.closed ? ["Hisob yopildi", st.closed.code, "Telegram'ga yuborildi"] : [],
+      closedFields: st.closed
+        ? [
+            { k: "Xona", v: st.closed.room, tone: "var(--text-body)" },
+            { k: "Mijoz", v: st.closed.guest, tone: "var(--text-title)" },
+            { k: "O'ynagan vaqt", v: st.closed.hours, tone: "var(--text-body)" },
+            { k: "O'yin", v: st.closed.play, tone: "var(--text-body)" },
+            { k: "Bar", v: st.closed.bar, tone: "var(--text-body)" },
+            { k: "To'landi", v: st.closed.total, tone: "var(--text-title)" },
+            { k: "Usul", v: st.closed.method, tone: "var(--text-body)" },
+            { k: "Yopdi", v: "Kamola R. · " + st.closed.at, tone: "var(--text-body)" },
+          ]
+        : [],
+      tgMessage: st.closed
+        ? "Neon Arena · hisob yopildi\n" + st.closed.room + " · " + st.closed.hours + "\nO'yin " + st.closed.play + " · Bar " + st.closed.bar + "\nJami to'landi: " + st.closed.total + " so'm\nBonus: +" + st.closed.points + " ball"
+        : "",
+
+      shiftHead: [
+        { k: "Smena", v: "Kechki · 16:00 dan", tone: "var(--text-body)" },
+        { k: "Xodim", v: "Kamola Rasulova", tone: "var(--text-title)" },
+        { k: "Kassa boshi", v: S(200000), tone: "var(--text-body)" },
+        { k: "Yopilgan hisob", v: "14 ta", tone: "var(--text-body)" },
+      ],
+      shiftCells: [
+        { k: "Naqd", v: S(980000), tone: "var(--text-title)" },
+        { k: "O'tkazma", v: S(640000), tone: "var(--text-title)" },
+        { k: "Onlayn deposit", v: S(280000), tone: "var(--purple-100)" },
+        { k: "Farq", v: "− " + S(40000), tone: "var(--red-100)" },
+      ],
+      stockRows: STOCK.map((r) => {
+        const m = MENU.find((x) => x.id === r.id);
+        const sold = r.sold + (allCart[r.id] || 0);
+        const expected = r.start - sold;
+        const counted = st.counted[r.id] === undefined ? expected : st.counted[r.id];
+        const diff = counted - expected;
+        return {
+          name: m.name, meta: "boshi " + r.start + " · sotildi " + sold + " · kerak " + expected,
+          counted: String(counted), diff: diff === 0 ? "0" : (diff > 0 ? "+" : "") + diff,
+          diffTone: diff < 0 ? "var(--red-100)" : diff > 0 ? "var(--yellow-100)" : "var(--text-dim)",
+          inc: () => this.countBump(r.id, 1, expected), dec: () => this.countBump(r.id, -1, expected),
+        };
+      }),
+      shortTone: "var(--red-100)",
+      shortText: S(STOCK.reduce((a, r) => {
+        const m = MENU.find((x) => x.id === r.id);
+        const expected = r.start - (r.sold + (allCart[r.id] || 0));
+        const counted = st.counted[r.id] === undefined ? expected : st.counted[r.id];
+        return a + Math.min(0, counted - expected) * m.price;
+      }, 0)) + " so'm",
+    };
+  }
+}
+</script>
+</body>
+</html>

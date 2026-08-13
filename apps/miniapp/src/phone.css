@@ -1,0 +1,46 @@
+/* Telegram Mini App ramkasi — prototipdagi `.pb-phone` bilan bir xil.
+   Ichkarida spacing 16px: telefon ekrani konsol zichligidan boshqacha. */
+.pb-phone {
+  --gutter: 16px;
+  --gap-panel: 16px;
+  --panel-pad: 16px;
+  --panel-pad-lg: 16px;
+  --card-pad: 16px;
+  --gap-block: 16px;
+  --gap-tight: 8px;
+
+  width: 100%;
+  max-width: 420px;
+  height: 100dvh;
+  max-height: 880px;
+  border: 1px solid var(--primary-100);
+  border-radius: 18px;
+  box-shadow: var(--glow-violet-lg);
+  overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  .pb-phone {
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+.pb-stage {
+  min-height: 100dvh;
+  background: var(--void-0);
+  background-image: var(--bg-grid);
+  background-size: var(--bg-grid-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Telefonda gorizontal scroll hech qachon chiqmaydi */
+.pb-phone ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
