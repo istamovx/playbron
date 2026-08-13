@@ -8,17 +8,24 @@
 # ko'taradi: ilova baza egasi roli bilan ulanadi va RLS baribir kuchda qoladi,
 # chunki jadvallarga `FORCE ROW LEVEL SECURITY` qo'llangan.
 
+# DIQQAT: baza, Redis va API **bitta regionda** bo'lishi shart. Render'ning ichki
+# tarmog'i regionlar orasida ishlamaydi — API boshqa regionda bo'lsa baza va
+# Redis manzillari umuman hal bo'lmaydi va konteyner start'da qotib qoladi.
+# Region xizmat yaratilgandan keyin o'zgarmaydi: noto'g'ri bo'lsa o'chirib qayta yaratiladi.
+
 databases:
   - name: playbron-db
     databaseName: playbron
     user: playbron
     plan: free
+    region: oregon
 
 services:
   # ── Redis (replay himoyasi, kesh) ────────────────────────────────────────
   - type: keyvalue
     name: playbron-redis
     plan: free
+    region: oregon
     ipAllowList: [] # faqat ichki tarmoq
 
   # ── API ──────────────────────────────────────────────────────────────────
@@ -26,7 +33,7 @@ services:
     name: playbron-api
     runtime: docker
     plan: free
-    region: frankfurt
+    region: oregon
     dockerfilePath: ./api/Dockerfile
     dockerContext: ./api
     healthCheckPath: /healthz

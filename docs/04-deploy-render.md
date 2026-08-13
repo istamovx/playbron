@@ -79,6 +79,22 @@ python scripts/seed_super_admins.py
 | Xizmat 15 daqiqa harakatsizlikdan keyin uxlaydi | Birinchi so'rov ~30 soniya kutadi. Telegram webhook uchun bu muammo — Faza 6 da pullik rejaga o'tish yoki tashqi ping kerak |
 | Postgres 90 kundan keyin o'chadi | Vaqtinchalik muhit; prod uchun boshqa reja |
 
+## 5a. API ko'tarilmasa — nimadan boshlash
+
+Render → `playbron-api` → **Logs**. Ilova ataylab aniq xabar bilan to'xtaydi:
+
+| Log'dagi xabar | Sabab | Yechim |
+|---|---|---|
+| `CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)` | O'zgaruvchi kiritilmagan, sukut qiymat ishlagan | Dashboard'da statik saytlar manzilini yozish |
+| `BOT_TOKEN prod uchun majburiy` | Token kiritilmagan | @BotFather'dan olib qo'yish |
+| `TG_WEBHOOK_SECRET prod uchun majburiy` | Render generatsiya qilmagan | Qo'lda tasodifiy satr qo'yish |
+| `JWT_SECRET kamida 32 bayt` | Qisqa qiymat kiritilgan | `openssl rand -hex 32` |
+| `DEBUG prod'da yoqilgan bo'lmasligi kerak` | `DEBUG=true` qolgan | `false` qilish |
+| Log bo'sh, deploy «in progress» da qotgan | Baza boshqa regionda — ichki manzil hal bo'lmayapti | Baza, Redis va API bitta regionda bo'lishi shart |
+
+Belgilar: TLS ulanadi, lekin HTTP javob umuman kelmaydi (`curl` da `status=000`) —
+konteyner start'da yiqilyapti yoki migratsiya bazaga ulanolmay kutyapti.
+
 ## 6. Tekshirish
 
 ```
