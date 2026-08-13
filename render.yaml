@@ -70,19 +70,25 @@ services:
       - key: TG_WEBHOOK_SECRET
         generateValue: true
 
-      # @BotFather'dan olinadi — dashboard'da qo'lda kiritiladi
+      # ── Qo'lda kiritiladigan YAGONA qiymatlar ─────────────────────────
+      # Sir. Repo ochiq, shuning uchun bu yerda faqat `sync: false` turadi —
+      # qiymat Dashboard → playbron-api → Environment da kiritiladi.
+      # @BotFather'dan olinadi.
       - key: BOT_TOKEN
         sync: false
       - key: ADMIN_BOT_TOKEN
         sync: false
+      # ──────────────────────────────────────────────────────────────────
 
+      # Sir emas — oddiy Telegram ID. Qiymat shu yerda turgani uchun
+      # `0002_seed` migratsiyasi super adminni birinchi deployda o'zi yaratadi.
+      # Bepul rejada Render Shell yo'q, qo'lda seed qilib bo'lmaydi.
       - key: SUPER_ADMIN_TELEGRAM_IDS
-        sync: false
+        value: '611207125'
 
-      # Statik saytlar manzili birinchi deploydan keyin ma'lum bo'ladi:
-      #   https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com
+      # Manzil xizmat nomidan kelib chiqadi — oldindan ma'lum, kutish shart emas.
       - key: CORS_ORIGINS
-        sync: false
+        value: 'https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com'
 
       - key: GRACE_DAYS
         value: '3'
@@ -98,9 +104,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: '22'
-      # https://playbron-api.onrender.com/api/v1
+      # Vite qiymatni BUILD paytida kodga singdiradi. Shu yerda turgani uchun
+      # birinchi build'dayoq to'g'ri bo'ladi — qayta deploy qilish shart emas.
       - key: VITE_API_URL
-        sync: false
+        value: 'https://playbron-api.onrender.com/api/v1'
       - key: VITE_TELEGRAM_LOGIN_BOT
         value: playbronadminbot
     routes:
@@ -126,7 +133,7 @@ services:
       - key: NODE_VERSION
         value: '22'
       - key: VITE_API_URL
-        sync: false
+        value: 'https://playbron-api.onrender.com/api/v1'
     routes:
       - type: rewrite
         source: /*
