@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     env: str = "prod"
     debug: bool = False
 
+    # API'ning tashqi manzili — Telegram webhook ro'yxati uchun.
+    # Bo'sh bo'lsa Render'ning `RENDER_EXTERNAL_URL` env'i ishlatiladi (main.py).
+    public_url: str = ""
+
     # ── Ma'lumotlar bazasi ────────────────────────────────────────────────
     # Ilova RLS ostidagi rol bilan ulanadi
     database_url: str = "postgresql+asyncpg://playbron_app:app@localhost:5432/playbron"

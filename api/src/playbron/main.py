@@ -1,6 +1,7 @@
 """PlayBron API — ASGI kirish nuqtasi."""
 
 import logging
+import os
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from playbron.core import context, db, errors, redis
 from playbron.core.config import settings
+from playbron.modules.auth import botlogin
 from playbron.modules.auth.router import router as auth_router
 from playbron.modules.users.router import router as me_router
 
@@ -25,6 +27,14 @@ API_PREFIX = "/api/v1"
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     log.info("PlayBron API ishga tushdi (env=%s)", settings.env)
+
+    # Bot orqali kirish uchun webhook — bepul rejada Shell yo'q, shuning uchun
+    # `setWebhook` qo'lda emas, har start'da shu yerda (idempotent, xato start'ni
+    # to'xtatmaydi). `RENDER_EXTERNAL_URL` ni Render o'zi beradi.
+    if settings.env not in {"local", "test"}:
+        public_url = settings.public_url or os.environ.get("RENDER_EXTERNAL_URL", "")
+        await botlogin.register_webhook(public_url)
+
     yield
     await db.dispose()
     await redis.close()

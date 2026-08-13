@@ -48,30 +48,22 @@ Qolgani avtomat:
 
 ### `playbron-admin` va `playbron-miniapp`
 
-`VITE_API_URL` `render.yaml` da turadi, shuning uchun birinchi build'dayoq
-to'g'ri manzil bilan quriladi — **qayta deploy kerak emas**.
-
-`playbron-admin` da bitta ixtiyoriy qiymat bor:
-
-| Kalit | Qiymat |
-|---|---|
-| `VITE_TELEGRAM_LOGIN_BOT_ID` | @playbronadminbot tokenining `:` dan **oldingi** raqamli qismi |
-
-Berilsa kirish ekrani standart iframe o'rniga DS uslubidagi custom Telegram
-tugmasini chizadi (`Telegram.Login.auth()` orqali — OAuth oqimi bir xil).
-Bo'sh qolsa iframe widget ishlayveradi. Vite qiymatni build'ga singdiradi:
-keyin kiritilsa statik saytni **qayta deploy** qilish kerak.
+Hech narsa kiritilmaydi. `VITE_API_URL` `render.yaml` da turadi, shuning uchun
+birinchi build'dayoq to'g'ri manzil bilan quriladi — **qayta deploy kerak emas**.
 
 ## 3. Telegram sozlamalari
 
-@BotFather'da:
+**Konsol kirishi uchun @BotFather'da hech narsa sozlash shart emas.** Kirish
+bot-start oqimi bilan ishlaydi: tugma `tg://resolve?domain=…&start=<nonce>`
+deep-link bilan Telegram ilovasini ochadi, foydalanuvchi botda **Start**
+bosadi, webhook tasdiqlaydi, konsol poll qilib sessiya oladi. `/setdomain`
+faqat Login Widget uchun kerak edi — u endi ishlatilmaydi.
 
-```
-/setdomain  →  @playbronadminbot  →  playbron-admin.onrender.com
-```
-
-Shundan keyin konsoldagi Login Widget ishlaydi va lokal `dev` tugmasi
-kerak bo'lmaydi (u prod build'da umuman ko'rinmaydi).
+**Webhook avtomatik ro'yxatdan o'tadi.** API har start'da (env=prod bo'lsa)
+`setWebhook` ni o'zi chaqiradi: manzil — `RENDER_EXTERNAL_URL` (Render o'zi
+beradi) + `/api/v1/auth/telegram/webhook/admin`, sekret — `TG_WEBHOOK_SECRET`.
+Buning uchun `ADMIN_BOT_TOKEN` kiritilgan bo'lishi kerak. Natija log'da:
+`Admin bot webhook: …` yoki sabab bilan ogohlantirish.
 
 Mini App uchun:
 

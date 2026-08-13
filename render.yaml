@@ -110,12 +110,6 @@ services:
         value: 'https://playbron-api.onrender.com/api/v1'
       - key: VITE_TELEGRAM_LOGIN_BOT
         value: playbronadminbot
-      # @playbronadminbot'ning raqamli ID'si — token'ning `:` dan oldingi qismi.
-      # Sir emas, lekin token bilan birga olinadi, shuning uchun qo'lda kiritiladi.
-      # Berilsa kirish ekrani DS uslubidagi custom tugma chizadi; bo'sh qolsa
-      # standart iframe widget ishlayveradi.
-      - key: VITE_TELEGRAM_LOGIN_BOT_ID
-        sync: false
     routes:
       # SPA: barcha manzillar index.html ga (react-router BrowserRouter)
       - type: rewrite

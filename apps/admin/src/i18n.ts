@@ -52,11 +52,6 @@ const STRINGS = {
     ru: 'В консоль входят через аккаунт Telegram — логин и пароль не нужны.',
     en: 'Sign in to the console with your Telegram account — no login or password.',
   },
-  signInChecking: {
-    uz: 'Kirish tekshirilmoqda…',
-    ru: 'Проверяем вход…',
-    en: 'Checking sign-in…',
-  },
   signInFailed: {
     uz: 'Kirish amalga oshmadi',
     ru: 'Войти не удалось',
@@ -68,22 +63,22 @@ const STRINGS = {
     ru: 'Войти через Telegram',
     en: 'Sign in with Telegram',
   },
-  widgetLoading: {
-    uz: 'Telegram tugmasi yuklanmoqda…',
-    ru: 'Кнопка Telegram загружается…',
-    en: 'Loading the Telegram button…',
+  confirmInTelegram: {
+    uz: 'Telegram ochildi — botdagi «Start» tugmasini bosing, konsol o‘zi kiradi',
+    ru: 'Telegram открыт — нажмите «Start» в боте, консоль войдёт сама',
+    en: 'Telegram is open — press “Start” in the bot and the console will sign you in',
   },
-  widgetError: {
-    uz: 'Telegram tugmasi yuklanmadi — tarmoqni tekshirib qayta urining',
-    ru: 'Кнопка Telegram не загрузилась — проверьте сеть и попробуйте ещё раз',
-    en: 'The Telegram button failed to load — check your network and retry',
+  openViaTme: {
+    uz: 'Ilova ochilmadimi? t.me orqali ochish',
+    ru: 'Приложение не открылось? Открыть через t.me',
+    en: 'App didn’t open? Open via t.me',
   },
-  widgetHint: {
-    uz: 'Tugma ko‘rinmasa, bot domeni sozlanmagan bo‘lishi mumkin',
-    ru: 'Если кнопки нет, возможно, у бота не настроен домен',
-    en: 'If the button is missing, the bot domain may not be configured',
+  cancel: { uz: 'Bekor qilish', ru: 'Отмена', en: 'Cancel' },
+  startExpired: {
+    uz: 'Vaqt tugadi — qaytadan urinib ko‘ring',
+    ru: 'Время истекло — попробуйте ещё раз',
+    en: 'Timed out — try again',
   },
-  retry: { uz: 'Qayta urinish', ru: 'Повторить', en: 'Retry' },
 
   devEyebrow: {
     uz: 'Lokal ishlab chiqish',

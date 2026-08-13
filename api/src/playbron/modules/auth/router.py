@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core.config import settings
-from playbron.core.errors import NotFound
-from playbron.core.security import now
+from playbron.core.errors import NotFound, Unauthorized
+from playbron.core.security import constant_time_equal, now
 from playbron.deps import db, public_db
-from playbron.modules.auth import service
+from playbron.modules.auth import botlogin, service
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -162,6 +162,94 @@ async def refresh(
     org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
     entitlements = await service.load_entitlements(session, org_id)
     return _to_session(payload, entitlements)
+
+
+class StartOut(BaseModel):
+    nonce: str
+    expires_in: int
+
+
+class PollOut(BaseModel):
+    status: str  # pending | expired | ready
+    session: SessionOut | None = None
+
+
+@router.post("/telegram/start", response_model=StartOut)
+async def start_bot_login() -> StartOut:
+    """Bot orqali kirishni boshlaydi — deep-link uchun nonce beradi.
+
+    Konsol foydalanuvchini `tg://resolve?domain=<bot>&start=<nonce>` ga
+    yo'naltiradi va shu nonce bilan poll qiladi. OAuth oynasi ochilmaydi,
+    @BotFather'dagi `/setdomain` ham shart emas.
+    """
+    nonce = await botlogin.start_login()
+    return StartOut(nonce=nonce, expires_in=botlogin.START_TTL_SEC)
+
+
+@router.post("/telegram/start/{nonce}", response_model=PollOut)
+async def poll_bot_login(
+    nonce: str,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> PollOut:
+    """Bot tasdig'ini kutadi. `ready` — sessiya bilan, bir marta."""
+    status, profile = await botlogin.poll_login(nonce)
+    if status != "ready" or profile is None:
+        return PollOut(status=status)
+
+    identity = TelegramIdentity(
+        telegram_id=int(profile["id"]),
+        first_name=str(profile.get("first_name") or ""),
+        last_name=profile.get("last_name"),
+        username=profile.get("username"),
+        language_code=profile.get("language_code"),
+        photo_url=None,
+        auth_date=int(now().timestamp()),
+        # Nonce bir marta iste'mol qilinadi — replay guard uchun yetarli unikallik
+        raw_hash=f"botstart-{nonce}",
+        source="bot",
+    )
+
+    ua, ip = _client(request, user_agent)
+    payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+    return PollOut(status="ready", session=_to_session(payload, entitlements))
+
+
+@router.post("/telegram/webhook/admin")
+async def admin_bot_webhook(
+    request: Request,
+    secret: Annotated[
+        str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
+    ] = None,
+) -> dict[str, bool]:
+    """Admin bot webhook'i — faqat `/start <nonce>` xabarlarini qayta ishlaydi.
+
+    Sarlavhadagi sekret `setWebhook` da o'rnatilgan qiymat bilan solishtiriladi —
+    boshqa hech kim bu endpointga yozolmaydi. Telegram'ga har doim 200 qaytadi,
+    aks holda u update'ni qayta-qayta yuboraveradi.
+    """
+    expected = settings.tg_webhook_secret.get_secret_value()
+    if not expected or not secret or not constant_time_equal(secret, expected):
+        raise Unauthorized("Webhook sekreti mos kelmadi", code="WEBHOOK_BAD_SECRET")
+
+    try:
+        update = await request.json()
+    except ValueError:
+        return {"ok": True}
+
+    parsed = botlogin.extract_start(update if isinstance(update, dict) else {})
+    if parsed:
+        nonce, sender = parsed
+        approved = await botlogin.approve_login(nonce, sender)
+        await botlogin.notify(
+            int(sender["id"]), sender.get("language_code"), approved=approved
+        )
+
+    return {"ok": True}
 
 
 class DevLoginIn(BaseModel):
