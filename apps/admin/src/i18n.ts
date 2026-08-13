@@ -63,6 +63,11 @@ const STRINGS = {
     en: 'Sign-in failed',
   },
 
+  telegramButton: {
+    uz: 'Telegram orqali kirish',
+    ru: 'Войти через Telegram',
+    en: 'Sign in with Telegram',
+  },
   widgetLoading: {
     uz: 'Telegram tugmasi yuklanmoqda…',
     ru: 'Кнопка Telegram загружается…',

@@ -48,8 +48,19 @@ Qolgani avtomat:
 
 ### `playbron-admin` va `playbron-miniapp`
 
-Hech narsa kiritilmaydi. `VITE_API_URL` `render.yaml` da turadi, shuning uchun
-birinchi build'dayoq to'g'ri manzil bilan quriladi — **qayta deploy kerak emas**.
+`VITE_API_URL` `render.yaml` da turadi, shuning uchun birinchi build'dayoq
+to'g'ri manzil bilan quriladi — **qayta deploy kerak emas**.
+
+`playbron-admin` da bitta ixtiyoriy qiymat bor:
+
+| Kalit | Qiymat |
+|---|---|
+| `VITE_TELEGRAM_LOGIN_BOT_ID` | @playbronadminbot tokenining `:` dan **oldingi** raqamli qismi |
+
+Berilsa kirish ekrani standart iframe o'rniga DS uslubidagi custom Telegram
+tugmasini chizadi (`Telegram.Login.auth()` orqali — OAuth oqimi bir xil).
+Bo'sh qolsa iframe widget ishlayveradi. Vite qiymatni build'ga singdiradi:
+keyin kiritilsa statik saytni **qayta deploy** qilish kerak.
 
 ## 3. Telegram sozlamalari
 

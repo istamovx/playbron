@@ -23,6 +23,15 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const TELEGRAM_LOGIN_BOT: string =
   (import.meta.env['VITE_TELEGRAM_LOGIN_BOT'] as string | undefined) ?? 'playbronadminbot';
 
+/**
+ * Botning raqamli ID'si — token'ning `:` dan oldingi qismi. Sir emas.
+ * Berilgan bo'lsa kirish ekrani custom (DS uslubidagi) tugma chizadi va
+ * OAuth oynasini `Telegram.Login.auth()` bilan ochadi; bo'sh bo'lsa
+ * standart iframe widget'ga qaytadi.
+ */
+export const TELEGRAM_LOGIN_BOT_ID: string =
+  (import.meta.env['VITE_TELEGRAM_LOGIN_BOT_ID'] as string | undefined) ?? '';
+
 /** Lokal dev kirish uchun telegram_id — `.env` dagi super admin. */
 const DEV_TELEGRAM_ID = Number(import.meta.env['VITE_DEV_TELEGRAM_ID'] ?? 611207125);
 

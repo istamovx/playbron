@@ -2,7 +2,8 @@ import { Button, Icon, Panel, SegmentedControl, StatusLine, Wordmark } from '@pl
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { useI18n, useT, type Lang, type MsgKey } from '../i18n';
-import { TELEGRAM_LOGIN_BOT, useSession } from '../store/session';
+import { loadTelegramLogin, telegramAuth } from '../lib/telegram-login';
+import { TELEGRAM_LOGIN_BOT, TELEGRAM_LOGIN_BOT_ID, useSession } from '../store/session';
 
 /** Til kodi ↔ segment yorlig'i. Kod — matn emas, tarjima qilinmaydi. */
 const LANG_LABELS: Record<Lang, string> = { uz: 'UZ', ru: 'RU', en: 'EN' };
@@ -41,9 +42,25 @@ export function LoginScreen(): ReactNode {
   // Qayta urinish tugmasi shu hisoblagichni oshiradi — effekt qayta ishlaydi
   const [attempt, setAttempt] = useState(0);
 
+  // ── Custom tugma yo'li: skript oldindan yuklanadi, tugma o'zimizniki ──
+  useEffect(() => {
+    if (!TELEGRAM_LOGIN_BOT_ID) return;
+
+    let alive = true;
+    setWidget('loading');
+    loadTelegramLogin()
+      .then(() => alive && setWidget('ready'))
+      .catch(() => alive && setWidget('error'));
+
+    return () => {
+      alive = false;
+    };
+  }, [attempt]);
+
+  // ── Zaxira yo'l: bot ID berilmagan — standart iframe widget ──
   useEffect(() => {
     const host = mount.current;
-    if (!host || !TELEGRAM_LOGIN_BOT) return;
+    if (TELEGRAM_LOGIN_BOT_ID || !host || !TELEGRAM_LOGIN_BOT) return;
 
     setWidget('loading');
 
@@ -79,6 +96,25 @@ export function LoginScreen(): ReactNode {
       delete (window as unknown as Record<string, unknown>)[globalName];
     };
   }, [signInWidget, lang, attempt]);
+
+  /** Custom tugma bosildi — OAuth oynasi ochiladi. */
+  const telegramLogin = (): void => {
+    setBusy(true);
+    setError(null);
+    void telegramAuth(TELEGRAM_LOGIN_BOT_ID, lang)
+      .then((payload) => {
+        // Oyna yopildi, tasdiq yo'q — jim qaytamiz, xato emas
+        if (!payload) {
+          setBusy(false);
+          return;
+        }
+        return signInWidget(payload);
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : '');
+        setBusy(false);
+      });
+  };
 
   const devLogin = (): void => {
     setBusy(true);
@@ -155,53 +191,92 @@ export function LoginScreen(): ReactNode {
               {t('signInHint')}
             </span>
 
-            {/* Telegram tugmasi yashaydigan ramka: yuklanish, xato va band
-                holatlar shu yerda almashinadi — tugma «sakrab» qolmaydi. */}
-            <div
-              style={{
-                position: 'relative',
-                minHeight: 64,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 'var(--gap-tight)',
-                padding: 'var(--gap-block)',
-                background: 'var(--surface-inset)',
-                border: `1px ${widget === 'ready' ? 'solid' : 'dashed'} var(--line-1)`,
-                clipPath: 'var(--clip-tr)',
-              }}
-            >
+            {TELEGRAM_LOGIN_BOT_ID ? (
+              // Custom tugma — DS uslubida, OAuth oynasini o'zi ochadi
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  block
+                  notch
+                  icon="send"
+                  disabled={busy || widget !== 'ready'}
+                  onClick={telegramLogin}
+                >
+                  {t('telegramButton')}
+                </Button>
+
+                {widget === 'loading' && !busy ? (
+                  <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
+                ) : null}
+
+                {widget === 'error' && !busy ? (
+                  <>
+                    <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon="refresh"
+                      onClick={() => setAttempt((n) => n + 1)}
+                    >
+                      {t('retry')}
+                    </Button>
+                  </>
+                ) : null}
+
+                {busy ? (
+                  <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
+                ) : null}
+              </div>
+            ) : (
+              // Zaxira: iframe widget yashaydigan ramka — yuklanish, xato va
+              // band holatlar shu yerda almashinadi, tugma «sakrab» qolmaydi
               <div
-                ref={mount}
                 style={{
-                  display: busy || widget === 'error' ? 'none' : 'flex',
+                  position: 'relative',
+                  minHeight: 64,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
                   justifyContent: 'center',
+                  gap: 'var(--gap-tight)',
+                  padding: 'var(--gap-block)',
+                  background: 'var(--surface-inset)',
+                  border: `1px ${widget === 'ready' ? 'solid' : 'dashed'} var(--line-1)`,
+                  clipPath: 'var(--clip-tr)',
                 }}
-              />
+              >
+                <div
+                  ref={mount}
+                  style={{
+                    display: busy || widget === 'error' ? 'none' : 'flex',
+                    justifyContent: 'center',
+                  }}
+                />
 
-              {widget === 'loading' && !busy ? (
-                <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
-              ) : null}
+                {widget === 'loading' && !busy ? (
+                  <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
+                ) : null}
 
-              {widget === 'error' && !busy ? (
-                <>
-                  <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon="refresh"
-                    onClick={() => setAttempt((n) => n + 1)}
-                  >
-                    {t('retry')}
-                  </Button>
-                </>
-              ) : null}
+                {widget === 'error' && !busy ? (
+                  <>
+                    <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon="refresh"
+                      onClick={() => setAttempt((n) => n + 1)}
+                    >
+                      {t('retry')}
+                    </Button>
+                  </>
+                ) : null}
 
-              {busy ? (
-                <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
-              ) : null}
-            </div>
+                {busy ? (
+                  <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
+                ) : null}
+              </div>
+            )}
 
             {error !== null ? (
               <StatusLine tone="danger" icon="error" parts={error || t('signInFailed')} />
