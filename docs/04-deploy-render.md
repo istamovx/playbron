@@ -138,7 +138,8 @@ Render → `playbron-api` → **Logs**. Ilova ataylab aniq xabar bilan to'xtaydi
 | `failed to resolve host 'dpg-…'` (alembic traceback bilan) | **Region nomuvofiqligi** — API baza bilan boshqa regionda, ichki DNS hal bo'lmayapti | Pastga qarang |
 | `new row violates row-level security policy for table "users"` | `FORCE ROW LEVEL SECURITY` jadval egasiga ham tegishli, migratsiya esa `app.*` GUC'larisiz yozmoqchi | `0002_seed` seed vaqtiga `FORCE` ni olib turadi. Xato qaytsa — eski image ishlayapti, qayta deploy |
 | `CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)` | `render.yaml` dagi qiymat yo'qolgan yoki dashboard'da qo'lda o'zgartirilgan | `render.yaml` dagi qiymatni tiklab, qayta sync qilish |
-| `BOT_TOKEN prod uchun majburiy` | Token kiritilmagan (yagona qo'lda qiymat) | @BotFather'dan olib Environment'ga qo'yish |
+| `BOT_TOKEN prod uchun majburiy` | Token kiritilmagan (qo'lda kiritiladigan qiymat) | @BotFather'dan olib Environment'ga qo'yish |
+| `ADMIN_BOT_TOKEN prod uchun majburiy` | @playbronadminbot tokeni kiritilmagan — usiz konsol Login Widget imzosi doim `401 WIDGET_BAD_SIGNATURE` berardi | @BotFather'dan olib Environment'ga qo'yish |
 | `TG_WEBHOOK_SECRET prod uchun majburiy` | Render generatsiya qilmagan | Qo'lda tasodifiy satr qo'yish |
 | `JWT_SECRET kamida 32 bayt` | Qisqa qiymat kiritilgan | `openssl rand -hex 32` |
 | `DEBUG prod'da yoqilgan bo'lmasligi kerak` | `DEBUG=true` qolgan | `false` qilish |

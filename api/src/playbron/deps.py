@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from playbron.core import context
 from playbron.core.db import session_scope
 from playbron.core.errors import Forbidden, Unauthorized
+from playbron.core.http import client_ip
 from playbron.core.security import decode_access
 from playbron.models import CLUB_ROLES, ROLE_ADMIN, ROLE_OWNER, ROLE_STAFF
 
@@ -106,11 +107,10 @@ async def require_super_admin(
 
     allowlist = settings.platform_ips
     if allowlist:
-        # DIQQAT: `X-Forwarded-For` ning eng chap elementi mijoz tomonidan to'liq
-        # boshqariladi — undan foydalanish allowlist'ni ma'nosiz qiladi. Faqat
-        # haqiqiy peer IP ishlatiladi; proksi ortida uvicorn
-        # `--proxy-headers --forwarded-allow-ips=<LB_IP>` bilan yurgiziladi va
-        # `request.client.host` ni proksining o'zi to'g'rilaydi.
-        client_ip = request.client.host if request.client else ""
-        if client_ip not in allowlist:
+        # DIQQAT: `request.client.host` ishlatilmaydi — uvicorn
+        # `--forwarded-allow-ips='*'` bilan yurganda u XFF'ning mijoz
+        # boshqaradigan eng chap elementiga aylanadi va allowlist'ni ma'nosiz
+        # qilardi. `client_ip()` LB o'zi qo'shadigan eng o'ng elementni oladi.
+        ip = client_ip(request) or ""
+        if ip not in allowlist:
             raise Unauthorized("Topilmadi", code="NOT_FOUND", status_code=404)

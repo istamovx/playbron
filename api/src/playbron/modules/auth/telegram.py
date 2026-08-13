@@ -86,7 +86,8 @@ def _widget_token() -> str:
 
     Widget klub egasi va xodim uchun — u **admin bot** (`@playbronadminbot`)
     orqali ishlaydi, chunki konsolga kirish mijoz oqimidan ajratilgan.
-    Admin bot sozlanmagan bo'lsa asosiy botga qaytadi (lokal ish uchun).
+    Asosiy botga qaytish faqat lokal muhit uchun: prod'da `ADMIN_BOT_TOKEN`
+    config tomonidan majburiy qilinadi (aks holda imzo doim mos kelmasdi).
     """
     token = settings.admin_bot_token.get_secret_value() or settings.bot_token.get_secret_value()
     if not token:

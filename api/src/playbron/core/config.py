@@ -144,6 +144,11 @@ if len(_jwt_secret.encode()) < MIN_JWT_SECRET_BYTES:
 if not _is_local:
     if not settings.bot_token.get_secret_value():
         raise RuntimeError("BOT_TOKEN prod uchun majburiy")
+    if not settings.admin_bot_token.get_secret_value():
+        # Konsol Login Widget'i admin bot bilan imzolanadi. Token bo'lmasa
+        # telegram.py asosiy botga qaytadi va imzo hech qachon mos kelmaydi —
+        # har bir kirish urinishi 401 WIDGET_BAD_SIGNATURE bilan tugaydi.
+        raise RuntimeError("ADMIN_BOT_TOKEN prod uchun majburiy")
     if not settings.tg_webhook_secret.get_secret_value():
         raise RuntimeError("TG_WEBHOOK_SECRET prod uchun majburiy")
     if settings.debug:

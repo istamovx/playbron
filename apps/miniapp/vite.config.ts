@@ -13,5 +13,6 @@ export default defineConfig({
     port: Number(process.env.PORT ?? 5174),
     proxy: { '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true } },
   },
-  build: { outDir: 'dist', sourcemap: true },
+  // sourcemap yoqilsa prod statik saytda to'liq TS manbasi ochilib qoladi
+  build: { outDir: 'dist', sourcemap: false },
 });
