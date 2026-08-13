@@ -6,11 +6,11 @@
 ## 1. Blueprint
 
 Render Dashboard → **Blueprints** → **New Blueprint Instance** → `istamovx/playbron`.
-`render.yaml` **beshta** resursni yaratadi — hammasi bepul rejada:
+`render.yaml` **to'rtta** resursni yaratadi — hammasi bepul rejada. Baza
+Render'da emas — Supabase'da (2a-bo'lim):
 
 | Resurs | Turi | Nomi | Reja |
 |---|---|---|---|
-| PostgreSQL 16 | database | `playbron-db` | `free` |
 | Redis | keyvalue | `playbron-redis` | `free` |
 | API (Docker) | web | `playbron-api` | `free` |
 | Konsol | static site | `playbron-admin` | bepul (CDN) |
@@ -20,13 +20,46 @@ Statik saytlarda `plan` yozilmagan — Render'da ular umuman bepul, server
 sarflamaydi. Tasdiqlash oynasidagi umumiy summa **$0.00** bo'lishi kerak;
 boshqa raqam chiqsa tasdiqlamang.
 
-> **Region — eng ko'p xato shu yerda.** Baza, Redis va API `render.yaml` da
-> `oregon` deb belgilangan va **uchalasi bir xil bo'lishi shart**: Render'ning
-> ichki tarmog'i regionlar orasida ishlamaydi.
+> **Region — eng ko'p xato shu yerda.** Redis va API `render.yaml` da `oregon`
+> deb belgilangan va **ikkalasi bir xil bo'lishi shart**: Render'ning ichki
+> tarmog'i regionlar orasida ishlamaydi.
 >
 > Region xizmat yaratilgandan keyin **o'zgarmaydi**. Yaml'ni tahrirlash mavjud
 > xizmatni ko'chirmaydi — uni o'chirib qayta yaratish kerak. Shuning uchun
 > region'ni birinchi urinishdayoq to'g'ri qo'yish muhim.
+
+## 2a. Supabase — baza
+
+Nega Render emas: bepul Render Postgres 90 kunda **o'chadi**, Supabase'niki
+muddatsiz (500MB gacha). Bonus: Supabase `CREATE ROLE` ga ruxsat beradi, ya'ni
+`0001_core` dagi `_create_roles()` haqiqatan ishlaydi va ilova `playbron_app`
+(RLS ostidagi rol) bilan ulanadi — arxitektura aynan shunga mo'ljallangan.
+
+1. [supabase.com](https://supabase.com) → **New project**. Region — **West US**
+   (API Oregon'da, yaqinlik latensiya uchun muhim). Loyiha paroli — bu `postgres`
+   egasining paroli, kuchli qiling.
+2. Ikkita qo'shimcha parol o'ylab toping: `APP_DB_PASSWORD` va
+   `PLATFORM_DB_PASSWORD`. **Faqat harf, raqam, `-`, `_`** — parol
+   `DATABASE_URL` ichiga kiradi, boshqa belgi URL'ni buzadi; migratsiya
+   validatori ham (`_safe_password`) qo'shtirnoq va nuqtali vergulni rad etadi.
+3. Project Settings → Database → Connection string → **Session pooler**
+   (port **5432**, transaction pooler 6543 emas!). Undan uch satr yasaladi —
+   host bir xil, foydalanuvchi har xil (`rol.PROJECT_REF` formati):
+
+   | Env | Foydalanuvchi | Parol |
+   |---|---|---|
+   | `DIRECT_URL` | `postgres.REF` | loyiha paroli |
+   | `DATABASE_URL` | `playbron_app.REF` | `APP_DB_PASSWORD` |
+   | `PLATFORM_DATABASE_URL` | `playbron_platform.REF` | `PLATFORM_DB_PASSWORD` |
+
+4. Beshala qiymatni (uch URL + ikki parol) Render → `playbron-api` →
+   **Environment** ga kiriting. Birinchi deployda migratsiya rollarni shu
+   parollar bilan yaratadi, keyin uvicorn `playbron_app` bilan ulanadi.
+
+Nega session pooler: bepul rejada to'g'ridan-to'g'ri host IPv6-only (Render'dan
+ishlamasligi mumkin), transaction pooler esa asyncpg'ning prepared
+statement'lari bilan chiqishmaydi. `SET LOCAL app.*` (RLS konteksti) session
+pooler'da to'g'ri ishlaydi — u tranzaksiya doirasida yashaydi.
 
 ## 2. Qo'lda kiritiladigan o'zgaruvchilar
 
@@ -40,11 +73,15 @@ Faqat **ikkitasi** — ikkalasi ham sir, shuning uchun `render.yaml` ga yozilmay
 | `BOT_TOKEN` | @playbronbot tokeni |
 | `ADMIN_BOT_TOKEN` | @playbronadminbot tokeni |
 
+Bunga qo'shimcha — Supabase'ga oid beshta qiymat (2a-bo'lim): `DATABASE_URL`,
+`DIRECT_URL`, `PLATFORM_DATABASE_URL`, `APP_DB_PASSWORD`, `PLATFORM_DB_PASSWORD`.
+Ular ham sir, ham qo'lda kiritiladi.
+
 Qolgani avtomat:
 
 - `JWT_SECRET`, `TG_WEBHOOK_SECRET` — Render `generateValue` bilan o'zi yasaydi
 - `SUPER_ADMIN_TELEGRAM_IDS`, `CORS_ORIGINS` — `render.yaml` da qiymat sifatida turadi
-- `DATABASE_URL`, `DIRECT_URL`, `PLATFORM_DATABASE_URL`, `REDIS_URL` — `fromDatabase` / `fromService`
+- `REDIS_URL` — `fromService` orqali ichki manzil
 
 ### `playbron-admin` va `playbron-miniapp`
 
@@ -90,10 +127,9 @@ Skript idempotent — mavjud yozuvga tegmaydi.
 
 | Cheklov | Ta'siri |
 |---|---|
-| `CREATE ROLE` huquqi yo'q | `playbron_app` va `playbron_platform` rollari yaratilmaydi; ilova baza egasi roli bilan ulanadi. **RLS baribir ishlaydi** — jadvallarga `FORCE ROW LEVEL SECURITY` qo'llangan, u egaga ham tegishli |
-| `BYPASSRLS` yo'q | Super admin cross-tenant o'qishi ishlamaydi (Faza 7 da kerak bo'ladi) |
-| Xizmat 15 daqiqa harakatsizlikdan keyin uxlaydi | Birinchi so'rov ~30 soniya kutadi. Telegram webhook uchun bu muammo — Faza 6 da pullik rejaga o'tish yoki tashqi ping kerak |
-| Postgres 90 kundan keyin o'chadi | Vaqtinchalik muhit; prod uchun boshqa reja |
+| `BYPASSRLS` yo'q (Supabase'da ham — u superuser talab qiladi) | Super admin cross-tenant o'qishi ishlamaydi (Faza 7 da kerak bo'ladi) |
+| Xizmat 15 daqiqa harakatsizlikdan keyin uxlaydi | Birinchi so'rov ~30 soniya kutadi. Hozircha UptimeRobot har 5 daqiqada **`/readyz`** ni ping qilib uyg'oq tutadi — `/readyz` Postgres'ga ham tegadi, ya'ni Supabase ham "faol" hisoblanadi. Bepul instans-soat budjeti ~750 soat/oy — bitta doim uyg'oq xizmatga zo'rg'a yetadi. Faza 6 da baribir pullik rejaga o'tish to'g'ri |
+| Supabase bepul loyihasi 1 hafta faoliyatsizlikda pauza bo'ladi | Yuqoridagi `/readyz` ping'i buni ham yopadi — har 5 daqiqada bazaga `SELECT 1` boradi |
 
 ## 5a. API ko'tarilmasa — nimadan boshlash
 
@@ -101,7 +137,7 @@ Render → `playbron-api` → **Logs**. Ilova ataylab aniq xabar bilan to'xtaydi
 
 | Log'dagi xabar | Sabab | Yechim |
 |---|---|---|
-| `failed to resolve host 'dpg-…'` (alembic traceback bilan) | **Region nomuvofiqligi** — API baza bilan boshqa regionda, ichki DNS hal bo'lmayapti | Pastga qarang |
+| `failed to resolve host 'red-…'` (yoki Redis timeout) | **Region nomuvofiqligi** — API Redis bilan boshqa regionda, ichki DNS hal bo'lmayapti | Pastga qarang |
 | `new row violates row-level security policy for table "users"` | `FORCE ROW LEVEL SECURITY` jadval egasiga ham tegishli, migratsiya esa `app.*` GUC'larisiz yozmoqchi | `0002_seed` seed vaqtiga `FORCE` ni olib turadi. Xato qaytsa — eski image ishlayapti, qayta deploy |
 | `CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)` | `render.yaml` dagi qiymat yo'qolgan yoki dashboard'da qo'lda o'zgartirilgan | `render.yaml` dagi qiymatni tiklab, qayta sync qilish |
 | `BOT_TOKEN prod uchun majburiy` | Token kiritilmagan (yagona qo'lda qiymat) | @BotFather'dan olib Environment'ga qo'yish |
@@ -114,22 +150,21 @@ konteyner start'da yiqilyapti yoki migratsiya bazaga ulanolmay kutyapti.
 
 ### Region nomuvofiqligini tuzatish
 
-Log'da `psycopg.OperationalError: failed to resolve host 'dpg-…-a'` chiqsa, bu
-baza o'chganini **anglatmaydi** — qisqa `dpg-…-a` manzili faqat Render'ning ichki
-tarmog'ida, va faqat **bir xil region ichida** hal bo'ladi.
+Ichki qisqa manzillar (`red-…`) faqat Render'ning ichki tarmog'ida, va faqat
+**bir xil region ichida** hal bo'ladi. Redis'da `ipAllowList: []` turgani uchun
+tashqi manzil varianti umuman yo'q — region mos bo'lishi shart.
 
-1. Har bir xizmatning Settings → Region qiymatini solishtiring (`playbron-db`,
-   `playbron-redis`, `playbron-api`)
+1. `playbron-redis` va `playbron-api` ning Settings → Region qiymatini solishtiring
 2. Qaysi biri boshqacha bo'lsa — o'shani **o'chirib qayta yarating**. Odatda bu
-   API bo'ladi: u stateless, baza esa ma'lumot saqlaydi
+   API bo'ladi: u stateless
 3. Blueprints → **Manual Sync** — o'chirilgan xizmat `render.yaml` dagi region
    bilan qaytadan yaratiladi
-4. `BOT_TOKEN` va `ADMIN_BOT_TOKEN` ni qayta kiriting — ular xizmat bilan birga
-   o'chadi. `JWT_SECRET`/`TG_WEBHOOK_SECRET` avtomat qayta yasaladi
+4. Qo'lda kiritilgan qiymatlarni qayta kiriting — ular xizmat bilan birga o'chadi:
+   `BOT_TOKEN`, `ADMIN_BOT_TOKEN` va Supabase'ning beshta qiymati (2a-bo'lim).
+   `JWT_SECRET`/`TG_WEBHOOK_SECRET` avtomat qayta yasaladi
 
-Bazaning tashqi manzili (`dpg-…-a.oregon-postgres.render.com`) regionlar orasida
-ishlaydi, lekin bu **yechim emas**: Redis'da `ipAllowList: []` turibdi, ya'ni u
-faqat ichki tarmoqda. Ilova baribir Redis'ga ulanolmaydi.
+Supabase baza tashqi internetda — unga region ta'sir qilmaydi, faqat latensiya
+(shuning uchun West US tanlangan).
 
 ### Nega RLS xatolari lokalda chiqmaydi
 
@@ -137,9 +172,10 @@ Bu tuzoqni bilib qo'ying: `docker-compose` da `playbron` roli `POSTGRES_USER`
 orqali yaratiladi, ya'ni u **superuser**. Superuser RLS'ni butunlay chetlab
 o'tadi — `FORCE` ham unga ta'sir qilmaydi.
 
-Render'ning bepul rejasida esa bu rol oddiy **ega** (owner). `FORCE ROW LEVEL
-SECURITY` egaga tatbiq etiladi, shuning uchun lokalda muammosiz o'tgan migratsiya
-yoki skript prod'da bloklanishi mumkin.
+Boshqariladigan hostingda esa migratsiya yuritadigan rol oddiy **ega** (owner),
+superuser emas — Supabase'dagi `postgres` ham shunday. `FORCE ROW LEVEL SECURITY`
+egaga tatbiq etiladi, shuning uchun lokalda muammosiz o'tgan migratsiya yoki
+skript prod'da bloklanishi mumkin.
 
 Xulosa: RLS bilan bog'liq har qanday yozuv amalini lokal sinov **tasdiqlamaydi**.
 Migratsiya `users`, `super_admins` yoki boshqa `FORCE` li jadvalga yozsa, u

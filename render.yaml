@@ -1,24 +1,18 @@
 # PlayBron — Render Blueprint (vaqtinchalik muhit).
 #
 # Render Dashboard → Blueprints → New Blueprint Instance → shu repo.
-# `sync: false` bo'lgan o'zgaruvchilar dashboard'da qo'lda to'ldiriladi
-# (ular sir yoki birinchi deploydan keyin ma'lum bo'ladigan manzillar).
+# `sync: false` bo'lgan o'zgaruvchilar sir — dashboard'da qo'lda to'ldiriladi.
 #
-# Bepul Postgres'da `CREATE ROLE` bo'lmasligi mumkin — migratsiya buni
-# ko'taradi: ilova baza egasi roli bilan ulanadi va RLS baribir kuchda qoladi,
-# chunki jadvallarga `FORCE ROW LEVEL SECURITY` qo'llangan.
+# Baza Render'da EMAS — Supabase bepul rejasida (docs/04-deploy-render.md, 2a):
+# Render bepul Postgres'i 90 kunda o'chadi, Supabase'niki muddatsiz. Bonus:
+# Supabase `CREATE ROLE` ga ruxsat beradi, ya'ni RLS'ning ikki-rol modeli
+# (egasi migratsiya uchun, `playbron_app` runtime uchun) to'liq kuchda.
 
-# DIQQAT: baza, Redis va API **bitta regionda** bo'lishi shart. Render'ning ichki
-# tarmog'i regionlar orasida ishlamaydi — API boshqa regionda bo'lsa baza va
-# Redis manzillari umuman hal bo'lmaydi va konteyner start'da qotib qoladi.
+# DIQQAT: Redis va API **bitta regionda** bo'lishi shart. Render'ning ichki
+# tarmog'i regionlar orasida ishlamaydi — API boshqa regionda bo'lsa Redis
+# manzili umuman hal bo'lmaydi va konteyner start'da qotib qoladi.
 # Region xizmat yaratilgandan keyin o'zgarmaydi: noto'g'ri bo'lsa o'chirib qayta yaratiladi.
-
-databases:
-  - name: playbron-db
-    databaseName: playbron
-    user: playbron
-    plan: free
-    region: oregon
+# Supabase loyihasi ham geografik yaqin regionda bo'lsin (West US) — har so'rov latensiyasi.
 
 services:
   # ── Redis (replay himoyasi, kesh) ────────────────────────────────────────
@@ -43,20 +37,28 @@ services:
       - key: DEBUG
         value: 'false'
 
-      # Uchala ulanish bitta bazaga: bepul rejada alohida rol yaratib bo'lmaydi.
+      # ── Supabase Postgres (tashqi baza) ───────────────────────────────
+      # Uchala satr parol saqlaydi — dashboard'da qo'lda kiritiladi.
+      # Session pooler (port 5432) ishlatiladi: to'g'ridan-to'g'ri host bepul
+      # rejada IPv6-only, transaction pooler (6543) esa asyncpg'ning prepared
+      # statement'lari bilan chiqishmaydi. Pooler'da foydalanuvchi nomi
+      # `rol.PROJECT_REF` ko'rinishida (masalan `playbron_app.abcdefgh`).
       # Sxema (`postgres://`) `core/config.py` da drayverga moslanadi.
-      - key: DATABASE_URL
-        fromDatabase:
-          name: playbron-db
-          property: connectionString
-      - key: DIRECT_URL
-        fromDatabase:
-          name: playbron-db
-          property: connectionString
-      - key: PLATFORM_DATABASE_URL
-        fromDatabase:
-          name: playbron-db
-          property: connectionString
+      - key: DATABASE_URL # playbron_app roli — RLS ostidagi runtime
+        sync: false
+      - key: DIRECT_URL # postgres (egasi) — migratsiya va seed
+        sync: false
+      - key: PLATFORM_DATABASE_URL # playbron_platform — BYPASSRLS'siz (Faza 7 gacha)
+        sync: false
+
+      # `0001_core` rollarni shu parollar bilan yaratadi. Supabase ochiq
+      # internetda — kuchli qiymat SHART (sukut "app"/"platform" emas!).
+      # Faqat [A-Za-z0-9_-] ishlatilsin: parol DATABASE_URL ichiga ham kiradi,
+      # boshqa belgilar URL'da yoki DDL'da muammo chiqaradi.
+      - key: APP_DB_PASSWORD
+        sync: false
+      - key: PLATFORM_DB_PASSWORD
+        sync: false
 
       - key: REDIS_URL
         fromService:
