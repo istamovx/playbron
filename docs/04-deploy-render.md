@@ -102,6 +102,7 @@ Render → `playbron-api` → **Logs**. Ilova ataylab aniq xabar bilan to'xtaydi
 | Log'dagi xabar | Sabab | Yechim |
 |---|---|---|
 | `failed to resolve host 'dpg-…'` (alembic traceback bilan) | **Region nomuvofiqligi** — API baza bilan boshqa regionda, ichki DNS hal bo'lmayapti | Pastga qarang |
+| `new row violates row-level security policy for table "users"` | `FORCE ROW LEVEL SECURITY` jadval egasiga ham tegishli, migratsiya esa `app.*` GUC'larisiz yozmoqchi | `0002_seed` seed vaqtiga `FORCE` ni olib turadi. Xato qaytsa — eski image ishlayapti, qayta deploy |
 | `CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)` | `render.yaml` dagi qiymat yo'qolgan yoki dashboard'da qo'lda o'zgartirilgan | `render.yaml` dagi qiymatni tiklab, qayta sync qilish |
 | `BOT_TOKEN prod uchun majburiy` | Token kiritilmagan (yagona qo'lda qiymat) | @BotFather'dan olib Environment'ga qo'yish |
 | `TG_WEBHOOK_SECRET prod uchun majburiy` | Render generatsiya qilmagan | Qo'lda tasodifiy satr qo'yish |
@@ -129,6 +130,20 @@ tarmog'ida, va faqat **bir xil region ichida** hal bo'ladi.
 Bazaning tashqi manzili (`dpg-…-a.oregon-postgres.render.com`) regionlar orasida
 ishlaydi, lekin bu **yechim emas**: Redis'da `ipAllowList: []` turibdi, ya'ni u
 faqat ichki tarmoqda. Ilova baribir Redis'ga ulanolmaydi.
+
+### Nega RLS xatolari lokalda chiqmaydi
+
+Bu tuzoqni bilib qo'ying: `docker-compose` da `playbron` roli `POSTGRES_USER`
+orqali yaratiladi, ya'ni u **superuser**. Superuser RLS'ni butunlay chetlab
+o'tadi — `FORCE` ham unga ta'sir qilmaydi.
+
+Render'ning bepul rejasida esa bu rol oddiy **ega** (owner). `FORCE ROW LEVEL
+SECURITY` egaga tatbiq etiladi, shuning uchun lokalda muammosiz o'tgan migratsiya
+yoki skript prod'da bloklanishi mumkin.
+
+Xulosa: RLS bilan bog'liq har qanday yozuv amalini lokal sinov **tasdiqlamaydi**.
+Migratsiya `users`, `super_admins` yoki boshqa `FORCE` li jadvalga yozsa, u
+`app.*` GUC'larini o'rnatishi yoki seed vaqtiga `NO FORCE` qilishi shart.
 
 ## 6. Tekshirish
 

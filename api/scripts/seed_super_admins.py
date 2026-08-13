@@ -27,6 +27,13 @@ async def main() -> int:
     engine = create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
 
     async with engine.begin() as conn:
+        # `users` va `super_admins` da `FORCE ROW LEVEL SECURITY` — u egaga ham
+        # tegishli, `app.*` GUC'lari esa bu yerda o'rnatilmagan. FORCE olinmasa
+        # INSERT bloklanadi, oxirgi SELECT ham bo'sh ro'yxat qaytaradi.
+        # `ENABLE` tegilmaydi — ilova roli uchun izolyatsiya ochilmaydi.
+        await conn.execute(text("ALTER TABLE users NO FORCE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE super_admins NO FORCE ROW LEVEL SECURITY"))
+
         for telegram_id in ids:
             await conn.execute(
                 text(
@@ -52,6 +59,9 @@ async def main() -> int:
                 )
             )
         ).all()
+
+        await conn.execute(text("ALTER TABLE users FORCE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE super_admins FORCE ROW LEVEL SECURITY"))
 
     await engine.dispose()
 

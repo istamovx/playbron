@@ -156,6 +156,21 @@ def upgrade() -> None:
     if not raw:
         return
 
+    # `users` va `super_admins` da `FORCE ROW LEVEL SECURITY` turibdi — u RLS'ni
+    # jadval EGASIGA ham tatbiq etadi. Migratsiyada `app.*` GUC'lari o'rnatilmagan,
+    # ya'ni `users_self` policy'sining sharti bajarilmaydi; `super_admins` da esa
+    # INSERT uchun policy umuman yo'q (faqat `FOR SELECT`). Natijada seed bloklanadi.
+    #
+    # Lokalda bu bilinmaydi: `playbron` docker'da superuser, superuser esa RLS'ni
+    # butunlay chetlab o'tadi. Boshqariladigan hostingda (Render bepul reja) u
+    # oddiy ega — shu yerda xato chiqadi.
+    #
+    # Seed vaqtiga FORCE olib turiladi, oxirida qaytariladi. `ENABLE` tegilmaydi,
+    # ya'ni ilova roli uchun izolyatsiya bir lahzaga ham ochilmaydi. Postgres'da
+    # DDL tranzaksion — migratsiya yiqilsa FORCE o'z-o'zidan tiklanadi.
+    conn.execute(sa.text("ALTER TABLE users NO FORCE ROW LEVEL SECURITY"))
+    conn.execute(sa.text("ALTER TABLE super_admins NO FORCE ROW LEVEL SECURITY"))
+
     for part in raw.split(","):
         telegram_id = part.strip()
         if not telegram_id:
@@ -181,6 +196,9 @@ def upgrade() -> None:
             ),
             {"telegram_id": int(telegram_id)},
         )
+
+    conn.execute(sa.text("ALTER TABLE users FORCE ROW LEVEL SECURITY"))
+    conn.execute(sa.text("ALTER TABLE super_admins FORCE ROW LEVEL SECURITY"))
 
 
 def downgrade() -> None:
