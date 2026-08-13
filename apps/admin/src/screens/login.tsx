@@ -1,13 +1,20 @@
-import { Button, Icon, Panel, StatusLine, Wordmark } from '@playbron/ui';
+import { Button, Icon, Panel, SegmentedControl, StatusLine, Wordmark } from '@playbron/ui';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
+import { useI18n, useT, type Lang, type MsgKey } from '../i18n';
 import { TELEGRAM_LOGIN_BOT, useSession } from '../store/session';
 
-const FEATURES = [
-  { icon: 'grid_view', title: 'Live board', text: 'Xonalar holati va taymerlar real vaqtda' },
-  { icon: 'point_of_sale', title: 'Kassa', text: 'Bar buyurtmasi, hisob va chek bir joyda' },
-  { icon: 'analytics', title: 'Hisobot', text: 'Tushum, xarajat va foyda kesimlari' },
+/** Til kodi ↔ segment yorlig'i. Kod — matn emas, tarjima qilinmaydi. */
+const LANG_LABELS: Record<Lang, string> = { uz: 'UZ', ru: 'RU', en: 'EN' };
+const LABEL_LANGS: Record<string, Lang> = { UZ: 'uz', RU: 'ru', EN: 'en' };
+
+const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
+  { icon: 'grid_view', title: 'featLiveTitle', text: 'featLiveText' },
+  { icon: 'point_of_sale', title: 'featPosTitle', text: 'featPosText' },
+  { icon: 'analytics', title: 'featReportTitle', text: 'featReportText' },
 ];
+
+type WidgetState = 'loading' | 'ready' | 'error';
 
 /**
  * Konsolga kirish — **faqat Telegram**. Parol yo'q.
@@ -16,22 +23,29 @@ const FEATURES = [
  * `/setdomain` bilan domen belgilangan bo'lishi shart. Widget `localhost` da
  * ishlamaydi, shuning uchun lokal ishlab chiqishda pastdagi dev yo'li ochiladi.
  *
- * [TEKSHIRISH] Widget skripti va atributlari (`telegram-widget.js` versiyasi,
- * `data-telegram-login`, `data-onauth`, `data-request-access`) rasmiy
- * "Telegram Login Widget" hujjatidan tasdiqlanadi.
+ * Til (uz/ru/en) yuqori o'ng burchakdagi almashtirgichdan tanlanadi; widget
+ * `data-lang` ni faqat o'rnatilishda o'qiydi, shuning uchun til almashganda
+ * skript qayta yuklanadi.
  */
 export function LoginScreen(): ReactNode {
   const signInWidget = useSession((state) => state.signInWidget);
   const signInDev = useSession((state) => state.signInDev);
+  const lang = useI18n((state) => state.lang);
+  const setLang = useI18n((state) => state.setLang);
+  const t = useT();
 
   const mount = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [widgetReady, setWidgetReady] = useState(false);
+  const [widget, setWidget] = useState<WidgetState>('loading');
+  // Qayta urinish tugmasi shu hisoblagichni oshiradi — effekt qayta ishlaydi
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const host = mount.current;
     if (!host || !TELEGRAM_LOGIN_BOT) return;
+
+    setWidget('loading');
 
     // Widget global funksiya orqali javob qaytaradi
     const globalName = 'onPlayBronTelegramAuth';
@@ -41,7 +55,7 @@ export function LoginScreen(): ReactNode {
       setBusy(true);
       setError(null);
       void signInWidget(payload).catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : 'Kirish amalga oshmadi');
+        setError(cause instanceof Error ? cause.message : '');
         setBusy(false);
       });
     };
@@ -53,9 +67,10 @@ export function LoginScreen(): ReactNode {
     script.setAttribute('data-size', 'large');
     script.setAttribute('data-radius', '2');
     script.setAttribute('data-request-access', 'write');
+    script.setAttribute('data-lang', lang);
     script.setAttribute('data-onauth', `${globalName}(user)`);
-    script.onload = () => setWidgetReady(true);
-    script.onerror = () => setWidgetReady(false);
+    script.onload = () => setWidget('ready');
+    script.onerror = () => setWidget('error');
 
     host.appendChild(script);
 
@@ -63,13 +78,13 @@ export function LoginScreen(): ReactNode {
       host.replaceChildren();
       delete (window as unknown as Record<string, unknown>)[globalName];
     };
-  }, [signInWidget]);
+  }, [signInWidget, lang, attempt]);
 
   const devLogin = (): void => {
     setBusy(true);
     setError(null);
     void signInDev().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : 'Kirish amalga oshmadi');
+      setError(cause instanceof Error ? cause.message : null);
       setBusy(false);
     });
   };
@@ -82,7 +97,7 @@ export function LoginScreen(): ReactNode {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 'var(--gutter)',
+        padding: 'calc(var(--gutter) + 44px) var(--gutter) var(--gutter)',
         background: 'var(--bg-app)',
         font: 'var(--type-body)',
         color: 'var(--text-body)',
@@ -91,99 +106,173 @@ export function LoginScreen(): ReactNode {
     >
       <Backdrop />
 
-      <div className="pb-auth" style={{ position: 'relative' }}>
-        <section className="pb-auth-hero" style={{ flexDirection: 'column', gap: 28, minWidth: 0 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <span style={EYEBROW}>Klub konsoli</span>
-            <Wordmark width="min(420px, 100%)" />
-            <span style={{ font: 'var(--type-body)', color: 'var(--text-muted)', maxWidth: 420 }}>
-              PlayStation klublari uchun bron, kassa va boshqaruv tizimi. Xodim smenani
-              yuritadi, klub admini butun klubni boshqaradi.
-            </span>
-          </div>
+      <header className="pb-auth-top">
+        <span style={EYEBROW}>{t('eyebrow')}</span>
+        <SegmentedControl
+          size="sm"
+          brackets
+          items={Object.values(LANG_LABELS)}
+          value={LANG_LABELS[lang]}
+          onChange={(label) => {
+            const next = LABEL_LANGS[label];
+            if (next) setLang(next);
+          }}
+        />
+      </header>
 
-          <div style={{ height: 1, background: 'var(--line-1)' }} />
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {FEATURES.map((item) => (
-              <div key={item.title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <span
-                  style={{
-                    flex: 'none',
-                    width: 34,
-                    height: 34,
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: 'var(--surface-inset)',
-                    border: '1px solid var(--line-1)',
-                    clipPath: 'var(--clip-tr)',
-                    color: 'var(--purple-100)',
-                  }}
-                >
-                  <Icon name={item.icon} size={17} />
-                </span>
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                  <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                    {item.title}
-                  </span>
-                  <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
-                    {item.text}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
+      <div className="pb-auth">
+        <section
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 14,
+            textAlign: 'center',
+          }}
+        >
+          <Wordmark width="min(360px, 86vw)" />
+          <p
+            style={{
+              margin: 0,
+              font: 'var(--type-body)',
+              color: 'var(--text-muted)',
+              maxWidth: 560,
+            }}
+          >
+            {t('tagline')}
+          </p>
         </section>
 
-        <Panel title="Kirish" notch brackets glow>
+        <Panel
+          title={t('signInTitle')}
+          notch
+          brackets
+          glow
+          style={{ width: 'min(460px, 100%)' }}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
             <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-              Konsolga Telegram hisobingiz bilan kirasiz — login va parol kerak emas.
+              {t('signInHint')}
             </span>
 
+            {/* Telegram tugmasi yashaydigan ramka: yuklanish, xato va band
+                holatlar shu yerda almashinadi — tugma «sakrab» qolmaydi. */}
             <div
-              ref={mount}
-              style={{ display: 'flex', justifyContent: 'center', minHeight: 40 }}
-            />
+              style={{
+                position: 'relative',
+                minHeight: 64,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 'var(--gap-tight)',
+                padding: 'var(--gap-block)',
+                background: 'var(--surface-inset)',
+                border: `1px ${widget === 'ready' ? 'solid' : 'dashed'} var(--line-1)`,
+                clipPath: 'var(--clip-tr)',
+              }}
+            >
+              <div
+                ref={mount}
+                style={{
+                  display: busy || widget === 'error' ? 'none' : 'flex',
+                  justifyContent: 'center',
+                }}
+              />
 
-            {busy ? (
-              <StatusLine tone="neutral" icon="hourglass_top" parts="Kirish tekshirilmoqda…" />
+              {widget === 'loading' && !busy ? (
+                <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
+              ) : null}
+
+              {widget === 'error' && !busy ? (
+                <>
+                  <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon="refresh"
+                    onClick={() => setAttempt((n) => n + 1)}
+                  >
+                    {t('retry')}
+                  </Button>
+                </>
+              ) : null}
+
+              {busy ? (
+                <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
+              ) : null}
+            </div>
+
+            {error !== null ? (
+              <StatusLine tone="danger" icon="error" parts={error || t('signInFailed')} />
             ) : null}
 
-            {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-            {!widgetReady && !busy ? (
-              <StatusLine
-                tone="neutral"
-                icon="info"
-                parts={[
-                  'Telegram tugmasi ko‘rinmasa',
-                  'bot domeni sozlanmagan bo‘lishi mumkin',
-                ]}
-              />
+            {widget === 'ready' && !busy && !error ? (
+              <StatusLine tone="neutral" icon="info" parts={t('widgetHint')} />
             ) : null}
 
             {import.meta.env.DEV ? (
               <>
                 <div style={{ height: 1, background: 'var(--line-1)' }} />
-                <span style={EYEBROW}>Lokal ishlab chiqish</span>
+                <span style={EYEBROW}>{t('devEyebrow')}</span>
                 <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  Telegram Login Widget `localhost` da ishlamaydi. Bu tugma faqat dev
-                  qurilishida ko‘rinadi va serverda ham faqat lokal muhitda ochiq.
+                  {t('devHint')}
                 </span>
                 <Button variant="secondary" size="lg" block icon="terminal" onClick={devLogin}>
-                  Dev sifatida kirish
+                  {t('devButton')}
                 </Button>
               </>
             ) : null}
           </div>
         </Panel>
+
+        <section className="pb-auth-features">
+          {FEATURES.map((item) => (
+            <div
+              key={item.title}
+              style={{
+                display: 'flex',
+                gap: 12,
+                alignItems: 'flex-start',
+                padding: 'var(--card-pad)',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--line-1)',
+                clipPath: 'var(--clip-tr)',
+                minWidth: 0,
+              }}
+            >
+              <span
+                style={{
+                  flex: 'none',
+                  width: 34,
+                  height: 34,
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'var(--surface-inset)',
+                  border: '1px solid var(--line-1)',
+                  clipPath: 'var(--clip-tr)',
+                  color: 'var(--purple-100)',
+                }}
+              >
+                <Icon name={item.icon} size={17} />
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
+                  {t(item.title)}
+                </span>
+                <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
+                  {t(item.text)}
+                </span>
+              </span>
+            </div>
+          ))}
+        </section>
       </div>
     </div>
   );
 }
 
-/** Fon — DS to'ri va yumshoq binafsha halo. */
+/** Fon — DS to'ri va ikki yumshoq binafsha halo. */
 function Backdrop(): ReactNode {
   return (
     <>
@@ -194,8 +283,8 @@ function Backdrop(): ReactNode {
           inset: 0,
           background: 'var(--bg-grid)',
           backgroundSize: '52px 52px',
-          maskImage: 'radial-gradient(75% 65% at 50% 40%, #000 0%, transparent 100%)',
-          WebkitMaskImage: 'radial-gradient(75% 65% at 50% 40%, #000 0%, transparent 100%)',
+          maskImage: 'radial-gradient(75% 65% at 50% 38%, #000 0%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(75% 65% at 50% 38%, #000 0%, transparent 100%)',
           pointerEvents: 'none',
         }}
       />
@@ -203,13 +292,26 @@ function Backdrop(): ReactNode {
         aria-hidden
         style={{
           position: 'absolute',
-          top: '-14%',
+          top: '-12%',
           left: '50%',
           width: 520,
-          height: 320,
+          height: 300,
           transform: 'translateX(-50%)',
           boxShadow: 'var(--glow-violet-lg)',
           opacity: 0.5,
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          bottom: '-18%',
+          right: '-6%',
+          width: 380,
+          height: 240,
+          boxShadow: 'var(--glow-violet-lg)',
+          opacity: 0.22,
           pointerEvents: 'none',
         }}
       />
