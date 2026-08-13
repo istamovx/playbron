@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core.config import settings
 from playbron.core.errors import NotFound, Unauthorized
+from playbron.core.http import client_ip
 from playbron.core.security import constant_time_equal, now
 from playbron.deps import db, public_db
 from playbron.modules.auth import botlogin, service
@@ -99,11 +100,11 @@ UA_MAX_LEN = 512
 def _client(request: Request, user_agent: str | None) -> tuple[str | None, str | None]:
     """Sessiya yozuvi uchun mijoz belgilari.
 
-    `X-Forwarded-For` **ishlatilmaydi**: uning eng chap elementi mijoz tomonidan
-    to'liq boshqariladi. Proksi ortida uvicorn `--proxy-headers` bilan yurgiziladi
-    va `request.client.host` ni proksining o'zi to'g'rilaydi.
+    IP `client_ip()` dan olinadi — `request.client.host` emas: uvicorn
+    `--forwarded-allow-ips='*'` bilan yurganda u XFF'ning mijoz boshqaradigan
+    eng chap elementiga aylanadi va audit ustuni soxtalanardi.
     """
-    ip = request.client.host if request.client else None
+    ip = client_ip(request)
     return (
         (user_agent[:UA_MAX_LEN] if user_agent else None),
         (ip[:IP_MAX_LEN] if ip else None),
