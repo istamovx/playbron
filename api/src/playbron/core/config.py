@@ -1,9 +1,24 @@
 """Ilova sozlamalari — hammasi env'dan, kod ichida sir yo'q."""
 
+import re
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _with_driver(url: str, driver: str) -> str:
+    """Ulanish satriga drayverni qo'yadi.
+
+    Hosting provayderlari (Render, Heroku, Railway) `postgres://` yoki
+    `postgresql://` beradi — SQLAlchemy'ga esa aniq drayver kerak. Qo'lda
+    to'g'rilash o'rniga shu yerda normallashtiriladi.
+    """
+    if not url:
+        return url
+    if "+" in url.split("://", 1)[0]:
+        return url
+    return re.sub(r"^postgres(ql)?://", f"postgresql+{driver}://", url)
 
 
 class Settings(BaseSettings):
@@ -30,6 +45,16 @@ class Settings(BaseSettings):
     )
     db_pool_size: int = 10
     db_max_overflow: int = 5
+
+    @field_validator("database_url", "platform_database_url")
+    @classmethod
+    def _async_driver(cls, value: str) -> str:
+        return _with_driver(value, "asyncpg")
+
+    @field_validator("direct_url")
+    @classmethod
+    def _sync_driver(cls, value: str) -> str:
+        return _with_driver(value, "psycopg")
 
     redis_url: str = "redis://localhost:6379/0"
 

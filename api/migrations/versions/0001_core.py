@@ -46,7 +46,12 @@ def _create_roles() -> None:
         os.environ.get("PLATFORM_DB_PASSWORD", "platform"), "PLATFORM_DB_PASSWORD"
     )
 
-    # DDL bind parametr qabul qilmaydi; kirish `_safe_password` bilan cheklangan
+    # DDL bind parametr qabul qilmaydi; kirish `_safe_password` bilan cheklangan.
+    #
+    # Boshqariladigan hosting (Render, Supabase) da foydalanuvchida `CREATEROLE`
+    # bo'lmasligi mumkin — u holda migratsiya to'xtamaydi. Ilova baza egasi roli
+    # bilan ulanadi va RLS baribir kuchda qoladi, chunki barcha jadvallarga
+    # `FORCE ROW LEVEL SECURITY` qo'llangan (egasiga ham tegishli).
     op.execute(
         sa.text(
             f"""
@@ -58,6 +63,8 @@ def _create_roles() -> None:
                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{PLATFORM_ROLE}') THEN
                     CREATE ROLE {PLATFORM_ROLE} LOGIN PASSWORD '{platform_password}';
                 END IF;
+            EXCEPTION WHEN insufficient_privilege THEN
+                RAISE NOTICE 'Rol yaratilmadi (CREATEROLE yo''q) — ilova egasi roli bilan ishlaydi';
             END $$;
             """
         )
@@ -326,25 +333,34 @@ def _rls() -> None:
 
 
 def _grants() -> None:
+    """Imtiyozlar. Rollar yaratilmagan bo'lsa (boshqariladigan hosting) o'tkazib yuboriladi."""
     op.execute(
         sa.text(
             f"""
-            GRANT USAGE ON SCHEMA public TO {APP_ROLE}, {PLATFORM_ROLE};
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{APP_ROLE}') THEN
+                    RAISE NOTICE 'Rollar yo''q — grant o''tkazib yuborildi';
+                    RETURN;
+                END IF;
 
-            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {APP_ROLE};
-            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE};
+                GRANT USAGE ON SCHEMA public TO {APP_ROLE}, {PLATFORM_ROLE};
 
-            -- Platforma roli asosan o'qiydi; yozish faqat uch jadvalda
-            GRANT SELECT ON ALL TABLES IN SCHEMA public TO {PLATFORM_ROLE};
-            GRANT INSERT, UPDATE ON organizations, audit_log TO {PLATFORM_ROLE};
-            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {PLATFORM_ROLE};
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {APP_ROLE};
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {APP_ROLE};
 
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {APP_ROLE};
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                GRANT USAGE, SELECT ON SEQUENCES TO {APP_ROLE};
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                GRANT SELECT ON TABLES TO {PLATFORM_ROLE};
+                -- Platforma roli asosan o'qiydi; yozish faqat ikki jadvalda
+                GRANT SELECT ON ALL TABLES IN SCHEMA public TO {PLATFORM_ROLE};
+                GRANT INSERT, UPDATE ON organizations, audit_log TO {PLATFORM_ROLE};
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {PLATFORM_ROLE};
+
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {APP_ROLE};
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT USAGE, SELECT ON SEQUENCES TO {APP_ROLE};
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT SELECT ON TABLES TO {PLATFORM_ROLE};
+            END $$;
             """
         )
     )

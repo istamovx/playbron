@@ -1,0 +1,131 @@
+# PlayBron — Render Blueprint (vaqtinchalik muhit).
+#
+# Render Dashboard → Blueprints → New Blueprint Instance → shu repo.
+# `sync: false` bo'lgan o'zgaruvchilar dashboard'da qo'lda to'ldiriladi
+# (ular sir yoki birinchi deploydan keyin ma'lum bo'ladigan manzillar).
+#
+# Bepul Postgres'da `CREATE ROLE` bo'lmasligi mumkin — migratsiya buni
+# ko'taradi: ilova baza egasi roli bilan ulanadi va RLS baribir kuchda qoladi,
+# chunki jadvallarga `FORCE ROW LEVEL SECURITY` qo'llangan.
+
+databases:
+  - name: playbron-db
+    databaseName: playbron
+    user: playbron
+    plan: free
+
+services:
+  # ── Redis (replay himoyasi, kesh) ────────────────────────────────────────
+  - type: keyvalue
+    name: playbron-redis
+    plan: free
+    ipAllowList: [] # faqat ichki tarmoq
+
+  # ── API ──────────────────────────────────────────────────────────────────
+  - type: web
+    name: playbron-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /healthz
+    envVars:
+      - key: ENV
+        value: prod
+      - key: DEBUG
+        value: 'false'
+
+      # Uchala ulanish bitta bazaga: bepul rejada alohida rol yaratib bo'lmaydi.
+      # Sxema (`postgres://`) `core/config.py` da drayverga moslanadi.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: playbron-db
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: playbron-db
+          property: connectionString
+      - key: PLATFORM_DATABASE_URL
+        fromDatabase:
+          name: playbron-db
+          property: connectionString
+
+      - key: REDIS_URL
+        fromService:
+          name: playbron-redis
+          type: keyvalue
+          property: connectionString
+
+      # Render o'zi 32 baytli tasodifiy qiymat yasaydi
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TG_WEBHOOK_SECRET
+        generateValue: true
+
+      # @BotFather'dan olinadi — dashboard'da qo'lda kiritiladi
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_BOT_TOKEN
+        sync: false
+
+      - key: SUPER_ADMIN_TELEGRAM_IDS
+        sync: false
+
+      # Statik saytlar manzili birinchi deploydan keyin ma'lum bo'ladi:
+      #   https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com
+      - key: CORS_ORIGINS
+        sync: false
+
+      - key: GRACE_DAYS
+        value: '3'
+      - key: SUBSCRIPTION_WARN_DAYS
+        value: '3'
+
+  # ── Konsol (xodim + klub admini) ─────────────────────────────────────────
+  - type: web
+    name: playbron-admin
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter admin build
+    staticPublishPath: ./apps/admin/dist
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      # https://playbron-api.onrender.com/api/v1
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_TELEGRAM_LOGIN_BOT
+        value: playbronadminbot
+    routes:
+      # SPA: barcha manzillar index.html ga (react-router BrowserRouter)
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+
+  # ── Mijoz Mini App ───────────────────────────────────────────────────────
+  - type: web
+    name: playbron-miniapp
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter miniapp build
+    staticPublishPath: ./apps/miniapp/dist
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Telegram Mini App'ni iframe'da ochadi — SAMEORIGIN mumkin emas
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff

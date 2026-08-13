@@ -9,10 +9,14 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 COPY migrations ./migrations
+COPY scripts ./scripts
 COPY alembic.ini ./
 
-RUN pip install --upgrade pip && pip install -e ".[dev]"
+# Prod'da test bog'liqliklari kerak emas
+RUN pip install --upgrade pip && pip install -e .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "playbron.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render `$PORT` beradi; lokalda 8000. Migratsiya start'dan oldin bajariladi —
+# Render'ning bepul rejasida alohida `preDeployCommand` yo'q.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn playbron.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
