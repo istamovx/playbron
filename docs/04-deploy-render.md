@@ -42,7 +42,11 @@ Faqat **ikkitasi** — ikkalasi ham sir, shuning uchun `render.yaml` ga yozilmay
 
 Qolgani avtomat:
 
-- `JWT_SECRET`, `TG_WEBHOOK_SECRET` — Render `generateValue` bilan o'zi yasaydi
+- `JWT_SECRET`, `TG_WEBHOOK_SECRET`, `APP_DB_PASSWORD`, `PLATFORM_DB_PASSWORD` —
+  Render `generateValue` bilan o'zi yasaydi. Oxirgi ikkitasi `playbron_app` /
+  `playbron_platform` rollarining parollari: bo'lmasa `0001_core` zaif sukut
+  ("app"/"platform") ishlatardi, `0004_role_passwords` esa mavjud rollarning
+  parolini shu qiymatlarga almashtiradi
 - `SUPER_ADMIN_TELEGRAM_IDS`, `CORS_ORIGINS` — `render.yaml` da qiymat sifatida turadi
 - `DATABASE_URL`, `DIRECT_URL`, `PLATFORM_DATABASE_URL`, `REDIS_URL` — `fromDatabase` / `fromService`
 
@@ -97,6 +101,25 @@ python scripts/seed_super_admins.py
 
 Skript idempotent — mavjud yozuvga tegmaydi.
 
+### Rol parollari (xavfsizlik)
+
+`0001_core` rollarni `APP_DB_PASSWORD` / `PLATFORM_DB_PASSWORD` env'laridan
+yaratadi; env bo'lmasa sukut "app"/"platform" ishlatiladi. Avval `render.yaml`
+da bu env'lar yo'q edi — jonli bazadagi LOGIN rollari zaif parol bilan qolgan.
+Endi ikkalasi `generateValue: true` bilan turadi va `0004_role_passwords`
+har deployda mavjud rollarning parolini env'dagi qiymatga tenglashtiradi
+(env bo'sh bo'lsa — lokal dev — rol tegilmaydi).
+
+Bazaga tashqi kirish ham yopildi: `render.yaml` da `playbron-db` uchun
+`ipAllowList: []` turibdi, ya'ni bazaga faqat Render ichki tarmog'i (API
+konteyner) yetadi. Tashqaridan `psql` kerak bo'lib qolsa — Dashboard →
+`playbron-db` → Access Control'da yoki yaml'dagi ro'yxatga o'z IP'ingizni
+**vaqtincha** qo'shib Manual Sync qilasiz, ish tugagach olib tashlaysiz.
+
+Mavjud Blueprint instansiyada bu o'zgarishlar o'z-o'zidan qo'llanmaydi:
+Blueprints → **Manual Sync** — yangi env'lar yasaladi va `ipAllowList`
+qo'llanadi, keyingi deploy'da `0004` parollarni almashtiradi.
+
 ## 5. Bepul rejadagi cheklovlar
 
 | Cheklov | Ta'siri |
@@ -138,9 +161,9 @@ tarmog'ida, va faqat **bir xil region ichida** hal bo'ladi.
 4. `BOT_TOKEN` va `ADMIN_BOT_TOKEN` ni qayta kiriting — ular xizmat bilan birga
    o'chadi. `JWT_SECRET`/`TG_WEBHOOK_SECRET` avtomat qayta yasaladi
 
-Bazaning tashqi manzili (`dpg-…-a.oregon-postgres.render.com`) regionlar orasida
-ishlaydi, lekin bu **yechim emas**: Redis'da `ipAllowList: []` turibdi, ya'ni u
-faqat ichki tarmoqda. Ilova baribir Redis'ga ulanolmaydi.
+Bazaning tashqi manzili (`dpg-…-a.oregon-postgres.render.com`) ham yechim emas:
+bazada va Redis'da `ipAllowList: []` turibdi — ikkalasi ham faqat ichki tarmoqda,
+boshqa regiondagi ilova ularga baribir ulanolmaydi.
 
 ### Nega RLS xatolari lokalda chiqmaydi
 

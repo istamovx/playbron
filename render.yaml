@@ -19,6 +19,10 @@ databases:
     user: playbron
     plan: free
     region: oregon
+    # Tashqi internetdan ulanish yopiq — bazaga faqat Render ichki tarmog'i
+    # (API konteyner) yetadi. Tashqaridan psql kerak bo'lib qolsa, o'z IP'ingizni
+    # vaqtincha shu ro'yxatga qo'shib Manual Sync qilinadi.
+    ipAllowList: []
 
 services:
   # ── Redis (replay himoyasi, kesh) ────────────────────────────────────────
@@ -68,6 +72,15 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: TG_WEBHOOK_SECRET
+        generateValue: true
+
+      # Rol parollari. Bo'lmasa `0001_core` rollarni zaif sukut parollari
+      # ("app"/"platform") bilan yaratardi — LOGIN roli tashqi tarmoqqa ochiq
+      # bazada bu teshik. `0004_role_passwords` mavjud rollarning parolini
+      # shu qiymatlarga almashtiradi.
+      - key: APP_DB_PASSWORD
+        generateValue: true
+      - key: PLATFORM_DB_PASSWORD
         generateValue: true
 
       # ── Qo'lda kiritiladigan YAGONA qiymatlar ─────────────────────────
