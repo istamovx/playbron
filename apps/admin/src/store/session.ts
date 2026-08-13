@@ -19,18 +19,9 @@ export const ROLE_LABEL: Record<Role, string> = {
   SUPER_ADMIN: 'Super admin',
 };
 
-/** Login Widget qaysi bot nomi bilan ishlaydi (`@` siz). */
+/** Kirish qaysi bot orqali ishlaydi (`@` siz) — deep-link shu nomga ochiladi. */
 export const TELEGRAM_LOGIN_BOT: string =
   (import.meta.env['VITE_TELEGRAM_LOGIN_BOT'] as string | undefined) ?? 'playbronadminbot';
-
-/**
- * Botning raqamli ID'si — token'ning `:` dan oldingi qismi. Sir emas.
- * Berilgan bo'lsa kirish ekrani custom (DS uslubidagi) tugma chizadi va
- * OAuth oynasini `Telegram.Login.auth()` bilan ochadi; bo'sh bo'lsa
- * standart iframe widget'ga qaytadi.
- */
-export const TELEGRAM_LOGIN_BOT_ID: string =
-  (import.meta.env['VITE_TELEGRAM_LOGIN_BOT_ID'] as string | undefined) ?? '';
 
 /** Lokal dev kirish uchun telegram_id — `.env` dagi super admin. */
 const DEV_TELEGRAM_ID = Number(import.meta.env['VITE_DEV_TELEGRAM_ID'] ?? 611207125);
@@ -66,7 +57,10 @@ interface SessionState {
   loading: boolean;
   error: string | null;
 
-  signInWidget: (payload: Record<string, unknown>) => Promise<void>;
+  /** Bot orqali kirishni boshlaydi — deep-link uchun nonce qaytaradi. */
+  beginTelegramLogin: () => Promise<string>;
+  /** Nonce holatini so'raydi; `ready` kelganda sessiyani o'zi o'rnatadi. */
+  pollTelegramLogin: (nonce: string) => Promise<'pending' | 'expired' | 'ready'>;
   signInDev: () => Promise<void>;
   signOut: () => void;
   /** Sahifa yangilanganda saqlangan sessiyadan tiklaydi. */
@@ -98,18 +92,30 @@ export const useSession = create<SessionState>()((set, get) => ({
   loading: false,
   error: null,
 
-  signInWidget: async (payload) => {
-    set({ loading: true, error: null });
+  beginTelegramLogin: async () => {
     try {
-      const body = await api.post<ApiSession>('/auth/telegram/widget', payload, {
-        anonymous: true,
-      });
-      api.setSession(toSession(body));
-      set({ session: toStoreSession(body), loading: false });
+      const body = await api.post<{ nonce: string; expires_in: number }>(
+        '/auth/telegram/start',
+        {},
+        { anonymous: true },
+      );
+      return body.nonce;
     } catch (cause) {
-      set({ loading: false, error: errorText(cause) });
       throw cause instanceof ApiError ? new Error(errorText(cause)) : cause;
     }
+  },
+
+  pollTelegramLogin: async (nonce) => {
+    const body = await api.post<{
+      status: 'pending' | 'expired' | 'ready';
+      session: ApiSession | null;
+    }>(`/auth/telegram/start/${nonce}`, {}, { anonymous: true });
+
+    if (body.status === 'ready' && body.session) {
+      api.setSession(toSession(body.session));
+      set({ session: toStoreSession(body.session), loading: false });
+    }
+    return body.status;
   },
 
   signInDev: async () => {

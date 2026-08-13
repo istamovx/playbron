@@ -2,8 +2,7 @@ import { Button, Icon, Panel, SegmentedControl, StatusLine, Wordmark } from '@pl
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { useI18n, useT, type Lang, type MsgKey } from '../i18n';
-import { loadTelegramLogin, telegramAuth } from '../lib/telegram-login';
-import { TELEGRAM_LOGIN_BOT, TELEGRAM_LOGIN_BOT_ID, useSession } from '../store/session';
+import { TELEGRAM_LOGIN_BOT, useSession } from '../store/session';
 
 /** Til kodi ↔ segment yorlig'i. Kod — matn emas, tarjima qilinmaydi. */
 const LANG_LABELS: Record<Lang, string> = { uz: 'UZ', ru: 'RU', en: 'EN' };
@@ -15,112 +14,105 @@ const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
   { icon: 'analytics', title: 'featReportTitle', text: 'featReportText' },
 ];
 
-type WidgetState = 'loading' | 'ready' | 'error';
+const POLL_INTERVAL_MS = 2_000;
+// Nonce TTL bilan bir xil — 5 daqiqa
+const POLL_TIMEOUT_MS = 300_000;
+// Ilova ochilmagan bo'lsa t.me zaxira havolasi shuncha kutib ko'rsatiladi
+const FALLBACK_DELAY_MS = 2_500;
 
 /**
- * Konsolga kirish — **faqat Telegram**. Parol yo'q.
+ * Konsolga kirish — **faqat Telegram**. Parol yo'q, OAuth oynasi ham yo'q.
  *
- * Login Widget `@playbronadminbot` orqali ishlaydi: bot uchun @BotFather'da
- * `/setdomain` bilan domen belgilangan bo'lishi shart. Widget `localhost` da
- * ishlamaydi, shuning uchun lokal ishlab chiqishda pastdagi dev yo'li ochiladi.
+ * Tugma `tg://resolve?domain=<bot>&start=<nonce>` deep-link bilan Telegram
+ * desktop/mobil ilovasini ochadi. Foydalanuvchi botda **Start** bosadi,
+ * konsol esa nonce'ni poll qilib sessiyani oladi. Ilova o'rnatilmagan bo'lsa
+ * bir necha soniyadan keyin `t.me` zaxira havolasi chiqadi.
  *
- * Til (uz/ru/en) yuqori o'ng burchakdagi almashtirgichdan tanlanadi; widget
- * `data-lang` ni faqat o'rnatilishda o'qiydi, shuning uchun til almashganda
- * skript qayta yuklanadi.
+ * Bu oqim @BotFather'dagi `/setdomain` ni talab qilmaydi; lokal ishlab
+ * chiqishda esa webhook prod'ga qaragani uchun pastdagi dev yo'li ishlatiladi.
  */
 export function LoginScreen(): ReactNode {
-  const signInWidget = useSession((state) => state.signInWidget);
+  const beginTelegramLogin = useSession((state) => state.beginTelegramLogin);
+  const pollTelegramLogin = useSession((state) => state.pollTelegramLogin);
   const signInDev = useSession((state) => state.signInDev);
   const lang = useI18n((state) => state.lang);
   const setLang = useI18n((state) => state.setLang);
   const t = useT();
 
-  const mount = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [widget, setWidget] = useState<WidgetState>('loading');
-  // Qayta urinish tugmasi shu hisoblagichni oshiradi — effekt qayta ishlaydi
-  const [attempt, setAttempt] = useState(0);
+  const [tmeLink, setTmeLink] = useState<string | null>(null);
+  // Bekor qilish va unmount poll siklini shu belgi orqali to'xtatadi
+  const run = useRef<{ stop: boolean } | null>(null);
 
-  // ── Custom tugma yo'li: skript oldindan yuklanadi, tugma o'zimizniki ──
-  useEffect(() => {
-    if (!TELEGRAM_LOGIN_BOT_ID) return;
+  useEffect(
+    () => () => {
+      if (run.current) run.current.stop = true;
+    },
+    [],
+  );
 
-    let alive = true;
-    setWidget('loading');
-    loadTelegramLogin()
-      .then(() => alive && setWidget('ready'))
-      .catch(() => alive && setWidget('error'));
+  const stopLogin = (): void => {
+    if (run.current) run.current.stop = true;
+    setBusy(false);
+    setTmeLink(null);
+  };
 
-    return () => {
-      alive = false;
-    };
-  }, [attempt]);
-
-  // ── Zaxira yo'l: bot ID berilmagan — standart iframe widget ──
-  useEffect(() => {
-    const host = mount.current;
-    if (TELEGRAM_LOGIN_BOT_ID || !host || !TELEGRAM_LOGIN_BOT) return;
-
-    setWidget('loading');
-
-    // Widget global funksiya orqali javob qaytaradi
-    const globalName = 'onPlayBronTelegramAuth';
-    (window as unknown as Record<string, unknown>)[globalName] = (
-      payload: Record<string, unknown>,
-    ) => {
-      setBusy(true);
-      setError(null);
-      void signInWidget(payload).catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : '');
-        setBusy(false);
-      });
-    };
-
-    const script = document.createElement('script');
-    script.src = 'https://telegram.org/js/telegram-widget.js?22';
-    script.async = true;
-    script.setAttribute('data-telegram-login', TELEGRAM_LOGIN_BOT);
-    script.setAttribute('data-size', 'large');
-    script.setAttribute('data-radius', '2');
-    script.setAttribute('data-request-access', 'write');
-    script.setAttribute('data-lang', lang);
-    script.setAttribute('data-onauth', `${globalName}(user)`);
-    script.onload = () => setWidget('ready');
-    script.onerror = () => setWidget('error');
-
-    host.appendChild(script);
-
-    return () => {
-      host.replaceChildren();
-      delete (window as unknown as Record<string, unknown>)[globalName];
-    };
-  }, [signInWidget, lang, attempt]);
-
-  /** Custom tugma bosildi — OAuth oynasi ochiladi. */
   const telegramLogin = (): void => {
     setBusy(true);
     setError(null);
-    void telegramAuth(TELEGRAM_LOGIN_BOT_ID, lang)
-      .then((payload) => {
-        // Oyna yopildi, tasdiq yo'q — jim qaytamiz, xato emas
-        if (!payload) {
-          setBusy(false);
-          return;
+    setTmeLink(null);
+
+    const marker = { stop: false };
+    run.current = marker;
+
+    void (async () => {
+      try {
+        const nonce = await beginTelegramLogin();
+        if (marker.stop) return;
+
+        // Deep-link: ilova o'rnatilgan bo'lsa OS Telegram'ga o'tadi, sahifa qoladi
+        window.location.href = `tg://resolve?domain=${TELEGRAM_LOGIN_BOT}&start=${nonce}`;
+
+        setTimeout(() => {
+          if (!marker.stop) {
+            setTmeLink(`https://t.me/${TELEGRAM_LOGIN_BOT}?start=${nonce}`);
+          }
+        }, FALLBACK_DELAY_MS);
+
+        const deadline = Date.now() + POLL_TIMEOUT_MS;
+        while (!marker.stop && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          if (marker.stop) return;
+
+          const status = await pollTelegramLogin(nonce);
+          // `ready` — sessiya o'rnatildi, App ekranni o'zi almashtiradi
+          if (status === 'ready') return;
+          if (status === 'expired') break;
         }
-        return signInWidget(payload);
-      })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : '');
-        setBusy(false);
-      });
+
+        if (!marker.stop) {
+          marker.stop = true;
+          setError(t('startExpired'));
+          setBusy(false);
+          setTmeLink(null);
+        }
+      } catch (cause) {
+        if (!marker.stop) {
+          marker.stop = true;
+          setError(cause instanceof Error && cause.message ? cause.message : '');
+          setBusy(false);
+          setTmeLink(null);
+        }
+      }
+    })();
   };
 
   const devLogin = (): void => {
     setBusy(true);
     setError(null);
     void signInDev().catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : null);
+      setError(cause instanceof Error && cause.message ? cause.message : '');
       setBusy(false);
     });
   };
@@ -191,99 +183,52 @@ export function LoginScreen(): ReactNode {
               {t('signInHint')}
             </span>
 
-            {TELEGRAM_LOGIN_BOT_ID ? (
-              // Custom tugma — DS uslubida, OAuth oynasini o'zi ochadi
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  block
-                  notch
-                  icon="send"
-                  disabled={busy || widget !== 'ready'}
-                  onClick={telegramLogin}
-                >
-                  {t('telegramButton')}
-                </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              block
+              notch
+              icon="send"
+              disabled={busy}
+              onClick={telegramLogin}
+            >
+              {t('telegramButton')}
+            </Button>
 
-                {widget === 'loading' && !busy ? (
-                  <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
-                ) : null}
-
-                {widget === 'error' && !busy ? (
-                  <>
-                    <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon="refresh"
-                      onClick={() => setAttempt((n) => n + 1)}
-                    >
-                      {t('retry')}
-                    </Button>
-                  </>
-                ) : null}
-
-                {busy ? (
-                  <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
-                ) : null}
-              </div>
-            ) : (
-              // Zaxira: iframe widget yashaydigan ramka — yuklanish, xato va
-              // band holatlar shu yerda almashinadi, tugma «sakrab» qolmaydi
+            {busy ? (
               <div
                 style={{
-                  position: 'relative',
-                  minHeight: 64,
                   display: 'flex',
                   flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
                   gap: 'var(--gap-tight)',
                   padding: 'var(--gap-block)',
                   background: 'var(--surface-inset)',
-                  border: `1px ${widget === 'ready' ? 'solid' : 'dashed'} var(--line-1)`,
+                  border: '1px dashed var(--line-1)',
                   clipPath: 'var(--clip-tr)',
                 }}
               >
-                <div
-                  ref={mount}
-                  style={{
-                    display: busy || widget === 'error' ? 'none' : 'flex',
-                    justifyContent: 'center',
-                  }}
-                />
-
-                {widget === 'loading' && !busy ? (
-                  <StatusLine tone="neutral" icon="hourglass_empty" parts={t('widgetLoading')} />
+                <StatusLine tone="accent" icon="hourglass_top" parts={t('confirmInTelegram')} />
+                {tmeLink ? (
+                  <a
+                    href={tmeLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      font: 'var(--type-body-sm)',
+                      color: 'var(--text-accent)',
+                    }}
+                  >
+                    {t('openViaTme')}
+                  </a>
                 ) : null}
-
-                {widget === 'error' && !busy ? (
-                  <>
-                    <StatusLine tone="danger" icon="wifi_off" parts={t('widgetError')} />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon="refresh"
-                      onClick={() => setAttempt((n) => n + 1)}
-                    >
-                      {t('retry')}
-                    </Button>
-                  </>
-                ) : null}
-
-                {busy ? (
-                  <StatusLine tone="accent" icon="hourglass_top" parts={t('signInChecking')} />
-                ) : null}
+                <Button variant="ghost" size="sm" icon="close" onClick={stopLogin}>
+                  {t('cancel')}
+                </Button>
               </div>
-            )}
-
-            {error !== null ? (
-              <StatusLine tone="danger" icon="error" parts={error || t('signInFailed')} />
             ) : null}
 
-            {widget === 'ready' && !busy && !error ? (
-              <StatusLine tone="neutral" icon="info" parts={t('widgetHint')} />
+            {error !== null && !busy ? (
+              <StatusLine tone="danger" icon="error" parts={error || t('signInFailed')} />
             ) : null}
 
             {import.meta.env.DEV ? (
