@@ -11,6 +11,7 @@ import '../styles/landing.css';
 import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
 import { SITE } from '../config';
+import { jsonLdScript } from '../lib/jsonld';
 import { PLAN_PRICES } from '../content/plans';
 import type { Content, Lang } from '../content';
 
@@ -97,7 +98,7 @@ const jsonLd = {
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
+    <script type="application/ld+json" set:html={jsonLdScript(jsonLd)} is:inline />
   </head>
 
   <body>

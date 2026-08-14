@@ -1,5 +1,6 @@
 ---
 import type { Content } from '../../content';
+import { jsonLdScript } from '../../lib/jsonld';
 import Icon from '../Icon.astro';
 
 interface Props {
@@ -44,5 +45,5 @@ const faqLd = {
     </div>
   </div>
 
-  <script type="application/ld+json" set:html={JSON.stringify(faqLd)} is:inline />
+  <script type="application/ld+json" set:html={jsonLdScript(faqLd)} is:inline />
 </section>
