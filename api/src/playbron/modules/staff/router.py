@@ -94,14 +94,31 @@ async def create_staff(
             {"login": login, "name": name, "role": body.role},
         )
     except Exception as exc:  # noqa: BLE001
-        if "ROLE_NOT_ALLOWED" in str(exc):
-            raise Forbidden(
-                "Bu rolni berish huquqingiz yo‘q", code="ROLE_NOT_ALLOWED"
-            ) from exc
-        if "users_login_staff_uk" in str(exc):
-            # Bandlik faqat SAQLASHDA aytiladi: jonli tekshiruv endpointi
-            # global login makonini sanab chiqish imkonini berardi
+        # SQLAlchemy'ning asyncpg adapteri asl `asyncpg.exceptions.*` ni
+        # o'ziga xos DBAPI qobig'iga o'raydi va bu qobiq `constraint_name`ni
+        # UZATMAYDI — faqat `sqlstate` va matn saqlanadi (`core/errors.py`
+        # dagi global handler ham shu sabab faqat `sqlstate`ga tayanadi).
+        # Shuning uchun konstreynt nomi matndan qidiriladi, lekin
+        # `sqlstate == 23505` bilan qo'shib — ikkalasi birga ANIQ shu
+        # konstreynt buzilganini bildiradi.
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+
+        if sqlstate == "23505" and "users_login_staff_uk" in str(exc):
+            # `core/errors.py` dagi global handler shu SQLSTATE'ni umumiy
+            # ALREADY_EXISTS'ga aylantiradi — bu yerda ANIQ konstreynt nomi
+            # bo'yicha ATAYLAB oldin ushlanadi, chunki xabar mijozga tushunarli
+            # bo'lishi kerak. Bandlik faqat SAQLASHDA aytiladi: jonli tekshiruv
+            # endpointi global login makonini sanab chiqish imkonini berardi.
             raise Conflict("Bu login band", code="LOGIN_TAKEN") from exc
+
+        # `auth_create_staff` rol shifti buzilganda `RAISE EXCEPTION
+        # 'ROLE_NOT_ALLOWED'` qiladi (plpgsql, SQLSTATE P0001). Bu matn
+        # funksiya ichidagi LITERAL doim shu — hech qanday chaqiruvchi
+        # qiymati (login, ism) unga qo'shilmaydi, shuning uchun matn bo'yicha
+        # moslash xavfsiz: boshqa hech qanday xato shu satrni tasodifan
+        # hosil qila olmaydi.
+        if "ROLE_NOT_ALLOWED" in str(exc):
+            raise Forbidden("Bu rolni berish huquqingiz yo‘q", code="ROLE_NOT_ALLOWED") from exc
         raise
 
     if user_id is None:

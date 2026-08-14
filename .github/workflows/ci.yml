@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  check:
+  web:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,3 +25,110 @@ jobs:
       - run: pnpm build
       - run: pnpm lint
       - run: pnpm typecheck
+
+  # API testlari ilgari CI'da UMUMAN yurmagan: `pnpm-workspace.yaml` faqat
+  # `apps/*` va `packages/*` ni qamraydi, `api/` da `package.json` yo'q, ya'ni
+  # `turbo run test` pytest'ga hech qachon yetmasdi. Natijada RLS invariantlari
+  # va auth testlari — aynan prod'da bir necha marta buzilgan joylar — hech
+  # narsa bilan majburlanmasdi.
+  api:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: playbron
+          POSTGRES_PASSWORD: playbron
+          POSTGRES_DB: playbron
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U playbron"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      ENV: test
+      JWT_SECRET: ci-uchun-32-baytdan-uzun-tasodifiy-bolmagan-qiymat
+      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql://playbron:playbron@localhost:5432/playbron
+      DIRECT_URL: postgresql://playbron:playbron@localhost:5432/playbron
+      PLATFORM_DATABASE_URL: postgresql://playbron:playbron@localhost:5432/playbron
+      APP_DB_PASSWORD: ci-app-paroli
+      PLATFORM_DB_PASSWORD: ci-platform-paroli
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -e '.[dev]'
+        working-directory: api
+
+      - run: ruff check src tests migrations
+        working-directory: api
+
+      - run: alembic upgrade head
+        working-directory: api
+
+      # `RUN_DB_TESTS=1` bo'lmasa DB'ga tegadigan testlar JIMGINA skip bo'ladi
+      # va CI yashil qolaveradi — ya'ni bayroqsiz bu qadam deyarli bekor.
+      - run: pytest -q
+        working-directory: api
+        env:
+          RUN_DB_TESTS: '1'
+
+  # Render bepul rejasining nusxasi: baza egasi superuser EMAS va
+  # `playbron_platform` BYPASSRLS OLA OLMAYDI. Lokal `docker compose` bazasi
+  # superuser bo'lgani uchun RLS policy'lari u yerda umuman baholanmaydi —
+  # prod'dagi uchta bloklovchi xato aynan shu ko'r nuqtadan chiqqan edi.
+  # Migratsiyalardagi `_assert_*` tekshiruvlari faqat shu job'da ma'no kasb etadi.
+  api-render-shape:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: root
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      ENV: test
+      JWT_SECRET: ci-uchun-32-baytdan-uzun-tasodifiy-bolmagan-qiymat
+      ALLOW_SINGLE_DB_ROLE: '1'
+      DATABASE_URL: postgresql://owner:owner@localhost:5432/playbron
+      DIRECT_URL: postgresql://owner:owner@localhost:5432/playbron
+      PLATFORM_DATABASE_URL: postgresql://owner:owner@localhost:5432/playbron
+      APP_DB_PASSWORD: ci-app-paroli
+      PLATFORM_DB_PASSWORD: ci-platform-paroli
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -e '.[dev]'
+        working-directory: api
+
+      # `CREATEROLE` bor, `SUPERUSER` va `BYPASSRLS` yo'q — Render'dagi holat.
+      - name: Render shaklidagi egani yaratish
+        run: |
+          PGPASSWORD=root psql -h localhost -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE owner LOGIN PASSWORD 'owner' NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS;" \
+            -c "CREATE DATABASE playbron OWNER owner;"
+
+      - run: alembic upgrade head
+        working-directory: api

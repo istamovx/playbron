@@ -414,9 +414,10 @@ export const uz = {
     eyebrow: 'Boshlaymiz',
     title: 'Klubingizni PlayBron’ga ulaymiz',
     text: 'Bir suhbat yetarli: xonalar, qurilmalar va tariflaringizni birga sozlaymiz. Sozlash — bir kunlik ish.',
-    primary: 'Telegram’da yozish',
+    primary: 'Ro‘yxatdan o‘tish',
     secondary: 'Ilovaga kirish',
-    note: 'Javob beramiz — ish kunlari 09:00–21:00',
+    tertiary: 'Telegram’da yozish',
+    note: 'Ro‘yxatdan o‘tish bepul — to‘lov tarif tanlaganda.',
   },
 
   footer: {

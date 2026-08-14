@@ -14,7 +14,7 @@ from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_STAFF, constant_time_equal, now
 from playbron.deps import current_claims, db, public_db
 from playbron.models import User
-from playbron.modules.auth import botlogin, service, staff
+from playbron.modules.auth import botlogin, service, signup, staff
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -209,6 +209,41 @@ async def staff_login(
     return out
 
 
+class OwnerSignupIn(BaseModel):
+    """Landing formasidagi maydonlar.
+
+    Uzunlik chegaralari bu yerda **keng**: aniq qoidalar va tushunarli xato
+    kodlari `signup.clean()` da. Pydantic faqat aql bovar qilmaydigan
+    hajmni to'xtatadi, aks holda foydalanuvchi 422 va texnik matn olardi.
+    """
+
+    first_name: str = Field(min_length=1, max_length=128)
+    club_name: str = Field(min_length=1, max_length=200)
+    phone: str = Field(min_length=1, max_length=32)
+    address: str = Field(min_length=1, max_length=600)
+    login: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class OwnerSignupOut(BaseModel):
+    login: str
+
+
+@router.post("/owner/signup", response_model=OwnerSignupOut, status_code=201)
+async def owner_signup(
+    body: OwnerSignupIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+) -> OwnerSignupOut:
+    """Klub egasi o'zi ro'yxatdan o'tadi — tashkilot + klub + hisob.
+
+    Sessiya bu yerda ochilmaydi: konsol shu login va foydalanuvchi o'zi
+    tanlagan parol bilan darhol `/auth/staff/login` ga murojaat qiladi.
+    """
+    login = await signup.owner_signup(session, body=body.model_dump(), ip=client_ip(request))
+    return OwnerSignupOut(login=login)
+
+
 class PasswordChangeIn(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=1, max_length=128)
@@ -351,9 +386,7 @@ async def poll_bot_login(
 @router.post("/telegram/webhook/admin")
 async def admin_bot_webhook(
     request: Request,
-    secret: Annotated[
-        str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
-    ] = None,
+    secret: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, bool]:
     """Admin bot webhook'i — faqat `/start <nonce>` xabarlarini qayta ishlaydi.
 

@@ -115,6 +115,59 @@ async def test_staff_provisioning_policy_opens_no_reads(engine: AsyncEngine) -> 
 
 
 @skip_no_db
+async def test_owner_signup_policy_opens_no_reads(engine: AsyncEngine) -> None:
+    """Ro'yxatdan o'tish policy'si ham FAQAT yozish uchun.
+
+    `USING` bo'lsa, `app.signup_login` o'rnatilgan har qanday tranzaksiya
+    o'sha loginli qatorni O'QIY olardi — ya'ni ochiq endpoint orqali
+    «bu login bormi» degan savolga to'g'ridan-to'g'ri javob berardi.
+    """
+    async with engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT polcmd, pg_get_expr(polqual, polrelid),"
+                    "       pg_get_expr(polwithcheck, polrelid)"
+                    " FROM pg_policy WHERE polname = 'users_owner_signup'"
+                )
+            )
+        ).first()
+
+    assert row is not None, "users_owner_signup policy'si yo'q"
+    command, using_expr, check_expr = row
+    if isinstance(command, bytes):
+        command = command.decode()
+    assert command == "a", "policy faqat INSERT uchun bo'lishi kerak"
+    assert using_expr is None, "USING ochilsa login sanash orakuli paydo bo'ladi"
+    assert check_expr is not None
+    # Qator AYNAN GUC'dagi loginga bog'lanadi — aks holda doira ochilgan
+    # tranzaksiyada istalgan xodim qatorini yozib bo'lardi
+    assert "app_signup_claim" in check_expr
+    assert "lower(login)" in check_expr
+
+
+@skip_no_db
+async def test_owner_signup_checks_its_own_scope(engine: AsyncEngine) -> None:
+    """Funksiya GUC'ni O'ZI ham tekshiradi.
+
+    Policy faqat `users` ni himoya qiladi. Qolgan to'rtta jadval
+    (`organizations`, `clubs`, `memberships`, `staff_credentials`) uchun
+    yagona darvoza — funksiya ichidagi shu tekshiruv.
+    """
+    async with engine.connect() as conn:
+        body = await conn.scalar(
+            text("SELECT prosrc FROM pg_proc WHERE proname = 'auth_owner_signup'")
+        )
+
+    assert body is not None, "auth_owner_signup funksiyasi yo'q"
+    assert "SIGNUP_SCOPE_MISSING" in body
+    assert "app_signup_claim()" in body
+    # `RETURNING` ishlatilsa SELECT policy'si talab qilinardi, u esa yo'q
+    assert "RETURNING" not in body
+    assert "currval" in body
+
+
+@skip_no_db
 async def test_create_staff_does_not_use_returning(engine: AsyncEngine) -> None:
     """`INSERT ... RETURNING` SELECT policy'sini ham talab qiladi.
 

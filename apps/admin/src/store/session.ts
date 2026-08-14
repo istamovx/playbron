@@ -49,14 +49,55 @@ interface ApiSession {
   must_change_password: boolean;
 }
 
+/**
+ * Hisob yaratildi, lekin sessiya ochilmadi.
+ *
+ * Alohida tur kerak, chunki UI bu ikki holatni FARQLI ko'rsatishi shart:
+ * «ro'yxatdan o'tolmadingiz» (qayta urinib ko'ring) va «hisobingiz tayyor,
+ * endi kiring» (qayta ro'yxatdan o'tmang).
+ */
+export class SignedUpButNotSignedIn extends Error {
+  readonly login: string;
+
+  constructor(login: string, cause?: unknown) {
+    // `cause` — standart `Error` maydoni; qo'lda e'lon qilinsa uni
+    // qayta yozib qo'yardi (TS4115)
+    super('SIGNED_UP_NOT_SIGNED_IN', { cause });
+    this.name = 'SignedUpButNotSignedIn';
+    this.login = login;
+  }
+}
+
+export interface SignUpForm {
+  firstName: string;
+  clubName: string;
+  phone: string;
+  address: string;
+  login: string;
+  password: string;
+}
+
 interface SessionState {
   session: Session | null;
   loading: boolean;
   error: string | null;
   /** Birov bergan parol bir martalik — almashtirilmaguncha boshqa ekran ochilmaydi. */
   mustChangePassword: boolean;
+  /**
+   * Ro'yxatdan o'tishda yaratilgan login. Kirish qadami yiqilsa kirish
+   * formasi shu bilan to'ldiriladi — foydalanuvchi qayta ro'yxatdan
+   * o'tishga urinmasin.
+   */
+  createdLogin: string | null;
 
   signIn: (login: string, password: string) => Promise<void>;
+  /**
+   * Klub egasi o'zi ro'yxatdan o'tadi, so'ng DARHOL o'sha login va parol
+   * bilan kiradi. Server token bermaydi — sessiya ochadigan yagona yo'l
+   * `/auth/staff/login` bo'lib qoladi (ikkinchi token beruvchi yuza
+   * xato qilish uchun yana bir joy bo'lardi).
+   */
+  signUp: (form: SignUpForm) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
   signOut: () => void;
   /** Sahifa yangilanganda saqlangan sessiyadan tiklaydi. */
@@ -89,6 +130,7 @@ export const useSession = create<SessionState>()((set, get) => ({
   loading: false,
   error: null,
   mustChangePassword: false,
+  createdLogin: null,
 
   signIn: async (login, password) => {
     set({ loading: true, error: null });
@@ -107,6 +149,39 @@ export const useSession = create<SessionState>()((set, get) => ({
     } catch (cause) {
       set({ loading: false, error: errorText(cause) });
       throw cause instanceof ApiError ? new Error(errorText(cause)) : cause;
+    }
+  },
+
+  signUp: async (form) => {
+    set({ loading: true, error: null });
+    try {
+      await api.post<{ login: string }>(
+        '/auth/owner/signup',
+        {
+          first_name: form.firstName,
+          club_name: form.clubName,
+          phone: form.phone,
+          address: form.address,
+          login: form.login,
+          password: form.password,
+        },
+        { anonymous: true },
+      );
+    } catch (cause) {
+      set({ loading: false, error: errorText(cause) });
+      throw cause instanceof ApiError ? new Error(errorText(cause)) : cause;
+    }
+
+    // Shu nuqtadan keyin HISOB MAVJUD. Kirish qadami yiqilsa buni
+    // foydalanuvchiga aytish SHART: aks holda u «ro'yxatdan o'tolmadim» deb
+    // formani qayta yuboradi va `LOGIN_TAKEN` oladi — bu esa loginni begona
+    // odam egallagandek o'qiladi va u ikkinchi, keraksiz tashkilot yaratadi.
+    set({ createdLogin: form.login });
+    try {
+      await get().signIn(form.login, form.password);
+    } catch (cause) {
+      set({ loading: false });
+      throw new SignedUpButNotSignedIn(form.login, cause);
     }
   },
 

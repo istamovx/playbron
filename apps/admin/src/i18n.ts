@@ -89,6 +89,61 @@ const STRINGS = {
   },
   mismatch: { uz: 'Parollar mos kelmadi', ru: 'Пароли не совпадают', en: 'Passwords do not match' },
   saveButton: { uz: 'Saqlash', ru: 'Сохранить', en: 'Save' },
+
+  // ── Klub egasining ro'yxatdan o'tishi ────────────────────────────────
+  signUpLink: {
+    uz: 'Klub egasimisiz? Ro‘yxatdan o‘ting',
+    ru: 'Владелец клуба? Зарегистрируйтесь',
+    en: 'Club owner? Create an account',
+  },
+  signUpTitle: { uz: 'Ro‘yxatdan o‘tish', ru: 'Регистрация', en: 'Create account' },
+  signUpHint: {
+    uz: 'Klubingizni qo‘shing. Login va parolni o‘zingiz tanlaysiz.',
+    ru: 'Добавьте свой клуб. Логин и пароль вы выбираете сами.',
+    en: 'Add your club. You choose your own login and password.',
+  },
+  signUpButton: { uz: 'Ro‘yxatdan o‘tish', ru: 'Зарегистрироваться', en: 'Create account' },
+  signingUp: { uz: 'Yuborilmoqda…', ru: 'Отправка…', en: 'Submitting…' },
+  signUpFailed: {
+    uz: 'Ro‘yxatdan o‘tish amalga oshmadi',
+    ru: 'Регистрация не удалась',
+    en: 'Sign-up failed',
+  },
+  backToSignIn: { uz: 'Kirishga qaytish', ru: 'Вернуться ко входу', en: 'Back to sign in' },
+  signedUpNowSignIn: {
+    uz: 'Hisobingiz yaratildi. Qayta ro‘yxatdan o‘tmang — shu login bilan kiring.',
+    ru: 'Аккаунт создан. Не регистрируйтесь заново — войдите с этим логином.',
+    en: 'Your account was created. Do not sign up again — sign in with this login.',
+  },
+  // Parol almashtirish ekranidagi «yangi parolni takrorlang» bu yerda
+  // noto'g'ri o'qiladi — ro'yxatdan o'tishda «yangi» paroli yo'q.
+  repeatPasswordPlain: {
+    uz: 'Parolni takrorlang',
+    ru: 'Повторите пароль',
+    en: 'Repeat password',
+  },
+
+  nameLabel: { uz: 'Ismingiz', ru: 'Ваше имя', en: 'Your name' },
+  namePlaceholder: { uz: 'Aziz', ru: 'Азиз', en: 'Aziz' },
+  clubNameLabel: { uz: 'Klub nomi', ru: 'Название клуба', en: 'Club name' },
+  clubNamePlaceholder: { uz: 'Neon Arena', ru: 'Neon Arena', en: 'Neon Arena' },
+  phoneLabel: { uz: 'Telefon raqami', ru: 'Номер телефона', en: 'Phone number' },
+  addressLabel: { uz: 'Manzil', ru: 'Адрес', en: 'Address' },
+  addressPlaceholder: {
+    uz: 'Toshkent, Chilonzor 12',
+    ru: 'Ташкент, Чиланзар 12',
+    en: 'Tashkent, Chilanzar 12',
+  },
+  ownerPasswordHint: {
+    uz: 'Kamida 14 belgi.',
+    ru: 'Не менее 14 символов.',
+    en: 'At least 14 characters.',
+  },
+  clubVisibleNote: {
+    uz: 'Klub nomi, telefon va manzil mijozlarga ko‘rinadi.',
+    ru: 'Название клуба, телефон и адрес видны клиентам.',
+    en: 'Club name, phone and address are visible to customers.',
+  },
 } as const satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof STRINGS;

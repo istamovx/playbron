@@ -10,7 +10,7 @@ import {
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { useI18n, useT, type Lang, type MsgKey } from '../i18n';
-import { useSession } from '../store/session';
+import { SignedUpButNotSignedIn, useSession } from '../store/session';
 
 /** Til kodi ↔ segment yorlig'i. Kod — matn emas, tarjima qilinmaydi. */
 const LANG_LABELS: Record<Lang, string> = { uz: 'UZ', ru: 'RU', en: 'EN' };
@@ -23,6 +23,17 @@ const LABEL_LANGS: Record<string, Lang> = { UZ: 'uz', RU: 'ru', EN: 'en' };
 const LANDING_URL: string =
   (import.meta.env['VITE_LANDING_URL'] as string | undefined) ??
   (import.meta.env.DEV ? 'http://localhost:5175' : 'https://playbron-landing.onrender.com');
+
+/**
+ * Klub egasining paroli uchun eng qisqa uzunlik.
+ *
+ * Bu qiymat serverdagi `passwords.MIN_LENGTH['OWNER']` ning NUSXASI va u
+ * yerda qoladi — HAKAM baribir server. Bu yerda faqat tugmani erta yoqmaslik
+ * uchun: aks holda foydalanuvchi butun formani to'ldirib yuborgach 400
+ * olardi. Server minimumi oshsa bu son ham yangilanadi (i18n'dagi
+ * `ownerPasswordHint` matni bilan birga).
+ */
+const OWNER_PASSWORD_MIN = 14;
 
 const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
   { icon: 'grid_view', title: 'featLiveTitle', text: 'featLiveText' },
@@ -44,6 +55,16 @@ export function LoginScreen(): ReactNode {
   const t = useT();
 
   const [online, setOnline] = useState(true);
+  // Ro'yxatdan o'tish alohida marshrut EMAS: kirish ekrani bitta va panel
+  // almashadi. Marshrut qo'shilsa `must_change` darvozasi (§7.3) yonidan
+  // aylanib o'tadigan ikkinchi kirish nuqtasi paydo bo'lardi.
+  //
+  // Landing `?signup=1` bilan keladi — shunda darhol ro'yxatdan o'tish
+  // paneli ochiladi. Qiymat faqat boshlang'ich holatni beradi, keyin uni
+  // foydalanuvchi boshqaradi.
+  const [mode, setMode] = useState<'signIn' | 'signUp'>(() =>
+    new URLSearchParams(window.location.search).has('signup') ? 'signUp' : 'signIn',
+  );
 
   // Holat qatoridagi ulanish indikatori — soxta emas, brauzerdan
   useEffect(() => {
@@ -115,19 +136,29 @@ export function LoginScreen(): ReactNode {
           ))}
         </div>
 
-        {mustChange ? <ChangePanel /> : <SignInPanel />}
+        {/* `must_change` hamma narsadan ustun: birov bergan parol
+            almashtirilmaguncha boshqa panel ochilmaydi (§7.3) */}
+        {mustChange ? (
+          <ChangePanel />
+        ) : mode === 'signUp' ? (
+          <SignUpPanel onDone={() => setMode('signIn')} />
+        ) : (
+          <SignInPanel onSignUp={() => setMode('signUp')} />
+        )}
       </div>
     </div>
   );
 }
 
 /** Login + parol. */
-function SignInPanel(): ReactNode {
+function SignInPanel({ onSignUp }: { onSignUp: () => void }): ReactNode {
   const signIn = useSession((state) => state.signIn);
   const loading = useSession((state) => state.loading);
+  // Ro'yxatdan o'tib, avtomatik kirish yiqilgan bo'lsa login shu yerda
+  const createdLogin = useSession((state) => state.createdLogin);
   const t = useT();
 
-  const [login, setLogin] = useState('');
+  const [login, setLogin] = useState(createdLogin ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -144,6 +175,10 @@ function SignInPanel(): ReactNode {
       <span className="pb-scan" aria-hidden />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        {createdLogin ? (
+          <StatusLine tone="warn" icon="how_to_reg" parts={t('signedUpNowSignIn')} />
+        ) : null}
+
         <span style={PROMPT}>
           <span style={{ color: 'var(--text-accent)' }}>{'> '}</span>
           {t('signInHint')}
@@ -192,6 +227,175 @@ function SignInPanel(): ReactNode {
         <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
           {t('forgot')}
         </span>
+
+        <Button variant="ghost" size="sm" block icon="add_business" onClick={onSignUp}>
+          {t('signUpLink')}
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * Klub egasi o'zi ro'yxatdan o'tadi (Ilova C.1).
+ *
+ * Maydonlar kimga kerakligiga qarab yig'ilgan: ism — profil uchun; klub nomi,
+ * telefon va manzil — mijozga ko'rinadi va super adminga tashkilotni
+ * tanitadi; login va parolni egasining o'zi tanlaydi.
+ *
+ * Tekshiruv SERVERDA — bu yerdagi shartlar faqat tugmani erta yoqmaslik
+ * uchun. Ikki joyda ikki xil qoida yozilsa ular albatta ajralib ketadi.
+ */
+function SignUpPanel({ onDone }: { onDone: () => void }): ReactNode {
+  const signUp = useSession((state) => state.signUp);
+  const loading = useSession((state) => state.loading);
+  const t = useT();
+
+  const [firstName, setFirstName] = useState('');
+  const [clubName, setClubName] = useState('');
+  const [phone, setPhone] = useState('+998');
+  const [address, setAddress] = useState('');
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const mismatch = repeat.length > 0 && password !== repeat;
+  const tooShort = password.length > 0 && password.length < OWNER_PASSWORD_MIN;
+  const ready =
+    firstName.trim().length > 1 &&
+    clubName.trim().length > 1 &&
+    phone.trim().length > 9 &&
+    address.trim().length > 4 &&
+    login.trim().length > 2 &&
+    password.length >= OWNER_PASSWORD_MIN &&
+    password === repeat &&
+    !loading;
+
+  const submit = (): void => {
+    if (!ready) return;
+    setError(null);
+    void signUp({ firstName, clubName, phone, address, login, password }).catch(
+      (cause: unknown) => {
+        // Hisob yaratilgan, faqat kirish yiqilgan — foydalanuvchini kirish
+        // formasiga o'tkazamiz. Qayta ro'yxatdan o'tishga urinsa `LOGIN_TAKEN`
+        // olardi va o'zining loginini begona deb o'ylardi.
+        if (cause instanceof SignedUpButNotSignedIn) {
+          onDone();
+          return;
+        }
+        setError(cause instanceof Error && cause.message ? cause.message : t('signUpFailed'));
+      },
+    );
+  };
+
+  return (
+    <Panel title={t('signUpTitle')} notch brackets glow style={PANEL}>
+      <span className="pb-scan" aria-hidden />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        <span style={PROMPT}>
+          <span style={{ color: 'var(--text-accent)' }}>{'> '}</span>
+          {t('signUpHint')}
+          <i className="pb-caret" aria-hidden />
+        </span>
+
+        <TextField
+          label={t('nameLabel')}
+          value={firstName}
+          onChange={setFirstName}
+          placeholder={t('namePlaceholder')}
+          icon="person"
+          autoComplete="name"
+          disabled={loading}
+        />
+        <TextField
+          label={t('clubNameLabel')}
+          value={clubName}
+          onChange={setClubName}
+          placeholder={t('clubNamePlaceholder')}
+          icon="storefront"
+          autoComplete="organization"
+          disabled={loading}
+        />
+        <TextField
+          label={t('phoneLabel')}
+          value={phone}
+          onChange={setPhone}
+          placeholder="+998901234567"
+          icon="call"
+          inputMode="tel"
+          autoComplete="tel"
+          disabled={loading}
+        />
+        <TextField
+          label={t('addressLabel')}
+          value={address}
+          onChange={setAddress}
+          placeholder={t('addressPlaceholder')}
+          icon="location_on"
+          autoComplete="street-address"
+          disabled={loading}
+        />
+
+        <StatusLine tone="neutral" icon="visibility" parts={t('clubVisibleNote')} />
+
+        <TextField
+          label={t('loginLabel')}
+          value={login}
+          onChange={setLogin}
+          placeholder={t('loginPlaceholder')}
+          icon="badge"
+          name="username"
+          autoComplete="username"
+          disabled={loading}
+        />
+        <TextField
+          label={t('passwordLabel')}
+          value={password}
+          onChange={setPassword}
+          type="password"
+          revealable
+          icon="lock"
+          autoComplete="new-password"
+          disabled={loading}
+          error={tooShort ? t('ownerPasswordHint') : undefined}
+        />
+        {tooShort ? null : (
+          <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)', marginTop: -6 }}>
+            {t('ownerPasswordHint')}
+          </span>
+        )}
+        <TextField
+          label={t('repeatPasswordPlain')}
+          value={repeat}
+          onChange={setRepeat}
+          type="password"
+          revealable
+          icon="lock_reset"
+          autoComplete="new-password"
+          disabled={loading}
+          error={mismatch ? t('mismatch') : undefined}
+          onSubmitKey={submit}
+        />
+
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          notch
+          icon="how_to_reg"
+          disabled={!ready}
+          onClick={submit}
+        >
+          {loading ? t('signingUp') : t('signUpButton')}
+        </Button>
+
+        {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+        <Button variant="ghost" size="sm" block icon="arrow_back" onClick={onDone}>
+          {t('backToSignIn')}
+        </Button>
       </div>
     </Panel>
   );
