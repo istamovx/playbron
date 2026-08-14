@@ -8,6 +8,26 @@
 # ko'taradi: ilova baza egasi roli bilan ulanadi va RLS baribir kuchda qoladi,
 # chunki jadvallarga `FORCE ROW LEVEL SECURITY` qo'llangan.
 
+# ── Domenlar: ikki qadam ─────────────────────────────────────────────────
+#   playbron.uz       → landing (apex; Render `www.` ni qo'shib bu yerga yo'naltiradi)
+#   app.playbron.uz   → xodim va klub admini ilovasi
+#   mini.playbron.uz  → mijoz Mini App'i
+#   api.playbron.uz   → API
+#
+# 1-qadam (BAJARILGAN): quyidagi `domains:` ro'yxatlari. Render domenlarni
+#    yaratadi va DNS yozuvlarini ko'rsatadi; tasdiqlanmaguncha xizmatlar
+#    `.onrender.com` da ishlayveradi, hech narsa sinmaydi.
+# 2-qadam (DNS tasdiqlangandan KEYIN): quyidagi qiymatlar almashtiriladi —
+#    ilgari qilinsa saytlar hali ochilmagan manzilga murojaat qilib qoladi.
+#      playbron-landing  SITE_URL         → https://playbron.uz
+#      playbron-admin    VITE_LANDING_URL → https://playbron.uz
+#      playbron-admin    VITE_API_URL     → https://api.playbron.uz/api/v1
+#      playbron-miniapp  VITE_API_URL     → https://api.playbron.uz/api/v1
+#      playbron-api      CORS_ORIGINS     → https://playbron.uz,https://www.playbron.uz,
+#                                           https://app.playbron.uz,https://mini.playbron.uz
+#      playbron-api      PUBLIC_URL       → https://api.playbron.uz
+#    `VITE_*` build paytida kodga singdiriladi — o'zgartirgach qayta deploy shart.
+
 # DIQQAT: baza, Redis va API **bitta regionda** bo'lishi shart. Render'ning ichki
 # tarmog'i regionlar orasida ishlamaydi — API boshqa regionda bo'lsa baza va
 # Redis manzillari umuman hal bo'lmaydi va konteyner start'da qotib qoladi.
@@ -41,6 +61,8 @@ services:
     dockerfilePath: ./api/Dockerfile
     dockerContext: ./api
     healthCheckPath: /healthz
+    domains:
+      - api.playbron.uz
     envVars:
       - key: ENV
         value: prod
@@ -114,6 +136,8 @@ services:
     runtime: static
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter admin build
     staticPublishPath: ./apps/admin/dist
+    domains:
+      - app.playbron.uz
     envVars:
       - key: NODE_VERSION
         value: '22'
@@ -148,6 +172,10 @@ services:
     runtime: static
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter landing build
     staticPublishPath: ./apps/landing/dist
+    # Apex berilgani uchun Render `www.playbron.uz` ni o'zi qo'shib apex'ga
+    # yo'naltiradi — canonical va sitemap ham apex'ni ko'rsatadi.
+    domains:
+      - playbron.uz
     envVars:
       - key: NODE_VERSION
         value: '22'
@@ -170,6 +198,8 @@ services:
     runtime: static
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter miniapp build
     staticPublishPath: ./apps/miniapp/dist
+    domains:
+      - mini.playbron.uz
     envVars:
       - key: NODE_VERSION
         value: '22'
