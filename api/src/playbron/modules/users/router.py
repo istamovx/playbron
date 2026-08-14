@@ -26,7 +26,9 @@ class ClubBrief(BaseModel):
 
 class MeOut(BaseModel):
     id: int
-    telegram_id: int
+    # Xodimda YO'Q: uning Telegrami shaxsni tasdiqlamaydi va alohida
+    # `staff_telegram` jadvalida turadi (docs/05-auth-redesign.md §3.2)
+    telegram_id: int | None
     first_name: str
     last_name: str | None
     username: str | None

@@ -23,6 +23,7 @@ from playbron.core.security import (
     now,
     sha256_hex,
 )
+from playbron.core.text import clean_name, clean_username
 from playbron.models import Club, Membership, Organization, Plan, RefreshToken, SuperAdmin, User
 from playbron.modules.auth.telegram import TelegramIdentity
 
@@ -52,23 +53,35 @@ async def upsert_user(session: AsyncSession, identity: TelegramIdentity) -> User
 
     Telefon **tegilmaydi** — u faqat `requestContact` orqali to'ladi.
     """
+    # Bu maydonlarni foydalanuvchi to'liq nazorat qiladi (Telegram profili) —
+    # tozalash aynan yozish nuqtasida (§3.8)
+    first_name = clean_name(identity.first_name)
+    last_name = clean_name(identity.last_name) or None
+    username = clean_username(identity.username)
+
     stmt = (
         insert(User)
         .values(
+            kind="customer",
             telegram_id=identity.telegram_id,
-            username=identity.username,
-            first_name=identity.first_name,
-            last_name=identity.last_name,
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
             language_code=identity.language_code,
             photo_url=identity.photo_url,
             last_seen_at=now(),
         )
         .on_conflict_do_update(
+            # `telegram_id` UNIQUE indeksi endi QISMAN (`WHERE kind='customer'`),
+            # shuning uchun `index_where` siz Postgres uni topolmaydi:
+            # «there is no unique or exclusion constraint matching the
+            # ON CONFLICT specification».
             index_elements=[User.telegram_id],
+            index_where=User.kind == "customer",
             set_={
-                "username": identity.username,
-                "first_name": identity.first_name,
-                "last_name": identity.last_name,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
                 "language_code": identity.language_code,
                 "photo_url": identity.photo_url,
                 "last_seen_at": now(),

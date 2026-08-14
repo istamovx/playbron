@@ -50,20 +50,26 @@ async def world() -> AsyncIterator[dict[str, int]]:
     async with engine.begin() as conn:
         ids["owner"] = await conn.scalar(
             text(
-                "INSERT INTO users (telegram_id, first_name) VALUES (940001, 'Owner')"
-                " ON CONFLICT (telegram_id) DO UPDATE SET first_name='Owner' RETURNING id"
+                "INSERT INTO users (kind, login, status, first_name)"
+                " VALUES ('staff', 'hard.owner', 'active', 'Owner')"
+                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                " DO UPDATE SET first_name='Owner' RETURNING id"
             )
         )
         ids["staff"] = await conn.scalar(
             text(
-                "INSERT INTO users (telegram_id, first_name) VALUES (940002, 'Staff')"
-                " ON CONFLICT (telegram_id) DO UPDATE SET first_name='Staff' RETURNING id"
+                "INSERT INTO users (kind, login, status, first_name)"
+                " VALUES ('staff', 'hard.staff', 'active', 'Staff')"
+                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                " DO UPDATE SET first_name='Staff' RETURNING id"
             )
         )
         ids["outsider"] = await conn.scalar(
             text(
-                "INSERT INTO users (telegram_id, first_name) VALUES (940003, 'Outsider')"
-                " ON CONFLICT (telegram_id) DO UPDATE SET first_name='Outsider' RETURNING id"
+                "INSERT INTO users (kind, login, status, first_name)"
+                " VALUES ('staff', 'hard.outsider', 'active', 'Outsider')"
+                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                " DO UPDATE SET first_name='Outsider' RETURNING id"
             )
         )
         ids["org"] = await conn.scalar(

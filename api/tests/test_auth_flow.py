@@ -72,12 +72,15 @@ async def club_owner() -> AsyncIterator[dict[str, int]]:
     ids: dict[str, int] = {}
 
     async with engine.begin() as conn:
+        # Klub egasi XODIM dunyosida: `login` bor, `telegram_id` yo'q.
+        # Kompozit FK mijoz qatoriga a'zolik yozishga yo'l qo'ymaydi.
         ids["user"] = await conn.scalar(
             text(
-                "INSERT INTO users (telegram_id, first_name) VALUES (:tid, 'Owner')"
-                " ON CONFLICT (telegram_id) DO UPDATE SET first_name = 'Owner' RETURNING id"
+                "INSERT INTO users (kind, login, status, first_name)"
+                " VALUES ('staff', 'flow.owner', 'active', 'Owner')"
+                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                " DO UPDATE SET first_name = 'Owner' RETURNING id"
             ),
-            {"tid": OWNER_TG},
         )
         ids["org"] = await conn.scalar(
             text(
@@ -213,6 +216,16 @@ async def test_logout_revokes_refresh(
 # ── Klub egasi va entitlement ─────────────────────────────────────────────
 
 
+# Bu ikki test klub egasi Mini App `initData` bilan kirishiga tayanadi.
+# Ikki dunyo modelida bu imkonsiz: xodimda `telegram_id` yo'q va `initData`
+# faqat mijoz yaratadi. Ular xodim kirish endpointi (`POST /auth/login`)
+# tayyor bo'lgach o'sha oqim bilan qayta yoziladi.
+_STAFF_LOGIN_PENDING = pytest.mark.skip(
+    reason="xodim login+parol endpointi hali yozilmagan (docs/05-auth-redesign.md §6)"
+)
+
+
+@_STAFF_LOGIN_PENDING
 @skip_no_db
 async def test_owner_sees_club_and_plan(
     client: httpx.AsyncClient, club_owner: dict[str, int]
@@ -242,6 +255,7 @@ async def test_owner_sees_club_and_plan(
     assert body["limits"]["clubs"] == 1
 
 
+@_STAFF_LOGIN_PENDING
 @skip_no_db
 async def test_foreign_club_header_is_rejected(
     client: httpx.AsyncClient, club_owner: dict[str, int]

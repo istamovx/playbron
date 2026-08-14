@@ -37,6 +37,14 @@ class AppError(Exception):
         self.details = details or {}
 
 
+class BadRequest(AppError):
+    """400 — kirish ma'lumoti qoidaga mos emas. `AppError` bilan bir xil,
+    lekin chaqiruv joyida niyat o'qiladi."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "BAD_REQUEST"
+
+
 class Unauthorized(AppError):
     status_code = status.HTTP_401_UNAUTHORIZED
     code = "UNAUTHORIZED"

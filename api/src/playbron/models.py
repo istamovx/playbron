@@ -41,14 +41,31 @@ CLUB_SUSPENDED = "suspended"
 
 
 class User(Base):
-    """Global identity. Yagona kalit — `telegram_id`. Parol yo'q."""
+    """Global identity — **ikki dunyo bitta jadvalda** (`docs/05-auth-redesign.md`).
+
+    `kind` o'zgarmas diskriminator:
+      • `customer` → `telegram_id` bilan tanaladi, `login` va parol yo'q
+      • `staff`    → `login` bilan tanaladi, `telegram_id` NULL
+                     (Telegram alohida `staff_telegram` jadvalida)
+
+    Ajratish DB'da CHECK va kompozit FK bilan majburlanadi; `kind` ustuni ilova
+    roli uchun `REVOKE UPDATE` qilingan, ya'ni kod xatosi bilan o'zgarmaydi.
+    """
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    kind: Mapped[str] = mapped_column(Text, default="customer")
+    # Qisman UNIQUE indeks: `WHERE kind = 'customer'`
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    # Qisman UNIQUE indeks: `lower(login) WHERE kind = 'staff'`
+    login: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active")
     username: Mapped[str | None] = mapped_column(String(64))
     first_name: Mapped[str] = mapped_column(String(128), default="")
+    # Botda tasdiqlangan ism. `first_name` Telegram profilidan keladi va uni
+    # foydalanuvchi to'liq nazorat qiladi — ko'rsatish uchun shu maydon.
+    display_name: Mapped[str | None] = mapped_column(String(128))
     last_name: Mapped[str | None] = mapped_column(String(128))
     language_code: Mapped[str | None] = mapped_column(String(8))
     photo_url: Mapped[str | None] = mapped_column(Text)
@@ -56,6 +73,8 @@ class User(Base):
     # initData telefonni bermaydi — bot `requestContact` orqali to'ldiradi
     phone: Mapped[str | None] = mapped_column(String(20))
     phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Tasdiq abadiy emas — raqam boshqa odamga berilishi mumkin (§4.7)
+    phone_reverified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tg_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

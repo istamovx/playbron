@@ -50,14 +50,18 @@ async def seeded() -> AsyncIterator[dict[str, int]]:
     ids: dict[str, int] = {}
 
     async with owner.begin() as conn:
-        for key, telegram_id in (("user_a", 1001), ("user_b", 1002)):
+        # A'zolik oladigan foydalanuvchi XODIM bo'lishi shart: kompozit FK
+        # mijoz qatoriga `memberships` yozishga yo'l qo'ymaydi.
+        for key, login in (("user_a", "rls.usera"), ("user_b", "rls.userb")):
             ids[key] = await conn.scalar(
                 text(
-                    "INSERT INTO users (telegram_id, first_name) VALUES (:tid, :name)"
-                    " ON CONFLICT (telegram_id) DO UPDATE SET first_name = EXCLUDED.first_name"
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', :name)"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET first_name = EXCLUDED.first_name"
                     " RETURNING id"
                 ),
-                {"tid": telegram_id, "name": f"Test {key}"},
+                {"login": login, "name": f"Test {key}"},
             )
 
         for key, owner_key in (("org_a", "user_a"), ("org_b", "user_b")):
