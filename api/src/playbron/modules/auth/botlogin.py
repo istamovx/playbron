@@ -54,30 +54,41 @@ def _key(nonce: str) -> str:
     return f"{START_PREFIX}{nonce}"
 
 
-async def start_login() -> str:
-    """Yangi kirish urinishi — nonce yaratib, kutish holatida saqlaydi."""
+async def start_login(lang: str = "uz") -> str:
+    """Yangi kirish urinishi — nonce yaratib, kutish holatida saqlaydi.
+
+    `lang` — konsolda tanlangan til. Botning javobi Telegram ilovasining
+    tiliga emas, aynan shu tanlovga mos bo'ladi.
+    """
     nonce = secrets.token_urlsafe(32)
-    await redis_client().set(_key(nonce), json.dumps({"status": "pending"}), ex=START_TTL_SEC)
+    await redis_client().set(
+        _key(nonce),
+        json.dumps({"status": "pending", "lang": lang}),
+        ex=START_TTL_SEC,
+    )
     return nonce
 
 
-async def approve_login(nonce: str, profile: dict[str, Any]) -> bool:
+async def approve_login(nonce: str, profile: dict[str, Any]) -> str | None:
     """Webhook'dan kelgan Start'ni tasdiqlaydi.
 
-    Faqat mavjud (eskirmagan) nonce tasdiqlanadi — begona yoki kechikkan
-    `/start` jimgina rad etiladi, Telegram'ga baribir 200 qaytadi.
+    Muvaffaqiyatda konsolda tanlangan tilni qaytaradi (bot javobi uchun).
+    Begona yoki eskirgan nonce — `None`; Telegram'ga baribir 200 qaytadi.
     """
     key = _key(nonce)
     current = await redis_client().get(key)
     if current is None:
-        return False
+        return None
+
+    data: dict[str, Any] = json.loads(current)
+    lang = str(data.get("lang") or "uz")
 
     await redis_client().set(
         key,
-        json.dumps({"status": "approved", "profile": profile}),
+        json.dumps({"status": "approved", "profile": profile, "lang": lang}),
         ex=APPROVED_TTL_SEC,
     )
-    return True
+    return lang
 
 
 async def poll_login(nonce: str) -> tuple[str, dict[str, Any] | None]:

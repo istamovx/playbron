@@ -123,23 +123,26 @@ export function LoginScreen(): ReactNode {
       };
 
       void (async () => {
-        try {
-          while (!marker.stop && Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-            if (marker.stop) return;
+        while (!marker.stop && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          if (marker.stop) return;
 
+          try {
             const status = await pollTelegramLogin(nonce);
             if (status === 'ready') {
               clearAttempt();
               return;
             }
-            if (status === 'expired') break;
+            if (status === 'expired') {
+              fail('startExpired', null);
+              return;
+            }
+          } catch {
+            // Vaqtinchalik xato (API restart, tarmoq uzilishi, sovuq start) —
+            // kutish davom etadi. Muddat (deadline) baribir chegaralaydi.
           }
-          fail('startExpired', null);
-        } catch (cause) {
-          const text = cause instanceof Error && cause.message ? cause.message : null;
-          fail(text ? null : 'signInFailed', text);
         }
+        fail('startExpired', null);
       })();
     },
     [pollTelegramLogin],
@@ -175,7 +178,7 @@ export function LoginScreen(): ReactNode {
     void (async () => {
       let nonce: string;
       try {
-        nonce = await beginTelegramLogin();
+        nonce = await beginTelegramLogin(lang);
       } catch (cause) {
         setError(cause instanceof Error && cause.message ? cause.message : '');
         setBusy(false);

@@ -165,6 +165,12 @@ async def refresh(
     return _to_session(payload, entitlements)
 
 
+class StartIn(BaseModel):
+    """Konsolda tanlangan til — bot javobi shu tilda bo'ladi."""
+
+    lang: str = "uz"
+
+
 class StartOut(BaseModel):
     nonce: str
     expires_in: int
@@ -176,14 +182,17 @@ class PollOut(BaseModel):
 
 
 @router.post("/telegram/start", response_model=StartOut)
-async def start_bot_login() -> StartOut:
+async def start_bot_login(body: StartIn | None = None) -> StartOut:
     """Bot orqali kirishni boshlaydi — deep-link uchun nonce beradi.
 
     Konsol foydalanuvchini `tg://resolve?domain=<bot>&start=<nonce>` ga
     yo'naltiradi va shu nonce bilan poll qiladi. OAuth oynasi ochilmaydi,
     @BotFather'dagi `/setdomain` ham shart emas.
     """
-    nonce = await botlogin.start_login()
+    lang = (body.lang if body else "uz").lower()
+    if lang not in {"uz", "ru", "en"}:
+        lang = "uz"
+    nonce = await botlogin.start_login(lang)
     return StartOut(nonce=nonce, expires_in=botlogin.START_TTL_SEC)
 
 
@@ -246,9 +255,13 @@ async def admin_bot_webhook(
     parsed = botlogin.extract_start(update if isinstance(update, dict) else {})
     if parsed:
         nonce, sender = parsed
-        approved = await botlogin.approve_login(nonce, sender)
+        # Muvaffaqiyatda javob tili — konsolda tanlangani; eskirgan nonce'da
+        # konsol tili noma'lum, shuning uchun Telegram ilova tiliga qaytamiz
+        console_lang = await botlogin.approve_login(nonce, sender)
         await botlogin.notify(
-            int(sender["id"]), sender.get("language_code"), approved=approved
+            int(sender["id"]),
+            console_lang or sender.get("language_code"),
+            approved=console_lang is not None,
         )
 
     return {"ok": True}

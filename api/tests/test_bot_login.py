@@ -96,8 +96,8 @@ async def test_full_flow(
     clean_bot_user: None,
     _mute_notify: list[dict[str, Any]],
 ) -> None:
-    # 1. Start — nonce olinadi
-    r = await client.post("/api/v1/auth/telegram/start")
+    # 1. Start — nonce olinadi, konsol tili birga saqlanadi
+    r = await client.post("/api/v1/auth/telegram/start", json={"lang": "ru"})
     assert r.status_code == 200
     nonce = r.json()["nonce"]
     assert len(nonce) >= 32
@@ -106,14 +106,15 @@ async def test_full_flow(
     r = await client.post(f"/api/v1/auth/telegram/start/{nonce}")
     assert r.json() == {"status": "pending", "session": None}
 
-    # 3. Webhook — botda Start bosildi
+    # 3. Webhook — botda Start bosildi. Bot javobi TELEGRAM ilova tilida emas
+    #    (sender'da `en`), KONSOLDA tanlangan tilda (`ru`) bo'ladi
     r = await client.post(
         "/api/v1/auth/telegram/webhook/admin",
-        json=start_update(nonce),
+        json=start_update(nonce, lang="en"),
         headers={SECRET_HEADER: WEBHOOK_HEADER_VALUE},
     )
     assert r.status_code == 200
-    assert _mute_notify == [{"chat_id": BOT_TG, "lang": "uz", "approved": True}]
+    assert _mute_notify == [{"chat_id": BOT_TG, "lang": "ru", "approved": True}]
 
     # 4. Poll `ready` — to'liq sessiya bilan
     r = await client.post(f"/api/v1/auth/telegram/start/{nonce}")
@@ -152,7 +153,8 @@ async def test_webhook_requires_secret(client: httpx.AsyncClient) -> None:
 async def test_unknown_nonce(
     client: httpx.AsyncClient, _mute_notify: list[dict[str, Any]]
 ) -> None:
-    # Begona nonce bilan webhook — 200, lekin tasdiqlanmaydi
+    # Begona nonce bilan webhook — 200, lekin tasdiqlanmaydi.
+    # Konsol tili noma'lum — javob Telegram ilova tiliga qaytadi
     r = await client.post(
         "/api/v1/auth/telegram/webhook/admin",
         json=start_update("begona-nonce"),

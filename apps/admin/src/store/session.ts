@@ -57,8 +57,9 @@ interface SessionState {
   loading: boolean;
   error: string | null;
 
-  /** Bot orqali kirishni boshlaydi — deep-link uchun nonce qaytaradi. */
-  beginTelegramLogin: () => Promise<string>;
+  /** Bot orqali kirishni boshlaydi — deep-link uchun nonce qaytaradi.
+   *  `lang` — konsolda tanlangan til; bot javobi shu tilda bo'ladi. */
+  beginTelegramLogin: (lang: string) => Promise<string>;
   /** Nonce holatini so'raydi; `ready` kelganda sessiyani o'zi o'rnatadi. */
   pollTelegramLogin: (nonce: string) => Promise<'pending' | 'expired' | 'ready'>;
   signInDev: () => Promise<void>;
@@ -92,11 +93,11 @@ export const useSession = create<SessionState>()((set, get) => ({
   loading: false,
   error: null,
 
-  beginTelegramLogin: async () => {
+  beginTelegramLogin: async (lang) => {
     try {
       const body = await api.post<{ nonce: string; expires_in: number }>(
         '/auth/telegram/start',
-        {},
+        { lang },
         { anonymous: true },
       );
       return body.nonce;
