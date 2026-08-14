@@ -14,19 +14,14 @@
 #   mini.playbron.uz  → mijoz Mini App'i
 #   api.playbron.uz   → API
 #
-# 1-qadam (BAJARILGAN): quyidagi `domains:` ro'yxatlari. Render domenlarni
-#    yaratadi va DNS yozuvlarini ko'rsatadi; tasdiqlanmaguncha xizmatlar
-#    `.onrender.com` da ishlayveradi, hech narsa sinmaydi.
-# 2-qadam (DNS tasdiqlangandan KEYIN): quyidagi qiymatlar almashtiriladi —
-#    ilgari qilinsa saytlar hali ochilmagan manzilga murojaat qilib qoladi.
-#      playbron-landing  SITE_URL         → https://playbron.uz
-#      playbron-admin    VITE_LANDING_URL → https://playbron.uz
-#      playbron-admin    VITE_API_URL     → https://api.playbron.uz/api/v1
-#      playbron-miniapp  VITE_API_URL     → https://api.playbron.uz/api/v1
-#      playbron-api      CORS_ORIGINS     → https://playbron.uz,https://www.playbron.uz,
-#                                           https://app.playbron.uz,https://mini.playbron.uz
-#      playbron-api      PUBLIC_URL       → https://api.playbron.uz
-#    `VITE_*` build paytida kodga singdiriladi — o'zgartirgach qayta deploy shart.
+# Ikkala qadam ham BAJARILGAN: domenlar `domains:` orqali ulangan va tasdiqlangan,
+# env qiymatlari ham yangi manzillarga o'tkazilgan.
+#
+# `CORS_ORIGINS` da eski `.onrender.com` manzillari ATAYLAB qoldirilgan: statik
+# saytlar qayta yig'ilib bo'lgunicha brauzerdagi eski nusxa hali eski manzilni
+# chaqiradi. Hammasi barqaror ishlagach ularni ro'yxatdan olib tashlash mumkin.
+#
+# `VITE_*` build paytida kodga singdiriladi — qiymat o'zgarsa qayta deploy shart.
 
 # DIQQAT: baza, Redis va API **bitta regionda** bo'lishi shart. Render'ning ichki
 # tarmog'i regionlar orasida ishlamaydi — API boshqa regionda bo'lsa baza va
@@ -121,9 +116,16 @@ services:
       - key: SUPER_ADMIN_TELEGRAM_IDS
         value: '611207125'
 
-      # Manzil xizmat nomidan kelib chiqadi — oldindan ma'lum, kutish shart emas.
+      # Eski `.onrender.com` manzillari ATAYLAB qoldirildi: frontend qayta
+      # yig'ilib bo'lgunicha ular hali eski manzilni ishlatadi. Ikkalasi ham
+      # ruxsat etilgani uchun o'tish paytida uzilish bo'lmaydi.
       - key: CORS_ORIGINS
-        value: 'https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com'
+        value: 'https://playbron.uz,https://www.playbron.uz,https://app.playbron.uz,https://mini.playbron.uz,https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com'
+
+      # Telegram webhook shu manzilga ro'yxatdan o'tadi. Qo'yilmasa kod
+      # `RENDER_EXTERNAL_URL` ga tushadi va webhook eski manzilda qolib ketadi.
+      - key: PUBLIC_URL
+        value: 'https://api.playbron.uz'
 
       - key: GRACE_DAYS
         value: '3'
@@ -144,12 +146,12 @@ services:
       # Vite qiymatni BUILD paytida kodga singdiradi. Shu yerda turgani uchun
       # birinchi build'dayoq to'g'ri bo'ladi — qayta deploy qilish shart emas.
       - key: VITE_API_URL
-        value: 'https://playbron-api.onrender.com/api/v1'
+        value: 'https://api.playbron.uz/api/v1'
       - key: VITE_TELEGRAM_LOGIN_BOT
         value: playbronadminbot
       # Kirish ekranidagi «saytga qaytish» tugmasi. Domen ulangach playbron.uz
       - key: VITE_LANDING_URL
-        value: 'https://playbron-landing.onrender.com'
+        value: 'https://playbron.uz'
     routes:
       # SPA: barcha manzillar index.html ga (react-router BrowserRouter)
       - type: rewrite
@@ -183,7 +185,7 @@ services:
       # playbron.uz domeni ulangach shu qiymat 'https://playbron.uz' ga
       # o'zgartiriladi (va playbron-admin dagi VITE_LANDING_URL ham).
       - key: SITE_URL
-        value: 'https://playbron-landing.onrender.com'
+        value: 'https://playbron.uz'
     headers:
       - path: /*
         name: X-Frame-Options
@@ -204,7 +206,7 @@ services:
       - key: NODE_VERSION
         value: '22'
       - key: VITE_API_URL
-        value: 'https://playbron-api.onrender.com/api/v1'
+        value: 'https://api.playbron.uz/api/v1'
     routes:
       - type: rewrite
         source: /*
