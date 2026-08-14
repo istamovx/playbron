@@ -583,6 +583,29 @@ tranzaksiyani yozadi. Obuna to'lovi esa **platformaning o'z merchant hisobiga** 
 > sub-merchant) rejimi bormi — rasmiy hujjatdan aniqlanadi. Yo'q bo'lsa, har klub
 > o'z `service_id`/`merchant_id` sini kiritadi va biz uni so'rovda uzatamiz.
 
+> **HOLAT (2026-08-14):** biznes tomonidan hali tanlanmagan. Variant A tavsiya
+> bo'lib qolmoqda, lekin qaror qabul qilinmaguncha kod yozilmaydi va bu haqda
+> tashqi materiallarda (landing, taklif) da'vo qilinmaydi.
+
+### Bekor qilish siyosati — hal qilinmagan
+
+Bron **bekor qilinganda** 1 soatlik oldindan to'lov qaytariladimi? No-show holati
+aniq (qaytarilmaydi — jarima), lekin mijoz **o'zi oldindan bekor qilsa** qoida yo'q.
+
+| Savol | Nima hal qilinishi kerak |
+|---|---|
+| Chegara vaqti | Necha soat oldin bekor qilinsa pul qaytadi (masalan 3 soat)? |
+| Qisman qaytarish | To'liq qaytariladimi yoki ushlab qolinadigan ulush bormi? |
+| Qayerga qaytadi | Provayder orqali kartaga yoki mijozning klubdagi hisobiga? |
+| Klub o'zi bekor qilsa | To'liq qaytarish + mijozga uzr xabari (bu tomon aniq) |
+| Kim boshqaradi | Chegara klub sozlamasi bo'ladimi yoki platforma bo'ylab yagona? |
+
+Bu qoida `bookings` holat mashinasiga va `booking_payments` refund oqimiga
+bevosita ta'sir qiladi — **Faza 5 boshlanishidan oldin** javob kerak.
+
+> **HOLAT (2026-08-14):** hal qilinmagan. Landing va boshqa tashqi materiallarda
+> bekor qilish shartlari haqida hech narsa va'da qilinmaydi.
+
 ### Umumiy oqim (obuna)
 
 ```
