@@ -233,8 +233,9 @@ async def admin_bot_webhook(
     boshqa hech kim bu endpointga yozolmaydi. Telegram'ga har doim 200 qaytadi,
     aks holda u update'ni qayta-qayta yuboraveradi.
     """
-    expected = settings.tg_webhook_secret.get_secret_value()
-    if not expected or not secret or not constant_time_equal(secret, expected):
+    if not settings.tg_webhook_secret.get_secret_value():
+        raise Unauthorized("Webhook sekreti sozlanmagan", code="WEBHOOK_BAD_SECRET")
+    if not secret or not constant_time_equal(secret, botlogin.webhook_secret_token()):
         raise Unauthorized("Webhook sekreti mos kelmadi", code="WEBHOOK_BAD_SECRET")
 
     try:

@@ -17,6 +17,7 @@ TTL 5 daqiqa, bir marta ishlaydi; uni bilgan brauzergina sessiyani oladi.
 Bu oqim @BotFather'dagi `/setdomain` ni talab qilmaydi.
 """
 
+import hashlib
 import json
 import logging
 import secrets
@@ -28,6 +29,17 @@ from playbron.core.config import settings
 from playbron.core.redis import redis_client
 
 log = logging.getLogger("playbron.botlogin")
+
+
+def webhook_secret_token() -> str:
+    """`setWebhook` uchun sekret — env qiymatining SHA-256 hex'i.
+
+    Telegram `secret_token` da faqat `A-Za-z0-9_-` ga ruxsat beradi, Render'ning
+    `generateValue` yasagan qiymatida esa boshqa belgilar bo'lishi mumkin (aynan
+    shu sabab ro'yxat 400 bilan yiqilgan). Hex har doim ruxsat etilgan to'plamda,
+    entropiya esa saqlanadi. Kiruvchi webhook ham shu qiymat bilan solishtiriladi.
+    """
+    return hashlib.sha256(settings.tg_webhook_secret.get_secret_value().encode()).hexdigest()
 
 START_PREFIX = "auth:tgstart:"
 # Havola ochilib, Start bosilguncha yetarli muddat
@@ -171,7 +183,7 @@ async def register_webhook(public_url: str) -> None:
                 f"{TELEGRAM_API}/bot{token}/setWebhook",
                 json={
                     "url": url,
-                    "secret_token": secret,
+                    "secret_token": webhook_secret_token(),
                     # Faqat xabarlar kerak — /start shu turda keladi.
                     # Uxlab qolgan xizmat uyg'onganda navbatdagi update'lar
                     # yetkaziladi, shuning uchun pending'lar tashlanmaydi.

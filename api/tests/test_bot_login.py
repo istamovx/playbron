@@ -5,6 +5,7 @@ Haqiqiy PostgreSQL va Redis talab qiladi:
     RUN_DB_TESTS=1 pytest
 """
 
+import hashlib
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -22,6 +23,9 @@ from playbron.modules.auth import botlogin
 pytestmark = pytest.mark.asyncio
 
 WEBHOOK_SECRET = "botlogin-test-secret"  # noqa: S105
+# Telegram'ga sekretning SHA-256 hex'i beriladi (belgilar cheklovi tufayli) —
+# webhook sarlavhasida ham aynan shu qiymat keladi
+WEBHOOK_HEADER_VALUE = hashlib.sha256(WEBHOOK_SECRET.encode()).hexdigest()
 BOT_TG = 900_000_003
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
@@ -106,7 +110,7 @@ async def test_full_flow(
     r = await client.post(
         "/api/v1/auth/telegram/webhook/admin",
         json=start_update(nonce),
-        headers={SECRET_HEADER: WEBHOOK_SECRET},
+        headers={SECRET_HEADER: WEBHOOK_HEADER_VALUE},
     )
     assert r.status_code == 200
     assert _mute_notify == [{"chat_id": BOT_TG, "lang": "uz", "approved": True}]
@@ -135,6 +139,14 @@ async def test_webhook_requires_secret(client: httpx.AsyncClient) -> None:
     )
     assert r.status_code == 401
 
+    # Xom sekret ham o'tmaydi — faqat SHA-256 hex qabul qilinadi
+    r = await client.post(
+        "/api/v1/auth/telegram/webhook/admin",
+        json=start_update("x"),
+        headers={SECRET_HEADER: WEBHOOK_SECRET},
+    )
+    assert r.status_code == 401
+
 
 @skip_no_db
 async def test_unknown_nonce(
@@ -144,7 +156,7 @@ async def test_unknown_nonce(
     r = await client.post(
         "/api/v1/auth/telegram/webhook/admin",
         json=start_update("begona-nonce"),
-        headers={SECRET_HEADER: WEBHOOK_SECRET},
+        headers={SECRET_HEADER: WEBHOOK_HEADER_VALUE},
     )
     assert r.status_code == 200
     assert _mute_notify == [{"chat_id": BOT_TG, "lang": "uz", "approved": False}]
@@ -167,7 +179,7 @@ async def test_webhook_ignores_other_updates(
         r = await client.post(
             "/api/v1/auth/telegram/webhook/admin",
             json=update,
-            headers={SECRET_HEADER: WEBHOOK_SECRET},
+            headers={SECRET_HEADER: WEBHOOK_HEADER_VALUE},
         )
         assert r.status_code == 200
 

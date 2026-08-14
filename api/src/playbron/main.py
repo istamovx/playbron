@@ -21,6 +21,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("playbron")
 
+# httpx INFO darajasida to'liq URL yozadi — Bot API URL'ida esa TOKEN bor.
+# Token log'ga tushmasligi uchun faqat ogohlantirishlar qoldiriladi.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 API_PREFIX = "/api/v1"
 
 
