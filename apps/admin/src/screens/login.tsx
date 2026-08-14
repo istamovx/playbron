@@ -14,6 +14,19 @@ const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
   { icon: 'analytics', title: 'featReportTitle', text: 'featReportText' },
 ];
 
+/**
+ * Marketing sayti — kirish ekranidagi «saytga qaytish» havolasi shu manzilga.
+ * Odatiy yo'l: landing → «Ilovaga kirish» → shu ekran, shuning uchun orqaga
+ * qaytish yo'li ham bo'lishi kerak.
+ *
+ * `playbron.uz` hali hech qayerga yo'naltirilmagan, shuning uchun sukut qiymat
+ * sifatida ishlatilmaydi — lokalda landing dev serveri, prod'da esa Render
+ * manzili. Domen ulangach `VITE_LANDING_URL` playbron.uz ga o'zgartiriladi.
+ */
+const LANDING_URL: string =
+  (import.meta.env['VITE_LANDING_URL'] as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:5175' : 'https://playbron-landing.onrender.com');
+
 const POLL_INTERVAL_MS = 2_000;
 // Nonce TTL bilan bir xil — 5 daqiqa
 const POLL_TIMEOUT_MS = 300_000;
@@ -92,6 +105,7 @@ export function LoginScreen(): ReactNode {
   const [errorKey, setErrorKey] = useState<MsgKey | null>(null);
   const [busy, setBusy] = useState(false);
   const [tmeLink, setTmeLink] = useState<string | null>(null);
+  const [online, setOnline] = useState(true);
   // Bekor qilish va unmount poll siklini shu belgi orqali to'xtatadi
   const run = useRef<{ stop: boolean } | null>(null);
   const resumed = useRef(false);
@@ -102,6 +116,18 @@ export function LoginScreen(): ReactNode {
     },
     [],
   );
+
+  // Holat qatoridagi ulanish indikatori — soxta emas, brauzerdan
+  useEffect(() => {
+    const sync = (): void => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    return () => {
+      window.removeEventListener('online', sync);
+      window.removeEventListener('offline', sync);
+    };
+  }, []);
 
   /** Nonce tasdiqlanishini kutadi. `ready` — sessiya o'rnatiladi, App almashadi. */
   const watch = useCallback(
@@ -211,24 +237,21 @@ export function LoginScreen(): ReactNode {
   };
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 'calc(var(--gutter) + 44px) var(--gutter) var(--gutter)',
-        background: 'var(--bg-app)',
-        font: 'var(--type-body)',
-        color: 'var(--text-body)',
-        overflow: 'hidden',
-      }}
-    >
+    <div style={SHELL}>
       <Backdrop />
 
       <header className="pb-auth-top">
-        <span style={EYEBROW}>{t('eyebrow')}</span>
+        <div className="pb-auth-back">
+          <a className="pb-auth-back__link" href={LANDING_URL} aria-label={t('backToSite')}>
+            <Icon name="arrow_back" size={14} />
+            {/* Tor ekranda matn olib turiladi — til almashtirgichi bilan sig'masdi */}
+            <span className="pb-auth-back__label">{t('backToSite')}</span>
+          </a>
+          <span className="pb-auth-eyebrow" style={EYEBROW}>
+            {t('eyebrow')}
+          </span>
+        </div>
+
         <SegmentedControl
           size="sm"
           brackets
@@ -242,38 +265,60 @@ export function LoginScreen(): ReactNode {
       </header>
 
       <div className="pb-auth">
-        <section
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 14,
-            textAlign: 'center',
-          }}
-        >
-          <Wordmark width="min(360px, 86vw)" />
-          <p
-            style={{
-              margin: 0,
-              font: 'var(--type-body)',
-              color: 'var(--text-muted)',
-              maxWidth: 560,
-            }}
-          >
-            {t('tagline')}
-          </p>
+        {/* Brend va ulanish holati */}
+        <section className="pb-auth-brand">
+          <Wordmark width="min(330px, 78vw)" />
+
+          <p style={TAGLINE}>{t('tagline')}</p>
+
+          <StatusLine
+            tone={online ? 'ok' : 'danger'}
+            icon={online ? 'sensors' : 'sensors_off'}
+            parts={[t(online ? 'statusOnline' : 'statusOffline'), t('authMethodLabel')]}
+          />
         </section>
 
+        {/* Modullar — desktopda brend ostida, telefonda panel ortida */}
+        <div className="pb-auth-features">
+          <span style={EYEBROW}>{t('modulesLabel')}</span>
+          {FEATURES.map((item) => (
+            <div key={item.title} className="pb-auth-mod">
+              <span style={MOD_ICON}>
+                <Icon name={item.icon} size={17} />
+              </span>
+              <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
+                <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
+                  {t(item.title)}
+                </span>
+                <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
+                  {t(item.text)}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Kirish paneli */}
         <Panel
           title={t('signInTitle')}
           notch
           brackets
           glow
-          style={{ width: 'min(460px, 100%)' }}
+          style={{
+            position: 'relative',
+            overflow: 'hidden',
+            width: '100%',
+            minWidth: 0,
+            gridArea: 'panel',
+          }}
         >
+          <span className="pb-scan" aria-hidden />
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-            <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
+            <span style={PROMPT}>
+              <span style={{ color: 'var(--text-accent)' }}>{'> '}</span>
               {t('signInHint')}
+              <i className="pb-caret" aria-hidden />
             </span>
 
             <Button
@@ -289,27 +334,14 @@ export function LoginScreen(): ReactNode {
             </Button>
 
             {busy ? (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--gap-tight)',
-                  padding: 'var(--gap-block)',
-                  background: 'var(--surface-inset)',
-                  border: '1px dashed var(--line-1)',
-                  clipPath: 'var(--clip-tr)',
-                }}
-              >
+              <div style={WAITING}>
                 <StatusLine tone="accent" icon="hourglass_top" parts={t('confirmInTelegram')} />
                 {tmeLink ? (
                   <a
                     href={tmeLink}
                     target="_blank"
                     rel="noreferrer"
-                    style={{
-                      font: 'var(--type-body-sm)',
-                      color: 'var(--text-accent)',
-                    }}
+                    style={{ font: 'var(--type-body-sm)', color: 'var(--text-accent)' }}
                   >
                     {t('openViaTme')}
                   </a>
@@ -342,48 +374,6 @@ export function LoginScreen(): ReactNode {
             ) : null}
           </div>
         </Panel>
-
-        <section className="pb-auth-features">
-          {FEATURES.map((item) => (
-            <div
-              key={item.title}
-              style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'flex-start',
-                padding: 'var(--card-pad)',
-                background: 'var(--surface-card)',
-                border: '1px solid var(--line-1)',
-                clipPath: 'var(--clip-tr)',
-                minWidth: 0,
-              }}
-            >
-              <span
-                style={{
-                  flex: 'none',
-                  width: 34,
-                  height: 34,
-                  display: 'grid',
-                  placeItems: 'center',
-                  background: 'var(--surface-inset)',
-                  border: '1px solid var(--line-1)',
-                  clipPath: 'var(--clip-tr)',
-                  color: 'var(--purple-100)',
-                }}
-              >
-                <Icon name={item.icon} size={17} />
-              </span>
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                  {t(item.title)}
-                </span>
-                <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
-                  {t(item.text)}
-                </span>
-              </span>
-            </div>
-          ))}
-        </section>
       </div>
     </div>
   );
@@ -400,45 +390,96 @@ function Backdrop(): ReactNode {
           inset: 0,
           background: 'var(--bg-grid)',
           backgroundSize: '52px 52px',
-          maskImage: 'radial-gradient(75% 65% at 50% 38%, #000 0%, transparent 100%)',
-          WebkitMaskImage: 'radial-gradient(75% 65% at 50% 38%, #000 0%, transparent 100%)',
+          maskImage: 'radial-gradient(78% 68% at 50% 34%, #000 0%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(78% 68% at 50% 34%, #000 0%, transparent 100%)',
           pointerEvents: 'none',
         }}
       />
       <div
         aria-hidden
         style={{
-          position: 'absolute',
-          top: '-12%',
+          ...HALO,
+          top: '-24%',
           left: '50%',
-          width: 520,
-          height: 300,
+          width: 1080,
+          height: 520,
           transform: 'translateX(-50%)',
-          boxShadow: 'var(--glow-violet-lg)',
-          opacity: 0.5,
-          pointerEvents: 'none',
         }}
       />
       <div
         aria-hidden
-        style={{
-          position: 'absolute',
-          bottom: '-18%',
-          right: '-6%',
-          width: 380,
-          height: 240,
-          boxShadow: 'var(--glow-violet-lg)',
-          opacity: 0.22,
-          pointerEvents: 'none',
-        }}
+        style={{ ...HALO, bottom: '-20%', right: '-10%', width: 520, height: 320, opacity: 0.5 }}
       />
     </>
   );
 }
+
+const SHELL: CSSProperties = {
+  position: 'relative',
+  minHeight: '100vh',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 'calc(var(--gutter) + 44px) var(--gutter) var(--gutter)',
+  background: 'var(--bg-app)',
+  font: 'var(--type-body)',
+  color: 'var(--text-body)',
+  overflow: 'hidden',
+};
+
+/**
+ * Yumshoq binafsha yorug'lik.
+ *
+ * `--glow-violet-lg` (box-shadow) ishlatilmaydi: soya shaffof blokning CHETIGA
+ * tushadi, natijada fonda to'rtburchakning to'rt burchagi ko'rinib qoladi.
+ * Radial gradientning cheti umuman yo'q.
+ */
+const HALO: CSSProperties = {
+  position: 'absolute',
+  background:
+    'radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--primary-100) 22%, transparent) 0%, transparent 72%)',
+  pointerEvents: 'none',
+};
 
 const EYEBROW: CSSProperties = {
   font: 'var(--type-label)',
   letterSpacing: 'var(--ls-label)',
   textTransform: 'uppercase',
   color: 'var(--text-label)',
+};
+
+const TAGLINE: CSSProperties = {
+  margin: 0,
+  maxWidth: '46ch',
+  font: 'var(--type-body)',
+  color: 'var(--text-muted)',
+};
+
+/** Terminal qatori — mono, aksent prefiksi va miltillovchi kursor bilan. */
+const PROMPT: CSSProperties = {
+  font: 'var(--type-data-xs)',
+  lineHeight: 'var(--lh-normal)',
+  color: 'var(--text-muted)',
+};
+
+const MOD_ICON: CSSProperties = {
+  flex: 'none',
+  width: 34,
+  height: 34,
+  display: 'grid',
+  placeItems: 'center',
+  background: 'var(--surface-inset)',
+  border: '1px solid var(--line-1)',
+  clipPath: 'var(--clip-tr)',
+  color: 'var(--purple-100)',
+};
+
+const WAITING: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--gap-tight)',
+  padding: 'var(--gap-block)',
+  background: 'var(--surface-inset)',
+  border: '1px dashed var(--line-1)',
+  clipPath: 'var(--clip-tr)',
 };

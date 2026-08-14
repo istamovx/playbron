@@ -17,15 +17,22 @@ const STORAGE_KEY = 'playbron.lang';
 
 const STRINGS = {
   eyebrow: {
-    uz: 'Klub konsoli',
-    ru: 'Консоль клуба',
-    en: 'Club console',
+    uz: 'Klub ilovasi',
+    ru: 'Приложение клуба',
+    en: 'Club app',
   },
   tagline: {
     uz: 'PlayStation klublari uchun bron, kassa va boshqaruv tizimi. Xodim smenani yuritadi, klub admini butun klubni boshqaradi.',
     ru: 'Система бронирования, кассы и управления для PlayStation-клубов. Сотрудник ведёт смену, админ управляет всем клубом.',
     en: 'Booking, POS and management for PlayStation clubs. Staff run the shift, the club admin runs the whole club.',
   },
+
+  backToSite: { uz: 'Saytga qaytish', ru: 'На сайт', en: 'Back to site' },
+
+  statusOnline: { uz: 'Tizim onlayn', ru: 'Система онлайн', en: 'System online' },
+  statusOffline: { uz: 'Ulanish yo‘q', ru: 'Нет связи', en: 'Offline' },
+  authMethodLabel: { uz: 'Kirish: Telegram', ru: 'Вход: Telegram', en: 'Auth: Telegram' },
+  modulesLabel: { uz: 'Modullar', ru: 'Модули', en: 'Modules' },
 
   featLiveTitle: { uz: 'Live board', ru: 'Live-панель', en: 'Live board' },
   featLiveText: {
@@ -48,9 +55,9 @@ const STRINGS = {
 
   signInTitle: { uz: 'Kirish', ru: 'Вход', en: 'Sign in' },
   signInHint: {
-    uz: 'Konsolga Telegram hisobingiz bilan kirasiz — login va parol kerak emas.',
-    ru: 'В консоль входят через аккаунт Telegram — логин и пароль не нужны.',
-    en: 'Sign in to the console with your Telegram account — no login or password.',
+    uz: 'Ilovaga Telegram hisobingiz bilan kirasiz — login va parol kerak emas.',
+    ru: 'В приложение входят через аккаунт Telegram — логин и пароль не нужны.',
+    en: 'Sign in to the app with your Telegram account — no login or password.',
   },
   signInFailed: {
     uz: 'Kirish amalga oshmadi',
@@ -64,9 +71,9 @@ const STRINGS = {
     en: 'Sign in with Telegram',
   },
   confirmInTelegram: {
-    uz: 'Telegram ochildi — botdagi «Start» tugmasini bosing, konsol o‘zi kiradi',
-    ru: 'Telegram открыт — нажмите «Start» в боте, консоль войдёт сама',
-    en: 'Telegram is open — press “Start” in the bot and the console will sign you in',
+    uz: 'Telegram ochildi — botdagi «Start» tugmasini bosing, ilova o‘zi kiradi',
+    ru: 'Telegram открыт — нажмите «Start» в боте, приложение войдёт само',
+    en: 'Telegram is open — press “Start” in the bot and the app will sign you in',
   },
   openViaTme: {
     uz: 'Ilova ochilmadimi? t.me orqali ochish',
