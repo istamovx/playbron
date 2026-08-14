@@ -46,11 +46,28 @@ export class ApiError extends Error {
   }
 }
 
-/** Tarmoq uzilishi, timeout, CORS — server javob bermagan holat. */
+/** Tarmoq uzilishi, CORS — so'rov umuman ketmagan yoki javob tushunarsiz. */
 export class NetworkError extends Error {
   constructor(cause?: unknown) {
     super('Tarmoq bilan bog‘lanib bo‘lmadi');
     this.name = 'NetworkError';
+    this.cause = cause;
+  }
+}
+
+/**
+ * Server belgilangan vaqtda javob bermadi.
+ *
+ * `NetworkError`dan ATAYLAB ajratilgan: ikkalasi ham `fetch` chaqiruvida
+ * ushlanadi, lekin sabab boshqa — bu holatda so'rov KETGAN, faqat javob
+ * kelmagan (masalan Render bepul instansi uxlab qolgan yoki API va Redis
+ * boshqa regionda bo'lib konteyner start'da qotib qolgan). Matn ham
+ * boshqacha bo'lishi kerak: «internet yo'q» emas, «server javob bermayapti».
+ */
+export class TimeoutError extends Error {
+  constructor(cause?: unknown) {
+    super('Server javob bermadi');
+    this.name = 'TimeoutError';
     this.cause = cause;
   }
 }
@@ -77,5 +94,8 @@ export function errorText(error: unknown): string {
     }
   }
   if (error instanceof NetworkError) return 'Internet aloqasi yo‘q';
+  if (error instanceof TimeoutError) {
+    return 'Server javob bermayapti — birozdan keyin qayta urinib ko‘ring';
+  }
   return 'Kutilmagan xatolik';
 }

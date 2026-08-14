@@ -399,6 +399,26 @@ body {
   }
 }
 
+/**
+ * Ro'yxatdan o'tish: brend/modul ustuni YO'Q, forma o'rtada.
+ *
+ * Sabab — maydon ko'p (7 ta) va ikki ustunli sxemada forma tor bo'lib,
+ * o'ng chekkaga siqilib qolardi. Kirish paneli (2 maydon) uchun bu
+ * muammo emas, shuning uchun modifikator faqat ro'yxatdan o'tishda
+ * qo'llanadi.
+ */
+.pb-auth--single {
+  grid-template-areas: 'panel';
+  max-width: 640px;
+}
+
+@media (min-width: 906px) {
+  .pb-auth--single {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'panel';
+  }
+}
+
 .pb-auth-top {
   position: absolute;
   top: 0;

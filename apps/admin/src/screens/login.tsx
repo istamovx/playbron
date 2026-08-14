@@ -35,6 +35,35 @@ const LANDING_URL: string =
  */
 const OWNER_PASSWORD_MIN = 14;
 
+const PHONE_PREFIX = '+998';
+/** O'zbekiston mobil raqami — kod (998) dan keyingi 9 xona. */
+const PHONE_DIGITS = 9;
+
+/**
+ * `+998` doim turadi, foydalanuvchi faqat qolgan 9 xonani teradi.
+ *
+ * Istalgan kiritilgan matn (yopishtirilgan raqam, oldindagi «998» yoki
+ * «0» bilan ham) shu funksiyadan o'tadi — natija HAR DOIM `+998` bilan
+ * boshlanadi, uni o'chirib bo'lmaydi.
+ */
+function formatPhone(raw: string): string {
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('998')) digits = digits.slice(3);
+  digits = digits.slice(0, PHONE_DIGITS);
+
+  let out = PHONE_PREFIX;
+  if (digits.length > 0) out += ' ' + digits.slice(0, 2);
+  if (digits.length > 2) out += ' ' + digits.slice(2, 5);
+  if (digits.length > 5) out += ' ' + digits.slice(5, 7);
+  if (digits.length > 7) out += ' ' + digits.slice(7, 9);
+  return out;
+}
+
+/** Server `normalize_phone()` daydi — faqat raqamlar sonini biladi. */
+function phoneDigitCount(formatted: string): number {
+  return Math.max(0, formatted.replace(/\D/g, '').length - 3);
+}
+
 const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
   { icon: 'grid_view', title: 'featLiveTitle', text: 'featLiveText' },
   { icon: 'point_of_sale', title: 'featPosTitle', text: 'featPosText' },
@@ -106,35 +135,42 @@ export function LoginScreen(): ReactNode {
         />
       </header>
 
-      <div className="pb-auth">
-        <section className="pb-auth-brand">
-          <Wordmark width="min(330px, 78vw)" />
-          <p style={TAGLINE}>{t('tagline')}</p>
-          <StatusLine
-            tone={online ? 'ok' : 'danger'}
-            icon={online ? 'sensors' : 'sensors_off'}
-            parts={[t(online ? 'statusOnline' : 'statusOffline'), t('authMethodLabel')]}
-          />
-        </section>
+      {/* Ro'yxatdan o'tishda brend/modul ustuni YO'Q — 7 maydonli forma
+          ikki ustunli sxemada torayib qolardi. `must_change` va kirish
+          uchun mavjud (ikki ustunli) tartib saqlanadi. */}
+      <div className={mode === 'signUp' && !mustChange ? 'pb-auth pb-auth--single' : 'pb-auth'}>
+        {mode === 'signUp' && !mustChange ? null : (
+          <>
+            <section className="pb-auth-brand">
+              <Wordmark width="min(330px, 78vw)" />
+              <p style={TAGLINE}>{t('tagline')}</p>
+              <StatusLine
+                tone={online ? 'ok' : 'danger'}
+                icon={online ? 'sensors' : 'sensors_off'}
+                parts={[t(online ? 'statusOnline' : 'statusOffline'), t('authMethodLabel')]}
+              />
+            </section>
 
-        <div className="pb-auth-features">
-          <span style={EYEBROW}>{t('modulesLabel')}</span>
-          {FEATURES.map((item) => (
-            <div key={item.title} className="pb-auth-mod">
-              <span style={MOD_ICON}>
-                <Icon name={item.icon} size={17} />
-              </span>
-              <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
-                <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                  {t(item.title)}
-                </span>
-                <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
-                  {t(item.text)}
-                </span>
-              </span>
+            <div className="pb-auth-features">
+              <span style={EYEBROW}>{t('modulesLabel')}</span>
+              {FEATURES.map((item) => (
+                <div key={item.title} className="pb-auth-mod">
+                  <span style={MOD_ICON}>
+                    <Icon name={item.icon} size={17} />
+                  </span>
+                  <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
+                    <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
+                      {t(item.title)}
+                    </span>
+                    <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
+                      {t(item.text)}
+                    </span>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
 
         {/* `must_change` hamma narsadan ustun: birov bergan parol
             almashtirilmaguncha boshqa panel ochilmaydi (§7.3) */}
@@ -253,7 +289,7 @@ function SignUpPanel({ onDone }: { onDone: () => void }): ReactNode {
 
   const [firstName, setFirstName] = useState('');
   const [clubName, setClubName] = useState('');
-  const [phone, setPhone] = useState('+998');
+  const [phone, setPhone] = useState(PHONE_PREFIX);
   const [address, setAddress] = useState('');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -265,7 +301,7 @@ function SignUpPanel({ onDone }: { onDone: () => void }): ReactNode {
   const ready =
     firstName.trim().length > 1 &&
     clubName.trim().length > 1 &&
-    phone.trim().length > 9 &&
+    phoneDigitCount(phone) === PHONE_DIGITS &&
     address.trim().length > 4 &&
     login.trim().length > 2 &&
     password.length >= OWNER_PASSWORD_MIN &&
@@ -321,8 +357,8 @@ function SignUpPanel({ onDone }: { onDone: () => void }): ReactNode {
         <TextField
           label={t('phoneLabel')}
           value={phone}
-          onChange={setPhone}
-          placeholder="+998901234567"
+          onChange={(next) => setPhone(formatPhone(next))}
+          placeholder={`${PHONE_PREFIX} 90 123 45 67`}
           icon="call"
           inputMode="tel"
           autoComplete="tel"

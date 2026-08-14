@@ -1,5 +1,17 @@
-import { ApiError, NetworkError, type ApiErrorBody } from './errors';
+import { ApiError, NetworkError, TimeoutError, type ApiErrorBody } from './errors';
 import { isExpiring, isRefreshDead, type Session, type SessionStore } from './session';
+
+/**
+ * `fetch()` o'zi HECH QACHON timeout qilmaydi. Server sekin ishga tushsa
+ * (Render bepul instansi uxlagan) yoki umuman javob bermay qolsa
+ * (API va Redis boshqa regionda — konteyner start'da qotib qoladi), so'rov
+ * abadiy «kutilmoqda» holatida qoladi va tugma matni («Yuborilmoqda…»)
+ * o'zgarmay qotib qoladi — foydalanuvchiga hech qanday signal berilmaydi.
+ *
+ * 20 soniya: Render bepul rejasining sovuq boshlanishi (~30-50s) dan qisqa,
+ * lekin oddiy so'rovdan ancha uzun — early false-positive bermaydi.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export interface ClientOptions {
   baseUrl: string;
@@ -99,16 +111,23 @@ export class ApiClient {
     const clubId = this.options.clubId?.();
     if (clubId != null && !options.anonymous) headers['X-Club-Id'] = String(clubId);
 
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+
     try {
       return await fetch(this.options.baseUrl + path + queryString(options.query), {
         method: options.method ?? 'GET',
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: options.signal ?? null,
+        signal,
       });
     } catch (cause) {
-      // `AbortError` — bekor qilingan so'rov, xato emas
-      if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
+      // Chaqiruvchining O'ZI bekor qilgan so'rov — xato emas
+      if (options.signal?.aborted) throw cause;
+      // Qolgan har qanday `AbortError` — bizning timeout'imiz ishga tushdi
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        throw new TimeoutError(cause);
+      }
       throw new NetworkError(cause);
     }
   }

@@ -11,11 +11,13 @@
  */
 const dev = import.meta.env.DEV;
 
+const CONSOLE_BASE = dev ? 'http://localhost:5173' : 'https://app.playbron.uz';
+
 export const SITE = {
   url: 'https://playbron.uz',
 
   /** Xodim va klub admini ilovasi. */
-  console: dev ? 'http://localhost:5173' : 'https://app.playbron.uz',
+  console: CONSOLE_BASE,
   /**
    * Klub egasining ro'yxatdan o'tishi — o'sha kirish ekrani, `?signup=1`
    * bilan darhol ro'yxatdan o'tish panelida ochiladi.
@@ -24,9 +26,21 @@ export const SITE = {
    * parolni almashtirmaguncha boshqa ekran ochilmaydi» darvozasi yonidan
    * aylanib o'tish yo'liga aylanardi (`docs/05-auth-redesign.md` §7.3).
    */
-  signup: dev ? 'http://localhost:5173/?signup=1' : 'https://app.playbron.uz/?signup=1',
+  signup: `${CONSOLE_BASE}/?signup=1`,
   /** Mijoz Mini App'i (brauzerda ham ochiladi). */
   miniapp: dev ? 'http://localhost:5174' : 'https://mini.playbron.uz',
+
+  /**
+   * Ilovaga `?lang=` bilan o'tadigan havola.
+   *
+   * `app.playbron.uz` va `playbron.uz` — turli origin, `localStorage` ular
+   * orasida BO'LISHILMAYDI. Landingda `ru` tanlab «Ro'yxatdan o'tish»
+   * bossangiz, ilova buni bilmay o'z (brauzer tiliga qarab aniqlangan)
+   * tilini ko'rsatardi. Query parametri — ikki origin orasidagi yagona
+   * ishonchli aloqa kanali.
+   */
+  consoleWithLang: (base: string, lang: string): string =>
+    `${base}${base.includes('?') ? '&' : '?'}lang=${lang}`,
 
   /** Mijoz boti — o'yinchilar shu yerdan bron qiladi. */
   customerBot: 'https://t.me/playbronbot',

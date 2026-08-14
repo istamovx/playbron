@@ -152,8 +152,31 @@ function isLang(value: string | null | undefined): value is Lang {
   return value === 'uz' || value === 'ru' || value === 'en';
 }
 
-/** Saqlangan tanlov → brauzer tili → uz. */
+/**
+ * `?lang=` → saqlangan tanlov → brauzer tili → uz.
+ *
+ * `?lang=` ENG YUQORI ustuvorlikda: `playbron.uz` va `app.playbron.uz` —
+ * turli origin, `localStorage` ular orasida bo'lishilmaydi. Landingda
+ * tanlangan til shu query orqali keladi (`config.ts::consoleWithLang`),
+ * aks holda ilova brauzer tiliga (odatda tizim tiliga) qaytib, foydalanuvchi
+ * ro'yxatdan o'tish o'rtasida til almashib qolgandek his qilardi.
+ */
 function detect(): Lang {
+  try {
+    const fromLink = new URLSearchParams(window.location.search).get('lang');
+    if (isLang(fromLink)) {
+      // Saqlanadi: `?lang=` faqat BIRINCHI yuklanishda keladi, keyingi
+      // navigatsiya (masalan parol almashtirishdan keyin) query'siz bo'ladi
+      try {
+        localStorage.setItem(STORAGE_KEY, fromLink);
+      } catch {
+        // Saqlab bo'lmasa ham joriy sessiya uchun ishlayveradi
+      }
+      return fromLink;
+    }
+  } catch {
+    // URL o'qib bo'lmasa keyingi manbaga o'tamiz
+  }
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (isLang(stored)) return stored;

@@ -1,13 +1,14 @@
 ---
 import { SITE } from '../../config';
-import type { Content } from '../../content';
+import type { Content, Lang } from '../../content';
 import Icon from '../Icon.astro';
 
 interface Props {
   c: Content;
+  lang: Lang;
 }
 
-const { c } = Astro.props;
+const { c, lang } = Astro.props;
 const t = c.cta;
 ---
 
@@ -19,11 +20,11 @@ const t = c.cta;
       <p class="pbl-lead">{t.text}</p>
 
       <div class="pbl-actions">
-        <a class="pbl-btn pbl-btn--primary" href={SITE.signup}>
+        <a class="pbl-btn pbl-btn--primary" href={SITE.consoleWithLang(SITE.signup, lang)}>
           <Icon name="how_to_reg" size="sm" />
           {t.primary}
         </a>
-        <a class="pbl-btn pbl-btn--ghost" href={SITE.console}>
+        <a class="pbl-btn pbl-btn--ghost" href={SITE.consoleWithLang(SITE.console, lang)}>
           <Icon name="login" size="sm" />
           {t.secondary}
         </a>

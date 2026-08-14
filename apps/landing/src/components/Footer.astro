@@ -1,13 +1,14 @@
 ---
 import { LAUNCH_YEAR, LEGAL_ENTITY, SITE } from '../config';
-import type { Content } from '../content';
+import type { Content, Lang } from '../content';
 import Wordmark from './Wordmark.astro';
 
 interface Props {
   c: Content;
+  lang: Lang;
 }
 
-const { c } = Astro.props;
+const { c, lang } = Astro.props;
 const f = c.footer;
 
 // Build yilidan hisoblanadi — statik sayt har deployda qayta yig'iladi
@@ -44,7 +45,7 @@ const years = buildYear > LAUNCH_YEAR ? `${LAUNCH_YEAR}–${buildYear}` : String
       <div>
         <h4>{f.companyTitle}</h4>
         <ul>
-          <li><a class="pbl-link" href={SITE.console}>{f.console}</a></li>
+          <li><a class="pbl-link" href={SITE.consoleWithLang(SITE.console, lang)}>{f.console}</a></li>
           <li><a class="pbl-link" href={SITE.appBot}>{f.telegram}</a></li>
           <li><a class="pbl-link" href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
           <li><a class="pbl-link" href={`tel:${SITE.phoneHref}`}>{SITE.phone}</a></li>

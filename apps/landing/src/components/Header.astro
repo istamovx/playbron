@@ -39,7 +39,10 @@ const links = [
       }
     </nav>
 
-    <a class="pbl-btn pbl-btn--ghost pbl-btn--sm pbl-header__cta" href={SITE.console}>
+    <a
+      class="pbl-btn pbl-btn--ghost pbl-btn--sm pbl-header__cta"
+      href={SITE.consoleWithLang(SITE.console, lang)}
+    >
       {c.nav.login}
     </a>
   </div>
