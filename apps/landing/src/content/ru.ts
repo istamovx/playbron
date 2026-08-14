@@ -3,6 +3,7 @@
  * пропущен или назван иначе, сборка падает на `astro check`.
  */
 
+import { STATS } from '../config';
 import type { Content, MockStation } from './uz';
 
 const stations: MockStation[] = [
@@ -49,9 +50,8 @@ export const ru: Content = {
     ctaSecondary: 'Посмотреть экраны',
     stats: [
       { value: '24/7', label: 'Бронь из Telegram' },
-      { value: '1 час', label: 'Предоплата' },
-      { value: '0', label: 'Двойных броней' },
-      { value: 'uz · ru', label: 'Два языка интерфейса' },
+      { value: STATS.customers, label: 'Клиенты' },
+      { value: STATS.clubs, label: 'Клубы' },
     ],
   },
 
@@ -419,6 +419,6 @@ export const ru: Content = {
     console: 'Приложение',
     miniapp: 'Mini App',
     telegram: 'Telegram',
-    rights: 'Все права защищены.',
+    legalNote: 'Публичная оферта и политика конфиденциальности готовятся.',
   },
 };

@@ -37,7 +37,9 @@ const h = c.hero;
       {
         h.stats.map((stat) => (
           <div class="pbl-stat">
-            <b>{stat.value}</b>
+            {/* Qiymat `null` bo'lsa chiziqcha — o'ylab topilgan raqam
+                ommaviy sahifada da'vo bo'lib qoladi (`config.ts` dagi STATS) */}
+            <b>{stat.value ?? '—'}</b>
             <span>{stat.label}</span>
           </div>
         ))

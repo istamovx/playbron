@@ -8,6 +8,8 @@
  * Komponentlarda matn literali yo'q — hammasi shu yerdan keladi.
  */
 
+import { STATS } from '../config';
+
 /** Board mockup'idagi stansiya holati — CSS klassiga shu qiymat bo'yicha ulanadi. */
 export type StationState = 'free' | 'busy' | 'soon' | 'booked';
 
@@ -62,9 +64,8 @@ export const uz = {
     ctaSecondary: 'Ekranlarni ko‘rish',
     stats: [
       { value: '24/7', label: 'Telegram’dan bron' },
-      { value: '1 soat', label: 'Oldindan to‘lov' },
-      { value: '0', label: 'Ikkilangan bron' },
-      { value: 'uz · ru', label: 'Ikki tilda interfeys' },
+      { value: STATS.customers, label: 'Mijozlar' },
+      { value: STATS.clubs, label: 'Klublar' },
     ],
   },
 
@@ -426,7 +427,7 @@ export const uz = {
     console: 'Ilova',
     miniapp: 'Mini App',
     telegram: 'Telegram',
-    rights: 'Barcha huquqlar himoyalangan.',
+    legalNote: 'Ommaviy oferta va maxfiylik siyosati tayyorlanmoqda.',
   },
 };
 

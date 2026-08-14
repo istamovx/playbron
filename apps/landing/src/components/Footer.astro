@@ -1,5 +1,5 @@
 ---
-import { LAUNCH_YEAR, SITE } from '../config';
+import { LAUNCH_YEAR, LEGAL_ENTITY, SITE } from '../config';
 import type { Content } from '../content';
 import Wordmark from './Wordmark.astro';
 
@@ -9,6 +9,10 @@ interface Props {
 
 const { c } = Astro.props;
 const f = c.footer;
+
+// Build yilidan hisoblanadi — statik sayt har deployda qayta yig'iladi
+const buildYear = new Date().getFullYear();
+const years = buildYear > LAUNCH_YEAR ? `${LAUNCH_YEAR}–${buildYear}` : String(LAUNCH_YEAR);
 ---
 
 <footer class="pbl-footer">
@@ -41,7 +45,7 @@ const f = c.footer;
         <h4>{f.companyTitle}</h4>
         <ul>
           <li><a class="pbl-link" href={SITE.console}>{f.console}</a></li>
-          <li><a class="pbl-link" href={SITE.adminBot}>{f.telegram}</a></li>
+          <li><a class="pbl-link" href={SITE.appBot}>{f.telegram}</a></li>
           <li><a class="pbl-link" href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
           <li><a class="pbl-link" href={`tel:${SITE.phoneHref}`}>{SITE.phone}</a></li>
         </ul>
@@ -49,8 +53,13 @@ const f = c.footer;
     </div>
 
     <div class="pbl-footer__bar">
-      <span>© {LAUNCH_YEAR} PlayBron. {f.rights}</span>
-      <span>playbron.uz</span>
+      {/* Yil build paytida hisoblanadi: har deployda o'zi yangilanadi va
+          «© 2026» bo'lib qotib qolmaydi. Bir yildan oshsa oraliq ko'rsatiladi. */}
+      <span>© {years} PlayBron{LEGAL_ENTITY ? `, ${LEGAL_ENTITY}` : ''}</span>
+      {/* «Barcha huquqlar himoyalangan» ATAYLAB yo'q: bu ibora bugungi
+          huquqda hech narsa qo'shmaydi (Buenos-Ayres konvensiyasi eskirgan),
+          domen nomini takrorlash ham ortiqcha — u yuqorida allaqachon bor. */}
+      <span>{f.legalNote}</span>
     </div>
   </div>
 </footer>

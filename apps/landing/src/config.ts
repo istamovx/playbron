@@ -21,8 +21,8 @@ export const SITE = {
 
   /** Mijoz boti — o'yinchilar shu yerdan bron qiladi. */
   customerBot: 'https://t.me/playbronbot',
-  /** Konsol boti — klub egasi va xodim shu orqali kiradi va yozadi. */
-  adminBot: 'https://t.me/playbronadminbot',
+  /** Ilova boti — xodim va klub admini ilovani shu botdan ochadi. */
+  appBot: 'https://t.me/playbronappbot',
 
   // TODO: haqiqiy aloqa ma'lumotlari bilan almashtiring
   email: 'info@playbron.uz',
@@ -32,4 +32,25 @@ export const SITE = {
   phoneHref: '+998900000000',
 } as const;
 
+/** Loyiha ishga tushgan yil — copyright oralig'ining boshi. */
 export const LAUNCH_YEAR = 2026;
+
+/**
+ * Yuridik shaxs nomi (MChJ / YaTT). Ro'yxatdan o'tgach shu yerga yoziladi.
+ *
+ * `null` bo'lsa qator umuman chiqmaydi — mavjud bo'lmagan tashkilot nomini
+ * ko'rsatib bo'lmaydi.
+ */
+export const LEGAL_ENTITY: string | null = null;
+
+/**
+ * Hero'dagi ko'rsatkichlar.
+ *
+ * DIQQAT: bular ommaviy sahifada turadigan DA'VO. `null` bo'lsa o'rniga
+ * chiziqcha chiqadi — o'ylab topilgan raqam qo'yilmaydi. Haqiqiy son
+ * ma'lum bo'lgach faqat shu yer o'zgaradi.
+ */
+export const STATS: { customers: string | null; clubs: string | null } = {
+  customers: null,
+  clubs: null,
+};

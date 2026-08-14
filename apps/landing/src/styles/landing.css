@@ -1366,10 +1366,11 @@ body {
 
 /* ── FAQ ────────────────────────────────────────────────────────────────── */
 
+/* To'liq kenglik — qolgan bo'limlar bilan bir xil chetga tekislanadi.
+   Ilgari 860px bilan chegaralangani uchun FAQ yolg'iz o'zi tor bo'lib turardi. */
 .pbl-faq {
   display: grid;
   gap: var(--sp-4);
-  max-width: 860px;
 }
 
 .pbl-faq details {
@@ -1586,6 +1587,22 @@ body {
 }
 
 @media (max-width: 720px) {
+  /* Bitta ustunga tushganda chapga tekislangan matn yolg'iz qolib ko'rinadi */
+  .pbl-footer__grid {
+    justify-items: center;
+    text-align: center;
+  }
+  .pbl-footer__brand p {
+    margin-inline: auto;
+  }
+  .pbl-footer ul {
+    justify-items: center;
+  }
+  .pbl-footer__bar {
+    justify-content: center;
+    text-align: center;
+  }
+
   .pbl-app__nav {
     display: none;
   }
