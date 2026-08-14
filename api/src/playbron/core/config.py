@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Bo'sh bo'lsa Render'ning `RENDER_EXTERNAL_URL` env'i ishlatiladi (main.py).
     public_url: str = ""
 
+    # Mijoz Mini App'i — bot «Ilovani ochish» tugmasini shu manzilga qo'yadi.
+    # Telegram `web_app` faqat HTTPS qabul qiladi.
+    miniapp_url: str = "https://mini.playbron.uz"
+
     # ── Ma'lumotlar bazasi ────────────────────────────────────────────────
     # Ilova RLS ostidagi rol bilan ulanadi
     database_url: str = "postgresql+asyncpg://playbron_app:app@localhost:5432/playbron"

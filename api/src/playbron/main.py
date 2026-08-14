@@ -13,6 +13,8 @@ from playbron.core import context, db, errors, redis
 from playbron.core.config import settings
 from playbron.modules.auth import botlogin
 from playbron.modules.auth.router import router as auth_router
+from playbron.modules.bot import router as bot_router_setup
+from playbron.modules.bot.router import router as bot_router
 from playbron.modules.users.router import router as me_router
 
 logging.basicConfig(
@@ -38,6 +40,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.env not in {"local", "test"}:
         public_url = settings.public_url or os.environ.get("RENDER_EXTERNAL_URL", "")
         await botlogin.register_webhook(public_url)
+        # Mijoz boti — ro'yxatdan o'tish oqimi shu webhook orqali yuradi
+        await bot_router_setup.register_customer_webhook(public_url)
 
     yield
     await db.dispose()
@@ -106,4 +110,5 @@ async def readyz() -> dict[str, object]:
 
 
 app.include_router(auth_router, prefix=API_PREFIX)
+app.include_router(bot_router, prefix=API_PREFIX)
 app.include_router(me_router, prefix=API_PREFIX)
