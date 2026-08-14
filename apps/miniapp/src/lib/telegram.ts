@@ -2,7 +2,11 @@
  * Telegram Mini App integratsiyasi rasmiy `telegram-web-app.js` global obyekti orqali —
  * qo'shimcha SDK paketisiz, versiya farqi xavfi yo'q.
  *
- * MainButton va BackButton native ishlatiladi, o'z tugmalarimiz bilan dublikat qilinmaydi.
+ * MainButton va BackButton ISHLATILMAYDI. Ilovaning o'z header'i va o'z asosiy
+ * tugmasi bor; native tugmalar ham chiqsa ekranda bir xil amal ikki marta
+ * ko'rinadi (pastda ikkita tugma, yuqorida ikkita «orqaga»). Shuning uchun
+ * `initTelegram()` ularni ochilishda yashiradi va boshqa hech qayerda
+ * chaqirilmaydi.
  */
 interface TelegramButton {
   setText: (text: string) => void;
@@ -51,6 +55,12 @@ export function initTelegram(): void {
   app.ready();
   app.expand();
 
+  // Ilovaning o'z tugmalari bor — native tugmalar chiqmasin. Sukut bo'yicha
+  // ular yashirin, lekin Telegram oynani qayta ochganda oldingi holatni
+  // tiklashi mumkin, shuning uchun oshkora yopamiz.
+  app.MainButton.hide();
+  app.BackButton.hide();
+
   // Telegram chrome'i ham ilova foniga mos bo'lsin (eski mijozlarda metod yo'q)
   app.setHeaderColor?.('#0A0A0D');
   app.setBackgroundColor?.('#07070A');
@@ -73,45 +83,3 @@ export function haptic(type: 'success' | 'error' | 'tap'): void {
   else app.HapticFeedback.notificationOccurred(type);
 }
 
-export interface MainButtonConfig {
-  text: string;
-  onClick: () => void;
-  enabled?: boolean;
-  visible?: boolean;
-}
-
-/** MainButton holatini boshqarish. Disabled holatda matn sababni aytadi. */
-export function setMainButton(config: MainButtonConfig | null): () => void {
-  const app = webApp();
-  if (!app) return () => undefined;
-
-  if (!config || config.visible === false) {
-    app.MainButton.hide();
-    return () => undefined;
-  }
-
-  app.MainButton.setText(config.text);
-  app.MainButton.show();
-  if (config.enabled === false) app.MainButton.disable();
-  else app.MainButton.enable();
-
-  app.MainButton.onClick(config.onClick);
-  return () => app.MainButton.offClick(config.onClick);
-}
-
-export function setBackButton(handler: (() => void) | null): () => void {
-  const app = webApp();
-  if (!app) return () => undefined;
-
-  if (!handler) {
-    app.BackButton.hide();
-    return () => undefined;
-  }
-
-  app.BackButton.show();
-  app.BackButton.onClick(handler);
-  return () => {
-    app.BackButton.offClick(handler);
-    app.BackButton.hide();
-  };
-}

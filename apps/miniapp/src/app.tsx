@@ -1,5 +1,5 @@
 import { Icon, prepayAmount } from '@playbron/ui';
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
 import {
   CLK,
@@ -14,7 +14,6 @@ import {
   type ScreenId,
 } from './mock/data';
 import { useTelegramAuth } from './lib/auth';
-import { setBackButton, setMainButton } from './lib/telegram';
 import { BillScreen } from './screens/bill';
 import { BookingsScreen } from './screens/bookings';
 import { ClubScreen } from './screens/club';
@@ -41,15 +40,10 @@ export function App(): ReactNode {
   const activeTab = TAB_ROOT[state.screen] ?? state.screen;
   const [title] = TITLES[state.screen];
 
-  // Telegram ichida native tugmalar, brauzerda ekrandagi variantlar ishlaydi
-  useEffect(() => (canBack ? setBackButton(state.back) : setBackButton(null)), [canBack, state.back]);
-  useEffect(
-    () =>
-      main
-        ? setMainButton({ text: main.label, onClick: main.act, enabled: main.enabled })
-        : setMainButton(null),
-    [main],
-  );
+  // Telegram'ning MainButton va BackButton'i ATAYLAB ishlatilmaydi: ekranda
+  // o'z tugmamiz va o'z header'imiz bor, ikkalasi birga chiqsa foydalanuvchi
+  // pastda bir xil yozuvli ikkita tugma ko'radi. Ular `initTelegram()` da
+  // bir marta yashiriladi.
 
   return (
     <div className="pb-stage">

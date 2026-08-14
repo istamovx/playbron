@@ -220,17 +220,21 @@ async def _log_event(event: str, telegram_id: int, detail: dict[str, Any]) -> No
 
 
 async def _send_open_app(chat_id: int, lang: str, name: str, *, first_time: bool) -> None:
+    """BITTA xabar: matn + ostidagi inline tugma.
+
+    Ilgari ikkita ketardi — biri `ReplyKeyboardRemove` bilan, ikkinchisining
+    matni tugma yozuvining o'zi («Ilovani ochish») edi. Natijada chatda bir xil
+    yozuv ikki marta ko'rinardi: bo'sh pufakcha va tugma.
+
+    Telefon tugmasi `one_time_keyboard` bilan yuborilgani uchun Telegram uni
+    bosilishi bilan o'zi yig'ishtiradi — alohida `ReplyKeyboardRemove` xabari
+    shart emas.
+    """
     key = "done" if first_time else "already"
     await telegram_api.send_message(
         _token(),
         chat_id,
         _t(lang, key, name=name) if first_time else _t(lang, key),
-        reply_markup=telegram_api.remove_keyboard(),
-    )
-    await telegram_api.send_message(
-        _token(),
-        chat_id,
-        _t(lang, "open"),
         reply_markup=telegram_api.webapp_keyboard(_t(lang, "open"), settings.miniapp_url),
     )
 
