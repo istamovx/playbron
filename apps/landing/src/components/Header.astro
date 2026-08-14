@@ -1,0 +1,46 @@
+---
+import { SITE } from '../config';
+import { LANGS, type Content, type Lang } from '../content';
+import Wordmark from './Wordmark.astro';
+
+interface Props {
+  c: Content;
+  lang: Lang;
+}
+
+const { c, lang } = Astro.props;
+
+const links = [
+  { href: '#imkoniyatlar', label: c.nav.features },
+  { href: '#ekranlar', label: c.nav.screens },
+  { href: '#qadamlar', label: c.nav.how },
+  { href: '#tariflar', label: c.nav.pricing },
+  { href: '#savollar', label: c.nav.faq },
+];
+---
+
+<header class="pbl-header">
+  <div class="pbl-wrap">
+    <a class="pbl-brand" href={c.dir} aria-label="PlayBron">
+      <Wordmark title="" />
+    </a>
+
+    <nav class="pbl-nav" aria-label={c.nav.features}>
+      {links.map((link) => <a href={link.href}>{link.label}</a>)}
+    </nav>
+
+    <nav class="pbl-lang" aria-label={c.nav.langLabel}>
+      {
+        LANGS.map((item) => (
+          <a href={item.href} hreflang={item.code} aria-current={item.code === lang ? 'true' : undefined}>
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <a class="pbl-btn pbl-btn--ghost pbl-btn--sm pbl-header__cta" href={SITE.console}>
+      {c.nav.login}
+    </a>
+  </div>
+</header>

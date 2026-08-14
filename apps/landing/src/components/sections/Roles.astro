@@ -1,0 +1,43 @@
+---
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const r = c.roles;
+---
+
+<section class="pbl-section pbl-section--inset">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{r.eyebrow}</span>
+      <h2 class="pbl-h2">{r.title}</h2>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-grid pbl-grid--3">
+      {
+        r.items.map((item) => (
+          <article class="pbl-card">
+            <span class="pbl-card__icon">
+              <Icon name={item.icon} size="lg" />
+            </span>
+            <h3>{item.title}</h3>
+            <p>{item.text}</p>
+            <ul class="pbl-role__list">
+              {item.points.map((point) => (
+                <li>
+                  <Icon name="check_small" size="sm" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

@@ -1,0 +1,57 @@
+---
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const h = c.how;
+
+const flows = [
+  { icon: 'store', title: h.ownerTitle, steps: h.ownerSteps },
+  { icon: 'sports_esports', title: h.playerTitle, steps: h.playerSteps },
+];
+---
+
+<section class="pbl-section" id="qadamlar">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{h.eyebrow}</span>
+      <h2 class="pbl-h2">{h.title}</h2>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-flows">
+      {
+        flows.map((flow) => (
+          <article class="pbl-flow">
+            <h3>
+              <Icon name={flow.icon} size="lg" />
+              {flow.title}
+            </h3>
+            <ol class="pbl-steps">
+              {flow.steps.map((step) => (
+                <li class="pbl-step">
+                  <div>
+                    <b>{step.title}</b>
+                    <p>{step.text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="pbl-note">
+      <b>
+        <Icon name="timer_off" size="lg" />
+        {h.noShowTitle}
+      </b>
+      <p>{h.noShowText}</p>
+    </div>
+  </div>
+</section>

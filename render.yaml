@@ -123,11 +123,39 @@ services:
         value: 'https://playbron-api.onrender.com/api/v1'
       - key: VITE_TELEGRAM_LOGIN_BOT
         value: playbronadminbot
+      # Kirish ekranidagi «saytga qaytish» tugmasi. Domen ulangach playbron.uz
+      - key: VITE_LANDING_URL
+        value: 'https://playbron-landing.onrender.com'
     routes:
       # SPA: barcha manzillar index.html ga (react-router BrowserRouter)
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+
+  # ── Landing (playbron.uz) ────────────────────────────────────────────────
+  # Astro statik chiqishi: `/index.html` (uz) va `/ru/index.html`.
+  # SPA rewrite YO'Q — mavjud bo'lmagan manzil haqiqiy 404 qaytarishi kerak,
+  # aks holda qidiruv tizimlari har qanday URL'ni sahifa deb indekslaydi.
+  - type: web
+    name: playbron-landing
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter landing build
+    staticPublishPath: ./apps/landing/dist
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      # Canonical, hreflang, sitemap va robots.txt shu manzildan yasaladi.
+      # playbron.uz domeni ulangach shu qiymat 'https://playbron.uz' ga
+      # o'zgartiriladi (va playbron-admin dagi VITE_LANDING_URL ham).
+      - key: SITE_URL
+        value: 'https://playbron-landing.onrender.com'
     headers:
       - path: /*
         name: X-Frame-Options

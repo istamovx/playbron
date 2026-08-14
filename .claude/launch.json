@@ -12,6 +12,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "miniapp", "dev"],
       "port": 5174
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "landing", "dev"],
+      "port": 5175
     }
   ]
 }

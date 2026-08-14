@@ -1,0 +1,42 @@
+---
+import { SITE } from '../../config';
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const p = c.players;
+---
+
+<section class="pbl-section">
+  <div class="pbl-wrap">
+    <div class="pbl-players">
+      <div>
+        <span class="pbl-eyebrow">{p.eyebrow}</span>
+        <h2 class="pbl-h2">{p.title}</h2>
+        <p class="pbl-lead">{p.text}</p>
+
+        <div class="pbl-actions">
+          <a class="pbl-btn pbl-btn--primary" href={SITE.customerBot}>
+            <Icon name="send" size="sm" />
+            {p.cta}
+          </a>
+        </div>
+      </div>
+
+      <ul class="pbl-checks">
+        {
+          p.points.map((point) => (
+            <li>
+              <Icon name="check_circle" size="sm" />
+              {point}
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>

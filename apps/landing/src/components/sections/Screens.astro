@@ -1,0 +1,41 @@
+---
+import type { Content } from '../../content';
+import PhoneMock from '../mocks/PhoneMock.astro';
+import PosMock from '../mocks/PosMock.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const s = c.screens;
+---
+
+<section class="pbl-section pbl-section--inset" id="ekranlar">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{s.eyebrow}</span>
+      <h2 class="pbl-h2">{s.title}</h2>
+      <p class="pbl-lead">{s.text}</p>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-screens pbl-screens--2">
+      <figure class="pbl-shot">
+        <PosMock c={c} />
+        <figcaption class="pbl-shot__cap">
+          <b>{s.pos.title}</b>
+          <span>{s.pos.caption}</span>
+        </figcaption>
+      </figure>
+
+      <figure class="pbl-shot">
+        <PhoneMock c={c} />
+        <figcaption class="pbl-shot__cap pbl-shot__cap--center">
+          <b>{s.mini.title}</b>
+          <span>{s.mini.caption}</span>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>

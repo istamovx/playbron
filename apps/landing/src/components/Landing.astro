@@ -1,0 +1,38 @@
+---
+/**
+ * To'liq sahifa — ikkala til bir xil tuzilishdan foydalanadi, farq faqat
+ * `CONTENT[lang]` da. Yangi til qo'shilsa yangi sahifa fayli va tarjima kifoya.
+ */
+import { CONTENT, type Lang } from '../content';
+import Base from '../layouts/Base.astro';
+import Cta from './sections/Cta.astro';
+import Faq from './sections/Faq.astro';
+import Features from './sections/Features.astro';
+import Hero from './sections/Hero.astro';
+import How from './sections/How.astro';
+import Players from './sections/Players.astro';
+import Pricing from './sections/Pricing.astro';
+import Problem from './sections/Problem.astro';
+import Roles from './sections/Roles.astro';
+import Screens from './sections/Screens.astro';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const c = CONTENT[lang];
+---
+
+<Base c={c} lang={lang}>
+  <Hero c={c} />
+  <Problem c={c} />
+  <Features c={c} />
+  <Screens c={c} />
+  <How c={c} />
+  <Roles c={c} />
+  <Players c={c} />
+  <Pricing c={c} />
+  <Faq c={c} />
+  <Cta c={c} />
+</Base>

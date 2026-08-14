@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="PlayBron">
+  <!-- DS chamfer geometriyasi (yuqori-o'ng kesim) + brend binafshasi #5700FF.
+       Favicon alohida asset — bu yerda CSS o'zgaruvchisi ishlamaydi. -->
+  <path d="M0 0h24l8 8v24H0z" fill="#5700FF" />
+  <path d="M12 9.2 23 16l-11 6.8z" fill="#FFFFFF" />
+</svg>

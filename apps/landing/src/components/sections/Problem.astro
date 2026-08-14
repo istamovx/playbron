@@ -1,0 +1,36 @@
+---
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const p = c.problem;
+---
+
+<section class="pbl-section pbl-section--inset">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{p.eyebrow}</span>
+      <h2 class="pbl-h2">{p.title}</h2>
+      <p class="pbl-lead">{p.text}</p>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-grid">
+      {
+        p.items.map((item) => (
+          <article class="pbl-card pbl-card--problem">
+            <span class="pbl-card__icon">
+              <Icon name={item.icon} size="lg" />
+            </span>
+            <h3>{item.title}</h3>
+            <p>{item.text}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

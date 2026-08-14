@@ -1,0 +1,54 @@
+---
+/** Kassa — o'yin vaqti va bufet bitta hisobda, oldindan to'langan soat ayriladi. */
+import type { Content } from '../../content';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const p = c.screens.pos;
+---
+
+<div class="pbl-app">
+  <div class="pbl-app__bar">
+    <span class="pbl-app__dots"><i></i><i></i><i></i></span>
+    <span class="pbl-app__url">playbron.uz/kassa</span>
+  </div>
+
+  <div class="pbl-app__main">
+    <div class="pbl-bill">
+      <div class="pbl-bill__head">
+        <b>{p.billTitle}</b>
+        <span>{p.billMeta}</span>
+      </div>
+
+      {
+        p.lines.map((line) => (
+          <div class="pbl-bill__row">
+            <span>
+              {line.name}
+              {line.qty && <em>{line.qty}</em>}
+            </span>
+            <b>{line.sum}</b>
+          </div>
+        ))
+      }
+
+      <div class="pbl-bill__row pbl-bill__row--sum">
+        <span>{p.subtotal}</span>
+        <b>{p.subtotalSum}</b>
+      </div>
+      <div class="pbl-bill__row pbl-bill__row--prepaid">
+        <span>{p.prepaid}</span>
+        <b>{p.prepaidSum}</b>
+      </div>
+      <div class="pbl-bill__row pbl-bill__row--due">
+        <span>{p.due}</span>
+        <b>{p.dueSum}</b>
+      </div>
+
+      <span class="pbl-bill__cta">{p.action}</span>
+    </div>
+  </div>
+</div>

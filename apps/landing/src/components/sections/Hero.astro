@@ -1,0 +1,55 @@
+---
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+import BoardMock from '../mocks/BoardMock.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const h = c.hero;
+---
+
+<section class="pbl-hero">
+  <div class="pbl-hero__bg" aria-hidden="true"></div>
+  <div class="pbl-hero__halo" aria-hidden="true"></div>
+
+  <div class="pbl-wrap">
+    <div class="pbl-hero__copy">
+      <span class="pbl-eyebrow">{h.eyebrow}</span>
+      <h1>{h.title} <em>{h.titleAccent}</em></h1>
+      <p class="pbl-hero__text">{h.text}</p>
+
+      <div class="pbl-actions">
+        <a class="pbl-btn pbl-btn--primary" href="#boshlash">
+          <Icon name="rocket_launch" size="sm" />
+          {h.ctaPrimary}
+        </a>
+        <a class="pbl-btn pbl-btn--ghost" href="#ekranlar">
+          <Icon name="visibility" size="sm" />
+          {h.ctaSecondary}
+        </a>
+      </div>
+    </div>
+
+    <div class="pbl-stats">
+      {
+        h.stats.map((stat) => (
+          <div class="pbl-stat">
+            <b>{stat.value}</b>
+            <span>{stat.label}</span>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="pbl-hero__shot">
+      <BoardMock c={c} />
+      <div class="pbl-shot__cap">
+        <b>{c.screens.board.title}</b>
+        <span>{c.screens.board.caption}</span>
+      </div>
+    </div>
+  </div>
+</section>

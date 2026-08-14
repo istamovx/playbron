@@ -1,0 +1,30 @@
+---
+/**
+ * PLAYBRON so'z-belgisi — yo'l ma'lumoti `@playbron/ui` dagi yagona manbadan.
+ * Ranglar tokenga bog'langan, o'lcham konteyner CSS'idan (`width`) keladi.
+ */
+import {
+  WORDMARK_ACCENT_PATH,
+  WORDMARK_MAIN_PATH,
+  WORDMARK_VIEWBOX,
+} from '@playbron/ui/wordmark-paths';
+
+interface Props {
+  /** Bo'sh bo'lsa belgi bezak deb hisoblanadi (takrorlangan joyda). */
+  title?: string;
+}
+
+const { title = 'PlayBron' } = Astro.props;
+---
+
+<svg
+  viewBox={WORDMARK_VIEWBOX}
+  role={title ? 'img' : 'presentation'}
+  aria-label={title || undefined}
+  aria-hidden={title ? undefined : 'true'}
+  focusable="false"
+>
+  {title && <title>{title}</title>}
+  <path d={WORDMARK_ACCENT_PATH} fill="var(--primary-100)"></path>
+  <path d={WORDMARK_MAIN_PATH} fill="var(--text-title)"></path>
+</svg>

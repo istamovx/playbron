@@ -1,0 +1,78 @@
+---
+import type { Content } from '../../content';
+import { PLAN_PRICES, formatSum } from '../../content/plans';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const p = c.pricing;
+
+/** Matn (til fayli) + narx (`plans.ts`) — kod bo'yicha birlashtiriladi. */
+const plans = p.plans.map((plan) => ({
+  ...plan,
+  price: PLAN_PRICES.find((item) => item.code === plan.code) ?? null,
+}));
+---
+
+<section class="pbl-section pbl-section--inset" id="tariflar">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{p.eyebrow}</span>
+      <h2 class="pbl-h2">{p.title}</h2>
+      <p class="pbl-lead">{p.text}</p>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-plans">
+      {
+        plans.map((plan) => (
+          <article class="pbl-plan" data-featured={plan.price?.featured ? '' : undefined}>
+            {plan.price?.featured && <span class="pbl-plan__badge">{p.featured}</span>}
+
+            <div>
+              <div class="pbl-plan__name">{plan.name}</div>
+              <p class="pbl-plan__tagline">{plan.tagline}</p>
+            </div>
+
+            <div class="pbl-plan__price">
+              {plan.price?.month == null ? (
+                <b>{p.priceOnRequest}</b>
+              ) : (
+                <>
+                  <b>{formatSum(plan.price.month)}</b>
+                  <span>{p.perMonth}</span>
+                  {plan.price.year != null && <span class="pbl-plan__year">{p.yearNote}</span>}
+                </>
+              )}
+            </div>
+
+            <ul class="pbl-plan__limits" aria-label={p.limitsTitle}>
+              {plan.limits.map((limit) => (
+                <li>{limit}</li>
+              ))}
+            </ul>
+
+            <ul class="pbl-plan__features">
+              {plan.features.map((feature) => (
+                <li>
+                  <Icon name="check_small" size="sm" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+
+            <a
+              class={`pbl-btn ${plan.price?.featured ? 'pbl-btn--primary' : 'pbl-btn--ghost'}`}
+              href="#boshlash"
+            >
+              {p.cta}
+            </a>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

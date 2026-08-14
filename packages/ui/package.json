@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./styles.css": "./src/styles.css",
-    "./tokens/*": "./src/tokens/*"
+    "./tokens/*": "./src/tokens/*",
+    "./wordmark-paths": "./src/components/wordmark-paths.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",

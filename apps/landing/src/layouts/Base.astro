@@ -1,0 +1,111 @@
+---
+/**
+ * Sahifa karkasi — head, sarlavha paneli va pastki qism.
+ *
+ * `data-theme="dark"` qat'iy: DS'da yorug' mavzu `prefers-color-scheme: light`
+ * bilan ham yoqiladi, landing esa doim qora HUD ko'rinishida bo'lishi kerak.
+ */
+import '@playbron/ui/styles.css';
+import '../styles/landing.css';
+
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { SITE } from '../config';
+import { PLAN_PRICES } from '../content/plans';
+import type { Content, Lang } from '../content';
+
+interface Props {
+  c: Content;
+  lang: Lang;
+}
+
+const { c, lang } = Astro.props;
+
+const base = Astro.site ?? new URL(SITE.url);
+const canonical = new URL(c.dir, base).href;
+const hrefUz = new URL('/', base).href;
+const hrefRu = new URL('/ru/', base).href;
+
+/**
+ * Structured data. Narxlar `content/plans.ts` dan keladi — sahifadagi
+ * ro'yxat bilan bitta manbadan, shuning uchun ular hech qachon ajralib qolmaydi.
+ */
+const offers = PLAN_PRICES.filter((plan) => plan.month !== null).map((plan) => ({
+  '@type': 'Offer',
+  name: plan.code,
+  price: String(plan.month),
+  priceCurrency: 'UZS',
+  category: 'subscription',
+}));
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': `${base.origin}/#org`,
+      name: 'PlayBron',
+      url: base.origin,
+      email: SITE.email,
+      sameAs: [SITE.customerBot, SITE.adminBot],
+    },
+    {
+      '@type': 'SoftwareApplication',
+      name: 'PlayBron',
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web, Telegram',
+      description: c.meta.description,
+      url: canonical,
+      inLanguage: ['uz', 'ru'],
+      publisher: { '@id': `${base.origin}/#org` },
+      ...(offers.length ? { offers } : {}),
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang={c.htmlLang} data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{c.meta.title}</title>
+    <meta name="description" content={c.meta.description} />
+    <link rel="canonical" href={canonical} />
+
+    <link rel="alternate" hreflang="uz" href={hrefUz} />
+    <link rel="alternate" hreflang="ru" href={hrefRu} />
+    <link rel="alternate" hreflang="x-default" href={hrefUz} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PlayBron" />
+    <meta property="og:locale" content={c.localeTag.replace('-', '_')} />
+    <meta property="og:title" content={c.meta.title} />
+    <meta property="og:description" content={c.meta.description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={c.meta.title} />
+    <meta name="twitter:description" content={c.meta.description} />
+
+    <meta name="theme-color" content="#07070A" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
+  </head>
+
+  <body>
+    <a class="pbl-skip" href="#main">{c.nav.skip}</a>
+    <Header c={c} lang={lang} />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer c={c} />
+  </body>
+</html>

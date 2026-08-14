@@ -1,0 +1,56 @@
+---
+import { LAUNCH_YEAR, SITE } from '../config';
+import type { Content } from '../content';
+import Wordmark from './Wordmark.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const f = c.footer;
+---
+
+<footer class="pbl-footer">
+  <div class="pbl-wrap">
+    <div class="pbl-footer__grid">
+      <div class="pbl-footer__brand">
+        <Wordmark />
+        <p>{f.tagline}</p>
+      </div>
+
+      <div>
+        <h4>{f.productTitle}</h4>
+        <ul>
+          <li><a class="pbl-link" href="#imkoniyatlar">{c.nav.features}</a></li>
+          <li><a class="pbl-link" href="#ekranlar">{c.nav.screens}</a></li>
+          <li><a class="pbl-link" href="#tariflar">{c.nav.pricing}</a></li>
+          <li><a class="pbl-link" href="#savollar">{c.nav.faq}</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4>{f.playersTitle}</h4>
+        <ul>
+          <li><a class="pbl-link" href={SITE.customerBot}>{f.telegram}</a></li>
+          <li><a class="pbl-link" href={SITE.miniapp}>{f.miniapp}</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4>{f.companyTitle}</h4>
+        <ul>
+          <li><a class="pbl-link" href={SITE.console}>{f.console}</a></li>
+          <li><a class="pbl-link" href={SITE.adminBot}>{f.telegram}</a></li>
+          <li><a class="pbl-link" href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
+          <li><a class="pbl-link" href={`tel:${SITE.phoneHref}`}>{SITE.phone}</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pbl-footer__bar">
+      <span>© {LAUNCH_YEAR} PlayBron. {f.rights}</span>
+      <span>playbron.uz</span>
+    </div>
+  </div>
+</footer>

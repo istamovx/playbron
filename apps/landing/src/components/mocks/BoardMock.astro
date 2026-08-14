@@ -1,0 +1,106 @@
+---
+/**
+ * Xodim konsoli — jonli board. Rasm emas, haqiqiy HTML: har qanday kenglikda
+ * aniq ko'rinadi va tokenlar o'zgarsa mahsulot bilan birga o'zgaradi.
+ */
+import type { Content, StationState } from '../../content';
+import Icon from '../Icon.astro';
+import Wordmark from '../Wordmark.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const b = c.screens.board;
+
+/** Ikonka — matn emas, shuning uchun i18n resursida emas, shu yerda. */
+const NAV_ICONS = ['grid_view', 'view_timeline', 'receipt_long', 'point_of_sale', 'analytics'];
+
+const STATE_LABEL: Record<StationState, string> = {
+  free: b.statusFree,
+  busy: b.statusBusy,
+  soon: b.statusSoon,
+  booked: b.statusBooked,
+};
+
+/** Ustun balandligi — ko'rgazmali ma'lumot, foizda. */
+const BARS = [34, 46, 58, 72, 95, 66];
+---
+
+<div class="pbl-app">
+  <div class="pbl-app__bar">
+    <span class="pbl-app__dots"><i></i><i></i><i></i></span>
+    <span class="pbl-app__url">playbron.uz/board</span>
+  </div>
+
+  <div class="pbl-app__body">
+    <nav class="pbl-app__nav" aria-hidden="true">
+      <div class="pbl-app__brand">
+        <Wordmark title="" />
+        <span>{b.brandRole}</span>
+      </div>
+      <ul>
+        {
+          b.nav.map((item, index) => (
+            <li data-on={index === 0 ? '' : undefined}>
+              <Icon name={NAV_ICONS[index] ?? 'circle'} size="sm" />
+              {item}
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="pbl-app__main">
+      <div>
+        <div class="pbl-app__title">{b.pageTitle}</div>
+        <div class="pbl-app__meta">{b.meta.map((item) => <span>{item}</span>)}</div>
+      </div>
+
+      <div class="pbl-kpis">
+        {
+          b.kpis.map((kpi) => (
+            <div class="pbl-kpi">
+              <span>{kpi.label}</span>
+              <b>
+                {kpi.value}
+                {kpi.unit && <i>{kpi.unit}</i>}
+              </b>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="pbl-stations">
+        {
+          b.stations.map((station) => (
+            <div class="pbl-station" data-state={station.state}>
+              <div class="pbl-station__top">
+                <span class="pbl-station__name">{station.name}</span>
+                <span class="pbl-station__time">{station.time}</span>
+              </div>
+              <span class="pbl-station__room">{station.room}</span>
+              <span class="pbl-station__state">
+                <i></i>
+                {STATE_LABEL[station.state]}
+              </span>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="pbl-chart">
+        <div class="pbl-chart__title">{b.chartTitle}</div>
+        <div class="pbl-bars">
+          {
+            BARS.map((height, index) => (
+              <i style={`height:${height}%;animation-delay:${index * 70}ms`} />
+            ))
+          }
+        </div>
+        <div class="pbl-hours">{b.chartHours.map((hour) => <span>{hour}</span>)}</div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,35 @@
+---
+import { SITE } from '../../config';
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const t = c.cta;
+---
+
+<section class="pbl-section" id="boshlash">
+  <div class="pbl-wrap">
+    <div class="pbl-cta">
+      <span class="pbl-eyebrow">{t.eyebrow}</span>
+      <h2 class="pbl-h2">{t.title}</h2>
+      <p class="pbl-lead">{t.text}</p>
+
+      <div class="pbl-actions">
+        <a class="pbl-btn pbl-btn--primary" href={SITE.adminBot}>
+          <Icon name="send" size="sm" />
+          {t.primary}
+        </a>
+        <a class="pbl-btn pbl-btn--ghost" href={SITE.console}>
+          <Icon name="login" size="sm" />
+          {t.secondary}
+        </a>
+      </div>
+
+      <p class="pbl-cta__note">{t.note}</p>
+    </div>
+  </div>
+</section>

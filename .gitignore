@@ -7,6 +7,9 @@ coverage/
 .turbo/
 *.tsbuildinfo
 
+# Astro `astro sync` bilan qayta yasaydigan tiplar keshi
+.astro/
+
 .env
 .env.*
 !.env.example

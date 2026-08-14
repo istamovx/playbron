@@ -1,0 +1,24 @@
+---
+/**
+ * Material Symbols Rounded glifi — DS `Icon` komponentining statik muqobili.
+ * React ishlatilmagani uchun bu yerda oddiy `<i>`; shrift `@playbron/ui`
+ * tokenlaridagi `--font-icon` dan keladi.
+ */
+interface Props {
+  name: string;
+  size?: 'sm' | 'md' | 'lg';
+  class?: string;
+}
+
+const { name, size = 'md', class: extra } = Astro.props;
+
+const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
+  sm: 'pbl-ico--sm',
+  md: '',
+  lg: 'pbl-ico--lg',
+};
+
+const cls = ['pbl-ico', SIZE_CLASS[size], extra].filter(Boolean).join(' ');
+---
+
+<i class={cls} aria-hidden="true">{name}</i>

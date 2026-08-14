@@ -1,0 +1,48 @@
+---
+import type { Content } from '../../content';
+import Icon from '../Icon.astro';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const f = c.faq;
+
+/** FAQPage razmetkasi — savollar qidiruv natijasida ochiladigan bo'lib chiqadi. */
+const faqLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: f.items.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: { '@type': 'Answer', text: item.a },
+  })),
+};
+---
+
+<section class="pbl-section" id="savollar">
+  <div class="pbl-wrap">
+    <div class="pbl-head">
+      <span class="pbl-eyebrow">{f.eyebrow}</span>
+      <h2 class="pbl-h2">{f.title}</h2>
+      <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="pbl-faq">
+      {
+        f.items.map((item) => (
+          <details>
+            <summary>
+              {item.q}
+              <Icon name="add" size="sm" />
+            </summary>
+            <p>{item.a}</p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+
+  <script type="application/ld+json" set:html={JSON.stringify(faqLd)} is:inline />
+</section>

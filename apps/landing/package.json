@@ -1,0 +1,23 @@
+{
+  "name": "landing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --port 5175",
+    "build": "astro check && astro build",
+    "preview": "astro preview --port 5175",
+    "typecheck": "astro check",
+    "lint": "echo \"no lint\""
+  },
+  "dependencies": {
+    "@playbron/ui": "workspace:*",
+    "astro": "^5.16.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.5",
+    "@astrojs/sitemap": "^3.7.0",
+    "@playbron/config": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

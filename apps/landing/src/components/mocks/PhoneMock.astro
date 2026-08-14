@@ -1,0 +1,82 @@
+---
+/**
+ * Mijoz Mini App'i — Telegram ichidagi bron ekrani.
+ *
+ * Davomiylik 2 soat tanlangan, oldindan to'lov esa baribir 1 soatlik: qoida
+ * shu — ekranning o'zi buni ko'rsatib turadi.
+ */
+import type { Content } from '../../content';
+
+interface Props {
+  c: Content;
+}
+
+const { c } = Astro.props;
+const m = c.screens.mini;
+
+const SELECTED_DATE = 0;
+const SELECTED_TIME = 3;
+const SELECTED_DURATION = 1;
+---
+
+<div class="pbl-phone">
+  <div class="pbl-phone__screen">
+    <div class="pbl-phone__notch"></div>
+
+    <div class="pbl-phone__club">
+      <b>{m.club}</b>
+      <span>{m.clubMeta}</span>
+    </div>
+
+    <div class="pbl-field">
+      <span>{m.dateLabel}</span>
+      <div class="pbl-chips">
+        {
+          m.dates.map((date, index) => (
+            <span class="pbl-chip" data-on={index === SELECTED_DATE ? '' : undefined}>
+              {date}
+            </span>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="pbl-field">
+      <span>{m.timeLabel}</span>
+      <div class="pbl-times">
+        {
+          m.times.map((time, index) => (
+            <span
+              class="pbl-chip"
+              data-on={index === SELECTED_TIME ? '' : undefined}
+              data-off={time === m.timeTaken ? '' : undefined}
+            >
+              {time}
+            </span>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="pbl-field">
+      <span>{m.durationLabel}</span>
+      <div class="pbl-chips">
+        {
+          m.durations.map((duration, index) => (
+            <span class="pbl-chip" data-on={index === SELECTED_DURATION ? '' : undefined}>
+              {duration}
+            </span>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="pbl-phone__sum">
+      <span>{m.summaryLabel}</span>
+      <b>{m.summarySum}</b>
+    </div>
+    <p class="pbl-phone__note">{m.summaryNote}</p>
+
+    <span class="pbl-phone__cta">{m.action}</span>
+  </div>
+</div>
