@@ -10,7 +10,7 @@ from playbron.core import context
 from playbron.core.db import session_scope
 from playbron.core.errors import Forbidden, Unauthorized
 from playbron.core.http import client_ip
-from playbron.core.security import decode_access
+from playbron.core.security import AUDIENCE_STAFF, decode_access
 from playbron.models import CLUB_ROLES, ROLE_ADMIN, ROLE_OWNER, ROLE_STAFF
 
 
@@ -29,6 +29,11 @@ async def current_claims(
     `X-Club-Id` — faol klub. Foydalanuvchi o'sha klubda a'zo bo'lishi shart.
     """
     claims = decode_access(_bearer(authorization))
+    audience = claims.get("aud")
+
+    # Mijoz tokeni klub tanlay olmaydi: `X-Club-Id` xodim dunyosining sarlavhasi
+    if x_club_id is not None and audience != AUDIENCE_STAFF:
+        raise Forbidden("Bu amal uchun ruxsat yo‘q", code="STAFF_TOKEN_REQUIRED")
 
     memberships = claims.get("mbr") or []
     roles = {int(m["club_id"]): m["role"] for m in memberships}
@@ -68,16 +73,36 @@ async def public_db() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+async def require_staff_token(
+    claims: Annotated[dict[str, Any], Depends(current_claims)],
+) -> None:
+    """Token xodim dunyosiga tegishli bo'lishi shart.
+
+    Tekshiruv `aud` klaymi bo'yicha, chunki uni `jwt.decode` ning o'zi
+    majburlaydi (klaym yo'q bo'lsa token umuman ochilmaydi). Qo'lda
+    `if knd == 'customer': deny` yozilsa, teskari yozilgan shart da'vosi
+    YO'Q tokenni xodim deb qabul qilardi (§6.6).
+    """
+    if claims.get("aud") != AUDIENCE_STAFF:
+        raise Forbidden("Bu amal uchun ruxsat yo‘q", code="STAFF_TOKEN_REQUIRED")
+
+
 def require_role(*allowed: str):
-    """Faol klubda kerakli roldan biri borligini talab qiladi."""
+    """Faol klubda kerakli roldan biri borligini talab qiladi.
+
+    DIQQAT: super admin uchun ISTISNO YO'Q. Ilgari shu yerda
+    `if ctx.is_super_admin: return` turardi — u auditsiz, muddatsiz va
+    sababsiz impersonation yo'li edi va glass rejimi yonidan aylanib
+    o'tadigan parallel kanal bo'lib qolardi (`docs/06-super-admin.md` §0.1,
+    P0-2). Super admin klub ma'lumotiga faqat glass rejimi orqali kiradi,
+    u esa muddat, sabab va audit bilan keladi.
+    """
     unknown = set(allowed) - set(CLUB_ROLES)
     if unknown:
         raise ValueError(f"Noma'lum rol: {unknown}")
 
-    async def guard(_: Annotated[dict[str, Any], Depends(current_claims)]) -> None:
+    async def guard(_: Annotated[None, Depends(require_staff_token)]) -> None:
         ctx = context.current()
-        if ctx.is_super_admin:
-            return
         if ctx.club_id is None:
             raise Forbidden("Klub tanlanmagan", code="CLUB_REQUIRED")
         role = ctx.roles.get(ctx.club_id)
@@ -94,7 +119,7 @@ require_staff = require_role(ROLE_OWNER, ROLE_ADMIN, ROLE_STAFF)
 
 async def require_super_admin(
     request: Request,
-    _: Annotated[dict[str, Any], Depends(current_claims)] = None,  # type: ignore[assignment]
+    _: Annotated[None, Depends(require_staff_token)] = None,
 ) -> None:
     """Super admin qatlami.
 
