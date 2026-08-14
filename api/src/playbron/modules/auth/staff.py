@@ -38,9 +38,9 @@ LOGIN_MAX: Final = 32
 _ALLOWED: Final = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
 # §10.1
-IP_LIMIT: Final = (10, 900)          # 10 / 15 daq
-LOGIN_LIMIT: Final = (8, 900)        # 8 / 15 daq
-IP_LOGIN_LIMIT: Final = (5, 300)     # 5 / 5 daq
+IP_LIMIT: Final = (10, 900)  # 10 / 15 daq
+LOGIN_LIMIT: Final = (8, 900)  # 8 / 15 daq
+IP_LOGIN_LIMIT: Final = (5, 300)  # 5 / 5 daq
 FAIL_WINDOW: Final = 900
 
 
@@ -75,9 +75,7 @@ async def _guard_limits(login_hash: str, ip: str | None) -> None:
         ratelimit.hit("login:acct", login_hash, limit=LOGIN_LIMIT[0], window_sec=LOGIN_LIMIT[1]),
     ]
     if ip:
-        checks.append(
-            ratelimit.hit("login:ip", ip, limit=IP_LIMIT[0], window_sec=IP_LIMIT[1])
-        )
+        checks.append(ratelimit.hit("login:ip", ip, limit=IP_LIMIT[0], window_sec=IP_LIMIT[1]))
         checks.append(
             ratelimit.hit(
                 "login:ip-acct",
@@ -95,6 +93,33 @@ async def _guard_limits(login_hash: str, ip: str | None) -> None:
                 status_code=429,
                 details={"retry_after": decision.retry_after},
             )
+
+
+async def _lookup(session: AsyncSession, normalized: str) -> Any:
+    """`auth_lookup_staff` — `app.login` doirasi ochilgan holda.
+
+    Kirish paytida `app.user_id` hali 0, ya'ni `users_self` policy'si hech
+    qanday qatorni ochmaydi va funksiya BO'SH qaytaradi. `app.login` aynan
+    shu bitta loginli xodim qatorini ochadi (`0007` dagi `users_login_probe`).
+    Bu mijoz kirishidagi `app.telegram_id` va token almashtirishdagi
+    `app.refresh_hash` bilan bir xil naqsh.
+
+    Doira darhol yopiladi: bir tranzaksiyada keyin ketadigan so'rovlar
+    begona qatorni ko'rmasin.
+    """
+    await session.execute(
+        text("SELECT set_config('app.login', :login, true)"), {"login": normalized}
+    )
+    row = (
+        await session.execute(
+            text(
+                "SELECT user_id, password_hash, status, must_change FROM auth_lookup_staff(:login)"
+            ),
+            {"login": normalized},
+        )
+    ).first()
+    await session.execute(text("SELECT set_config('app.login', '', true)"))
+    return row
 
 
 async def staff_login(
@@ -115,15 +140,7 @@ async def staff_login(
     login_hash = sha256_hex(normalized)
     await _guard_limits(login_hash, ip)
 
-    row = (
-        await session.execute(
-            text(
-                "SELECT user_id, password_hash, status, must_change"
-                " FROM auth_lookup_staff(:login)"
-            ),
-            {"login": normalized},
-        )
-    ).first()
+    row = await _lookup(session, normalized)
 
     # Hisob topilmasa ham vaqt profili bir xil qolishi kerak
     if row is None:
@@ -140,9 +157,7 @@ async def staff_login(
         # `status` sababli rad etishda ham AYNAN o'sha javob va o'sha kechikish
         delay = await ratelimit.failure_delay("login", login_hash, window_sec=FAIL_WINDOW)
         await asyncio.sleep(delay)
-        await session.execute(
-            text("SELECT auth_touch_login(:uid, false)"), {"uid": user_id}
-        )
+        await session.execute(text("SELECT auth_touch_login(:uid, false)"), {"uid": user_id})
         raise _reject()
 
     await ratelimit.clear_failures("login", login_hash)
@@ -207,15 +222,7 @@ async def change_password(
     Joriy parol MAJBURIY: sessiyasi o'g'irlangan hujumchi parolni jimgina
     almashtirib, haqiqiy egasini butunlay chiqarib yuborolmasin (§7.3).
     """
-    row = (
-        await session.execute(
-            text(
-                "SELECT user_id, password_hash, status, must_change"
-                " FROM auth_lookup_staff(:login)"
-            ),
-            {"login": login or ""},
-        )
-    ).first()
+    row = await _lookup(session, login or "")
 
     if row is None or int(row[0]) != int(user_id):
         raise _reject()

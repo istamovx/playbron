@@ -61,6 +61,7 @@ async def _apply_context(session: AsyncSession) -> None:
             "SELECT set_config('app.user_id', :user_id, true),"
             "       set_config('app.org_id', :org_id, true),"
             "       set_config('app.club_id', :club_id, true),"
+            "       set_config('app.club_role', :club_role, true),"
             "       set_config('app.telegram_id', :telegram_id, true),"
             "       set_config('app.is_super_admin', :sa, true)"
         ),
@@ -68,6 +69,12 @@ async def _apply_context(session: AsyncSession) -> None:
             "user_id": str(ctx.user_id or 0),
             "org_id": str(ctx.org_id or 0),
             "club_id": str(ctx.club_id or 0),
+            # `memberships` policy'lari rolni SHU YERDAN oladi, jadvaldan emas:
+            # jadvaldan o'qish o'sha jadval policy'sini qayta ishga solib
+            # cheksiz rekursiya berardi (`0007` migratsiyasiga qara).
+            # Qiymat imzolangan tokendagi a'zolikdan keladi va faol klub
+            # `current_claims` da a'zolik ro'yxatiga qarab tekshiriladi.
+            "club_role": (ctx.roles.get(ctx.club_id) or "") if ctx.club_id else "",
             "telegram_id": str(ctx.telegram_id or 0),
             "sa": "true" if ctx.is_super_admin else "false",
         },
