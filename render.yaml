@@ -116,6 +116,21 @@ services:
       - key: SUPER_ADMIN_TELEGRAM_IDS
         value: '611207125'
 
+      # `0005` shu loginni super adminga beradi (pozitsiya bo'yicha yuqoridagi
+      # ID bilan juftlanadi). Berilmasa `staff<id>` ko'rinishidagi login chiqadi.
+      - key: SUPER_ADMIN_LOGINS
+        value: 'istamoffx'
+
+      # Bepul rejada alohida DB roli yaratib bo'lmaydi va ilova baza EGASI
+      # bilan ulanadi (yuqoridagi uchala URL bir xil). Bunday muhitda
+      # `staff_credentials` ni ilovadan yashirib bo'lmaydi: ega jadval
+      # huquqlarini istalgan payt o'zi tiklaydi. Ya'ni bu bayroq yangi teshik
+      # ochmaydi — mavjud holatni OSHKORA qiladi va migratsiyaga yo'l beradi.
+      # Parol xeshi baribir Argon2id bilan himoyalangan.
+      # Alohida rol paydo bo'lgach bu qiymat olib tashlanadi.
+      - key: ALLOW_SINGLE_DB_ROLE
+        value: '1'
+
       # Eski `.onrender.com` manzillari ATAYLAB qoldirildi: frontend qayta
       # yig'ilib bo'lgunicha ular hali eski manzilni ishlatadi. Ikkalasi ham
       # ruxsat etilgani uchun o'tish paytida uzilish bo'lmaydi.

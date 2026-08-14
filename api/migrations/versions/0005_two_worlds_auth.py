@@ -87,6 +87,22 @@ def _staff_telegram_table() -> None:
 # ─────────────────────────── 2. backfill ───────────────────────────
 
 
+# Backfill shu jadvallarni o'qiydi yoki yozadi — hammasi `FORCE RLS` ostida
+_BACKFILL_TABLES = ("users", "super_admins", "memberships", "organizations")
+
+
+def _force_rls(conn: sa.Connection, tables: tuple[str, ...], *, enabled: bool) -> None:
+    """`FORCE ROW LEVEL SECURITY` ni vaqtincha olib turadi.
+
+    `ENABLE` TEGILMAYDI — ilova roli uchun izolyatsiya bir lahzaga ham
+    ochilmaydi. Postgres'da DDL tranzaksion, ya'ni migratsiya yiqilsa
+    `FORCE` o'z-o'zidan tiklanadi.
+    """
+    state = "FORCE" if enabled else "NO FORCE"
+    for table in tables:
+        conn.execute(sa.text(f"ALTER TABLE {table} {state} ROW LEVEL SECURITY"))
+
+
 def _super_admin_logins() -> dict[int, str]:
     """`SUPER_ADMIN_TELEGRAM_IDS` bilan pozitsiya bo'yicha juftlanadi.
 
@@ -119,11 +135,6 @@ def _backfill() -> None:
     validatsiyada yiqiladi va migratsiya to'xtaydi (§12.5).
     """
     conn = op.get_bind()
-
-    # `users` va `staff_telegram` FORCE RLS ostida; migratsiyada `app.*` GUC'lari
-    # yo'q, ya'ni policy sharti bajarilmaydi. Superuser buni sezmaydi, oddiy ega
-    # esa bloklanadi — `0002_seed` bilan bir xil kelishuv.
-    conn.execute(sa.text("ALTER TABLE users NO FORCE ROW LEVEL SECURITY"))
 
     privileged = sa.text(
         """
@@ -173,8 +184,6 @@ def _backfill() -> None:
             ),
             {"uid": user_id, "login": login},
         )
-
-    conn.execute(sa.text("ALTER TABLE users FORCE ROW LEVEL SECURITY"))
 
 
 # ─────────────────────────── 3. konstreynt va indeks ───────────────────────────
@@ -689,6 +698,10 @@ def _functions() -> None:
                     ALTER FUNCTION auth_change_password(text)         OWNER TO playbron_platform;
                     ALTER FUNCTION auth_assign_password(bigint, text) OWNER TO playbron_platform;
                 END IF;
+            EXCEPTION WHEN insufficient_privilege THEN
+                -- Ega `playbron_platform` a'zosi emas. Migratsiya to'xtamaydi:
+                -- oqibat quyidagi ishlash tekshiruvida aniq ko'rinadi.
+                RAISE NOTICE 'Funksiya egasi o''zgartirilmadi (huquq yo''q)';
             END
             $do$;
 
@@ -715,6 +728,90 @@ def _functions() -> None:
 # ─────────────────────────── 7. yakuniy tekshiruv ───────────────────────────
 
 
+def _assert_lookup_works() -> None:
+    """`auth_lookup_staff` HAQIQATAN parol xeshini ko'ra oladimi.
+
+    Bu tekshiruvsiz migratsiya muvaffaqiyatli tugab, keyin prod'da HAR BIR
+    xodim kirishi 401 bilan tugardi. Sabab nozik: `SECURITY DEFINER` RLS'ni
+    o'chirmaydi, u faqat `current_user` ni almashtiradi. Funksiya egasi
+    BYPASSRLS roliga o'tkazilmasa (huquq yetmasa yoki rol umuman bo'lmasa),
+    `staff_credentials` — `FORCE` va policy'siz — unga ham 0 qator qaytaradi.
+
+    Farqi tashqaridan ko'rinmaydi: «login topilmadi» va «xesh o'qilmadi»
+    ikkalasi ham bo'sh natija. Shuning uchun bu yerda ataylab yozib-o'qib
+    ko'riladi.
+    """
+    conn = op.get_bind()
+    probe_login = "migration.probe"
+
+    user_id = conn.execute(
+        sa.text(
+            "INSERT INTO users (kind, login, status, first_name)"
+            " VALUES ('staff', :login, 'active', 'probe') RETURNING id"
+        ),
+        {"login": probe_login},
+    ).scalar_one()
+    # Jadval FORCE va policy'siz — egaga ham yopiq, shuning uchun yozish
+    # uchun vaqtincha ochiladi va O'QISHDAN OLDIN qaytariladi: aks holda
+    # tekshiruv o'zi yaratgan teshikni sinagan bo'lardi.
+    _force_rls(conn, ("staff_credentials",), enabled=False)
+    conn.execute(
+        sa.text(
+            "INSERT INTO staff_credentials (user_id, password_hash)"
+            " VALUES (:uid, 'probe-hash')"
+        ),
+        {"uid": user_id},
+    )
+    _force_rls(conn, ("staff_credentials",), enabled=True)
+
+    seen = conn.execute(
+        sa.text("SELECT password_hash FROM auth_lookup_staff(:login)"),
+        {"login": probe_login},
+    ).scalar_one_or_none()
+
+    _force_rls(conn, ("staff_credentials",), enabled=False)
+    conn.execute(sa.text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
+    _force_rls(conn, ("staff_credentials",), enabled=True)
+
+    if seen == "probe-hash":
+        return
+
+    # Funksiya xeshni ko'rmadi. Ikki yo'l bor va tanlov ATAYLAB aniq:
+    if os.environ.get("ALLOW_SINGLE_DB_ROLE") != "1":
+        raise RuntimeError(
+            "auth_lookup_staff parol xeshini ko'ra olmadi — funksiya egasi "
+            "BYPASSRLS roliga o'tkazilmagan. Shu holatda deploy o'tsa, HAR BIR "
+            "xodim kirishi 401 qaytarardi. "
+            "Yechim: `playbron_platform` roli mavjudligini va baza egasi uning "
+            "a'zosi ekanini ta'minlang. "
+            "Yoki, agar hosting alohida rol yaratishga ruxsat bermasa "
+            "(masalan Render bepul rejasi), `ALLOW_SINGLE_DB_ROLE=1` qo'ying — "
+            "quyidagi cheklovni QABUL QILGAN holda."
+        )
+
+    # ── Bitta rolli rejim ────────────────────────────────────────────────
+    #
+    # Hosting alohida rol bermasa, ilova baza EGASI bilan ulanadi. Bunday
+    # muhitda `staff_credentials` ni ilovadan yashirish AMALDA MUMKIN EMAS:
+    # ega jadvalning huquqlarini istalgan payt o'zi tiklab oladi. Ya'ni
+    # «parol xeshi ilovaga ko'rinmaydi» kafolati bu yerda boshidan yo'q edi —
+    # biz uni faqat OSHKORA qilyapmiz, yangi teshik ochmayapmiz.
+    #
+    # Xesh baribir Argon2id bilan himoyalangan; yo'qoladigan narsa — qatlamli
+    # himoyaning ikkinchi qatlami. `docs/06-super-admin.md` §0.1 (P0-1) buni
+    # glass rejimidan oldin hal qilinishi shart deb belgilagan.
+    op.execute(
+        sa.text(
+            """
+            CREATE POLICY staff_credentials_owner_fallback ON staff_credentials
+                USING (true) WITH CHECK (true);
+            """
+        )
+    )
+    op.execute(sa.text(f"GRANT SELECT, INSERT, UPDATE ON staff_credentials TO {APP_ROLE};"))
+    op.execute(sa.text(f"GRANT SELECT, INSERT, UPDATE ON staff_recovery_codes TO {APP_ROLE};"))
+
+
 def _assert_super_admins_usable() -> None:
     """Platformani o'zi-o'zi qulflashdan saqlaydi (§12.5).
 
@@ -728,21 +825,15 @@ def _assert_super_admins_usable() -> None:
     # `app.*` GUC'lari o'rnatilmagan. FORCE olib turilmasa so'rov Render'da
     # (ilova oddiy EGA) 0 qator qaytaradi — ya'ni tekshiruv aynan muhim joyda
     # jimgina bo'sh o'tib ketardi. Lokalda superuser buni sezmaydi.
-    conn.execute(sa.text("ALTER TABLE users NO FORCE ROW LEVEL SECURITY"))
-    conn.execute(sa.text("ALTER TABLE super_admins NO FORCE ROW LEVEL SECURITY"))
-    try:
-        broken = conn.execute(
+    broken = conn.execute(
             sa.text(
                 """
                 SELECT count(*) FROM super_admins sa
                 JOIN users u ON u.id = sa.user_id
                 WHERE u.kind <> 'staff' OR u.login IS NULL
                 """
-            )
-        ).scalar_one()
-    finally:
-        conn.execute(sa.text("ALTER TABLE users FORCE ROW LEVEL SECURITY"))
-        conn.execute(sa.text("ALTER TABLE super_admins FORCE ROW LEVEL SECURITY"))
+        )
+    ).scalar_one()
 
     if broken:
         raise RuntimeError(
@@ -752,8 +843,23 @@ def _assert_super_admins_usable() -> None:
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+
     _users_columns()
     _staff_telegram_table()
+
+    # `FORCE` butun migratsiya davomida olib turiladi.
+    #
+    # Sabab: migratsiyada `app.*` GUC'lari yo'q va Render'da ilova baza EGASI
+    # bilan ulanadi, `FORCE` esa egaga ham tegishli. `memberships_read`
+    # policy'si `app_club_role()` ni chaqiradi, o'sha funksiya yana
+    # `memberships` ni o'qiydi — CHEKSIZ REKURSIYA. U nafaqat backfill'da,
+    # balki `VALIDATE CONSTRAINT` skanida ham ishga tushadi.
+    #
+    # `ENABLE` tegilmaydi: ilova roli uchun izolyatsiya bir lahzaga ham
+    # ochilmaydi. DDL tranzaksion, ya'ni yiqilsa `FORCE` o'zi tiklanadi.
+    _force_rls(conn, _BACKFILL_TABLES, enabled=False)
+
     _backfill()
     _users_constraints()
     _composite_fks()
@@ -762,7 +868,13 @@ def upgrade() -> None:
     _rls_new_tables()
     _rewrite_policies()
     _functions()
+    _assert_lookup_works()
     _assert_super_admins_usable()
+
+    # `try/finally` ATAYLAB yo'q: xato chiqsa `finally` o'lik tranzaksiyada
+    # ishlab, asl xatoni «current transaction is aborted» bilan yashirardi.
+    # DDL tranzaksion — yiqilganda `FORCE` rollback bilan o'zi tiklanadi.
+    _force_rls(conn, _BACKFILL_TABLES, enabled=True)
 
 
 def downgrade() -> None:
