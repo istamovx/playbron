@@ -18,6 +18,8 @@ from playbron.core.db import (
 from playbron.core.errors import Unauthorized
 from playbron.core.redis import redis_client
 from playbron.core.security import (
+    AUDIENCE_CUSTOMER,
+    AUDIENCE_STAFF,
     encode_access,
     new_refresh_token,
     now,
@@ -141,11 +143,15 @@ async def issue_tokens(
     memberships: list[dict[str, Any]],
     super_admin: bool,
     entitlements: dict[str, Any] | None,
+    audience: str,
+    chain_started_at: datetime | None = None,
+    device_hash: str | None = None,
     user_agent: str | None = None,
     ip: str | None = None,
 ) -> dict[str, Any]:
     access, access_exp = encode_access(
         user_id=user.id,
+        audience=audience,
         # `org_id` ham tokenga kiradi: RLS `app.org_id` ga tayanadi va usiz
         # xodim o'z klubining tashkilotini (demak tarifini) ko'ra olmaydi
         memberships=[
@@ -164,6 +170,10 @@ async def issue_tokens(
         RefreshToken(
             user_id=user.id,
             token_hash=sha256_hex(refresh),
+            kind=audience,
+            # Rotatsiyada eski zanjir boshlanish vaqti KO'CHIRILADI, yangilanmaydi
+            chain_started_at=chain_started_at or now(),
+            device_hash=device_hash,
             expires_at=expires_at,
             user_agent=user_agent,
             ip=ip,
@@ -241,9 +251,16 @@ async def rotate_refresh(
     if user is None:
         raise Unauthorized("Foydalanuvchi topilmadi", code="USER_NOT_FOUND")
 
-    super_admin = await is_super_admin(session, user.id)
-    memberships = await load_memberships(session, user.id)
-    org_id = memberships[0]["org_id"] if memberships else None
+    # Dunyo saqlangan qatordan olinadi, `users` dan QAYTA HISOBLANMAYDI —
+    # aks holda token rotatsiya paytida dunyo almashtirishi mumkin (§3.7)
+    if stored.kind == AUDIENCE_STAFF:
+        super_admin = await is_super_admin(session, user.id)
+        memberships = await load_memberships(session, user.id)
+        org_id = memberships[0]["org_id"] if memberships else None
+    else:
+        super_admin = False
+        memberships = []
+        org_id = None
     entitlements = await load_entitlements(session, org_id)
 
     issued = await issue_tokens(
@@ -252,6 +269,11 @@ async def rotate_refresh(
         memberships=memberships,
         super_admin=super_admin,
         entitlements=entitlements,
+        audience=stored.kind,
+        # Zanjir boshlanish vaqti ko'chiriladi: mutlaq sessiya chegarasi
+        # rotatsiya bilan cheksiz uzaymasin
+        chain_started_at=stored.chain_started_at,
+        device_hash=stored.device_hash,
         user_agent=user_agent,
         ip=ip,
     )
@@ -284,10 +306,12 @@ async def sign_in(
     ctx.telegram_id = identity.telegram_id
     context.set_context(ctx)
 
-    super_admin = await is_super_admin(session, user.id)
-    memberships = await load_memberships(session, user.id)
-    org_id = memberships[0]["org_id"] if memberships else None
-    entitlements = await load_entitlements(session, org_id)
+    # Mijoz dunyosida a'zolik ham, super admin ham BO'LMAYDI — kompozit FK
+    # buni DB darajasida taqiqlaydi. Bu yerda ular so'ralmaydi ham: bitta
+    # unutilgan tekshiruv butun platformani ochib yuborishi mumkin (§6.6).
+    memberships: list[dict[str, Any]] = []
+    super_admin = False
+    entitlements = await load_entitlements(session, None)
 
     issued = await issue_tokens(
         session,
@@ -295,6 +319,7 @@ async def sign_in(
         memberships=memberships,
         super_admin=super_admin,
         entitlements=entitlements,
+        audience=AUDIENCE_CUSTOMER,
         user_agent=user_agent,
         ip=ip,
     )

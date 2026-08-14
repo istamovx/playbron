@@ -30,19 +30,32 @@ def new_refresh_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+AUDIENCE_CUSTOMER = "customer"
+AUDIENCE_STAFF = "staff"
+AUDIENCES = (AUDIENCE_CUSTOMER, AUDIENCE_STAFF)
+
+
 def encode_access(
     *,
     user_id: int,
     memberships: list[dict[str, Any]],
     is_super_admin: bool,
+    audience: str,
     entitlements: dict[str, Any] | None = None,
     ttl_sec: int | None = None,
 ) -> tuple[str, datetime]:
     ttl = ttl_sec or (settings.sa_access_ttl_sec if is_super_admin else settings.access_ttl_sec)
     expires_at = now() + timedelta(seconds=ttl)
 
+    if audience not in AUDIENCES:
+        raise ValueError(f"Noma'lum audience: {audience!r}")
+
     payload: dict[str, Any] = {
         "sub": str(user_id),
+        # Qaysi dunyoga tegishli. Tekshiruv `jwt.decode(audience=...)` da —
+        # qo'lda `if knd == 'staff'` yozilmaydi, chunki teskari yozilgan shart
+        # da'vosi yo'q tokenni xodim deb qabul qilardi (§6.6).
+        "aud": audience,
         "mbr": memberships,
         "sa": is_super_admin,
         "iat": int(now().timestamp()),
@@ -62,10 +75,15 @@ def encode_access(
 
 def decode_access(token: str) -> dict[str, Any]:
     try:
+        # `require` — klaym yo'q bo'lsa pyjwt o'zi rad etadi (fail-closed).
+        # `audience` ro'yxat: ikkala dunyo ham yaroqli, farqi `require_staff_token`
+        # da tekshiriladi.
         return jwt.decode(
             token,
             settings.jwt_secret.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
+            audience=list(AUDIENCES),
+            options={"require": ["exp", "sub", "aud"]},
         )
     except jwt.ExpiredSignatureError as exc:
         raise Unauthorized("Sessiya muddati tugadi", code="TOKEN_EXPIRED") from exc

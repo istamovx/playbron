@@ -12,7 +12,7 @@ from playbron.core.errors import NotFound, Unauthorized
 from playbron.core.http import client_ip
 from playbron.core.security import constant_time_equal, now
 from playbron.deps import db, public_db
-from playbron.modules.auth import botlogin, service
+from playbron.modules.auth import botlogin, service, staff
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -49,7 +49,9 @@ class MembershipOut(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    telegram_id: int
+    # Xodimda YO'Q — uning Telegrami shaxsni tasdiqlamaydi (§3.2)
+    telegram_id: int | None = None
+    login: str | None = None
     first_name: str
     last_name: str | None
     username: str | None
@@ -66,6 +68,9 @@ class SessionOut(BaseModel):
     memberships: list[MembershipOut]
     is_super_admin: bool
     entitlements: dict[str, Any] | None = None
+    # Birov bergan parol bir martalik: `true` bo'lsa konsol faqat parol
+    # almashtirish ekranini ochadi (Ilova C.2)
+    must_change_password: bool = False
 
 
 def _to_session(payload: dict[str, Any], entitlements: dict[str, Any] | None) -> SessionOut:
@@ -78,6 +83,7 @@ def _to_session(payload: dict[str, Any], entitlements: dict[str, Any] | None) ->
         user=UserOut(
             id=user.id,
             telegram_id=user.telegram_id,
+            login=user.login,
             first_name=user.first_name,
             last_name=user.last_name,
             username=user.username,
@@ -163,6 +169,42 @@ async def refresh(
     org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
     entitlements = await service.load_entitlements(session, org_id)
     return _to_session(payload, entitlements)
+
+
+class StaffLoginIn(BaseModel):
+    """Xodim, klub admini va super admin uchun yagona kirish."""
+
+    login: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/staff/login", response_model=SessionOut)
+async def staff_login(
+    body: StaffLoginIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    """Login + parol.
+
+    Hisob yo'qligi, xato parol va faol bo'lmagan holat — uchalasi ham AYNAN
+    bir xil 401 qaytaradi.
+    """
+    ua, ip = _client(request, user_agent)
+    payload = await staff.staff_login(
+        session,
+        login=body.login,
+        password=body.password,
+        user_agent=ua,
+        ip=ip,
+    )
+
+    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
+    entitlements = await service.load_entitlements(session, org_id)
+
+    out = _to_session(payload, entitlements)
+    out.must_change_password = payload["must_change_password"]
+    return out
 
 
 class StartIn(BaseModel):

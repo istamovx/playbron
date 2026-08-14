@@ -222,7 +222,16 @@ class RefreshToken(Base):
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # Dunyo SAQLANGAN qatordan olinadi va rotatsiyada `users` dan qayta
+    # hisoblanmaydi — aks holda token rotatsiya paytida dunyo almashtirardi
+    kind: Mapped[str] = mapped_column(Text, default="customer")
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Mutlaq sessiya chegarasi. Rotatsiya bu vaqtni KO'CHIRMAYDI — aks holda
+    # cheksiz uzayadigan sessiya kelib chiqardi
+    chain_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    device_hash: Mapped[str | None] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Rotatsiya zanjiri — o'g'irlangan token qayta ishlatilsa aniqlanadi
