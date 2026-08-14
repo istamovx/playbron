@@ -30,6 +30,7 @@ export function App(): ReactNode {
   useClock();
   const now = useNow();
   const session = useSession((state) => state.session);
+  const mustChangePassword = useSession((state) => state.mustChangePassword);
   const prune = useSession((state) => state.prune);
   const signOut = useSession((state) => state.signOut);
   const restore = useSession((state) => state.restore);
@@ -78,7 +79,10 @@ export function App(): ReactNode {
     }
   }, [session, location.pathname, active, navigate]);
 
-  if (!session) return <LoginScreen />;
+  // `must_change` holatida BOSHQA hech qanday marshrut ochilmaydi: aks holda
+  // vaqtinchalik parol bilan kirgan hisob mijoz ma'lumotlarini va hisobotlarni
+  // o'qiy olardi (docs/05-auth-redesign.md §7.3)
+  if (!session || mustChangePassword) return <LoginScreen />;
 
   const [title, meta] = TITLES[active];
 

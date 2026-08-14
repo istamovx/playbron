@@ -1,12 +1,28 @@
-import { Button, Icon, Panel, SegmentedControl, StatusLine, Wordmark } from '@playbron/ui';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  Button,
+  Icon,
+  Panel,
+  SegmentedControl,
+  StatusLine,
+  TextField,
+  Wordmark,
+} from '@playbron/ui';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { useI18n, useT, type Lang, type MsgKey } from '../i18n';
-import { TELEGRAM_LOGIN_BOT, useSession } from '../store/session';
+import { useSession } from '../store/session';
 
 /** Til kodi ↔ segment yorlig'i. Kod — matn emas, tarjima qilinmaydi. */
 const LANG_LABELS: Record<Lang, string> = { uz: 'UZ', ru: 'RU', en: 'EN' };
 const LABEL_LANGS: Record<string, Lang> = { UZ: 'uz', RU: 'ru', EN: 'en' };
+
+/**
+ * Marketing sayti. `playbron.uz` domeni ulanmaguncha sukut qiymat Render
+ * manzili — o'lik domenga yuborilmasin.
+ */
+const LANDING_URL: string =
+  (import.meta.env['VITE_LANDING_URL'] as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:5175' : 'https://playbron-landing.onrender.com');
 
 const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
   { icon: 'grid_view', title: 'featLiveTitle', text: 'featLiveText' },
@@ -15,107 +31,19 @@ const FEATURES: { icon: string; title: MsgKey; text: MsgKey }[] = [
 ];
 
 /**
- * Marketing sayti — kirish ekranidagi «saytga qaytish» havolasi shu manzilga.
- * Odatiy yo'l: landing → «Ilovaga kirish» → shu ekran, shuning uchun orqaga
- * qaytish yo'li ham bo'lishi kerak.
+ * Ilovaga kirish — **login va parol**.
  *
- * `playbron.uz` hali hech qayerga yo'naltirilmagan, shuning uchun sukut qiymat
- * sifatida ishlatilmaydi — lokalda landing dev serveri, prod'da esa Render
- * manzili. Domen ulangach `VITE_LANDING_URL` playbron.uz ga o'zgartiriladi.
- */
-const LANDING_URL: string =
-  (import.meta.env['VITE_LANDING_URL'] as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:5175' : 'https://playbron-landing.onrender.com');
-
-const POLL_INTERVAL_MS = 2_000;
-// Nonce TTL bilan bir xil — 5 daqiqa
-const POLL_TIMEOUT_MS = 300_000;
-// Ilova ochilmagan bo'lsa t.me zaxira havolasi shuncha kutib ko'rsatiladi
-const FALLBACK_DELAY_MS = 2_500;
-
-/**
- * Kutilayotgan urinish `sessionStorage`da — foydalanuvchi Telegram'ga o'tib
- * kelguncha sahifani yangilab yuborsa, poll yo'qolmasin: qayta ochilganda
- * shu yozuvdan davom etadi. Tab yopilsa o'zi tozalanadi.
- */
-const ATTEMPT_KEY = 'playbron.tgstart';
-
-interface Attempt {
-  nonce: string;
-  deadline: number;
-}
-
-function saveAttempt(attempt: Attempt): void {
-  try {
-    sessionStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempt));
-  } catch {
-    // Saqlab bo'lmasa oqim baribir ishlaydi — faqat yangilashga chidamsiz bo'ladi
-  }
-}
-
-function loadAttempt(): Attempt | null {
-  try {
-    const raw = sessionStorage.getItem(ATTEMPT_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as Attempt).nonce === 'string' &&
-      typeof (parsed as Attempt).deadline === 'number'
-    ) {
-      return parsed as Attempt;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function clearAttempt(): void {
-  try {
-    sessionStorage.removeItem(ATTEMPT_KEY);
-  } catch {
-    // Tozalab bo'lmasa keyingi o'qishda muddat tekshiruvi baribir rad etadi
-  }
-}
-
-/**
- * Konsolga kirish — **faqat Telegram**. Parol yo'q, OAuth oynasi ham yo'q.
- *
- * Tugma `tg://resolve?domain=<bot>&start=<nonce>` deep-link bilan Telegram
- * desktop/mobil ilovasini ochadi. Foydalanuvchi botda **Start** bosadi,
- * konsol esa nonce'ni poll qilib sessiyani oladi. Ilova o'rnatilmagan bo'lsa
- * bir necha soniyadan keyin `t.me` zaxira havolasi chiqadi.
- *
- * Bu oqim @BotFather'dagi `/setdomain` ni talab qilmaydi; lokal ishlab
- * chiqishda esa webhook prod'ga qaragani uchun pastdagi dev yo'li ishlatiladi.
+ * Telegram bu ekranda qatnashmaydi: u faqat ilovani ochadigan yuza. Login va
+ * parolni klub egasi beradi; birov bergan parol bir martalik va birinchi
+ * kirishda majburan almashtiriladi (`docs/05-auth-redesign.md` Ilova C).
  */
 export function LoginScreen(): ReactNode {
-  const beginTelegramLogin = useSession((state) => state.beginTelegramLogin);
-  const pollTelegramLogin = useSession((state) => state.pollTelegramLogin);
-  const signInDev = useSession((state) => state.signInDev);
+  const mustChange = useSession((state) => state.mustChangePassword);
   const lang = useI18n((state) => state.lang);
   const setLang = useI18n((state) => state.setLang);
   const t = useT();
 
-  // Backend'dan kelgan xato matni; `errorKey` esa render paytida tarjima
-  // qilinadi — til almashsa xabar ham almashadi
-  const [error, setError] = useState<string | null>(null);
-  const [errorKey, setErrorKey] = useState<MsgKey | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [tmeLink, setTmeLink] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
-  // Bekor qilish va unmount poll siklini shu belgi orqali to'xtatadi
-  const run = useRef<{ stop: boolean } | null>(null);
-  const resumed = useRef(false);
-
-  useEffect(
-    () => () => {
-      if (run.current) run.current.stop = true;
-    },
-    [],
-  );
 
   // Holat qatoridagi ulanish indikatori — soxta emas, brauzerdan
   useEffect(() => {
@@ -128,113 +56,6 @@ export function LoginScreen(): ReactNode {
       window.removeEventListener('offline', sync);
     };
   }, []);
-
-  /** Nonce tasdiqlanishini kutadi. `ready` — sessiya o'rnatiladi, App almashadi. */
-  const watch = useCallback(
-    (nonce: string, deadline: number): void => {
-      const marker = { stop: false };
-      run.current = marker;
-      setBusy(true);
-      setError(null);
-      setErrorKey(null);
-
-      const fail = (key: MsgKey | null, text: string | null): void => {
-        if (marker.stop) return;
-        marker.stop = true;
-        clearAttempt();
-        setErrorKey(key);
-        setError(text);
-        setBusy(false);
-        setTmeLink(null);
-      };
-
-      void (async () => {
-        while (!marker.stop && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-          if (marker.stop) return;
-
-          try {
-            const status = await pollTelegramLogin(nonce);
-            if (status === 'ready') {
-              clearAttempt();
-              return;
-            }
-            if (status === 'expired') {
-              fail('startExpired', null);
-              return;
-            }
-          } catch {
-            // Vaqtinchalik xato (API restart, tarmoq uzilishi, sovuq start) —
-            // kutish davom etadi. Muddat (deadline) baribir chegaralaydi.
-          }
-        }
-        fail('startExpired', null);
-      })();
-    },
-    [pollTelegramLogin],
-  );
-
-  // Sahifa yangilangan bo'lsa — saqlangan urinishdan davom etamiz
-  useEffect(() => {
-    if (resumed.current) return;
-    resumed.current = true;
-
-    const stored = loadAttempt();
-    if (!stored || stored.deadline <= Date.now()) {
-      clearAttempt();
-      return;
-    }
-    setTmeLink(`https://t.me/${TELEGRAM_LOGIN_BOT}?start=${stored.nonce}`);
-    watch(stored.nonce, stored.deadline);
-  }, [watch]);
-
-  const stopLogin = (): void => {
-    if (run.current) run.current.stop = true;
-    clearAttempt();
-    setBusy(false);
-    setTmeLink(null);
-  };
-
-  const telegramLogin = (): void => {
-    setBusy(true);
-    setError(null);
-    setErrorKey(null);
-    setTmeLink(null);
-
-    void (async () => {
-      let nonce: string;
-      try {
-        nonce = await beginTelegramLogin(lang);
-      } catch (cause) {
-        setError(cause instanceof Error && cause.message ? cause.message : '');
-        setBusy(false);
-        return;
-      }
-
-      const deadline = Date.now() + POLL_TIMEOUT_MS;
-      saveAttempt({ nonce, deadline });
-      watch(nonce, deadline);
-
-      // Deep-link: ilova o'rnatilgan bo'lsa OS Telegram'ga o'tadi, sahifa qoladi
-      window.location.href = `tg://resolve?domain=${TELEGRAM_LOGIN_BOT}&start=${nonce}`;
-
-      const marker = run.current;
-      setTimeout(() => {
-        if (marker && !marker.stop) {
-          setTmeLink(`https://t.me/${TELEGRAM_LOGIN_BOT}?start=${nonce}`);
-        }
-      }, FALLBACK_DELAY_MS);
-    })();
-  };
-
-  const devLogin = (): void => {
-    setBusy(true);
-    setError(null);
-    void signInDev().catch((cause: unknown) => {
-      setError(cause instanceof Error && cause.message ? cause.message : '');
-      setBusy(false);
-    });
-  };
 
   return (
     <div style={SHELL}>
@@ -265,12 +86,9 @@ export function LoginScreen(): ReactNode {
       </header>
 
       <div className="pb-auth">
-        {/* Brend va ulanish holati */}
         <section className="pb-auth-brand">
           <Wordmark width="min(330px, 78vw)" />
-
           <p style={TAGLINE}>{t('tagline')}</p>
-
           <StatusLine
             tone={online ? 'ok' : 'danger'}
             icon={online ? 'sensors' : 'sensors_off'}
@@ -278,7 +96,6 @@ export function LoginScreen(): ReactNode {
           />
         </section>
 
-        {/* Modullar — desktopda brend ostida, telefonda panel ortida */}
         <div className="pb-auth-features">
           <span style={EYEBROW}>{t('modulesLabel')}</span>
           {FEATURES.map((item) => (
@@ -298,84 +115,171 @@ export function LoginScreen(): ReactNode {
           ))}
         </div>
 
-        {/* Kirish paneli */}
-        <Panel
-          title={t('signInTitle')}
-          notch
-          brackets
-          glow
-          style={{
-            position: 'relative',
-            overflow: 'hidden',
-            width: '100%',
-            minWidth: 0,
-            gridArea: 'panel',
-          }}
-        >
-          <span className="pb-scan" aria-hidden />
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-            <span style={PROMPT}>
-              <span style={{ color: 'var(--text-accent)' }}>{'> '}</span>
-              {t('signInHint')}
-              <i className="pb-caret" aria-hidden />
-            </span>
-
-            <Button
-              variant="primary"
-              size="lg"
-              block
-              notch
-              icon="send"
-              disabled={busy}
-              onClick={telegramLogin}
-            >
-              {t('telegramButton')}
-            </Button>
-
-            {busy ? (
-              <div style={WAITING}>
-                <StatusLine tone="accent" icon="hourglass_top" parts={t('confirmInTelegram')} />
-                {tmeLink ? (
-                  <a
-                    href={tmeLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ font: 'var(--type-body-sm)', color: 'var(--text-accent)' }}
-                  >
-                    {t('openViaTme')}
-                  </a>
-                ) : null}
-                <Button variant="ghost" size="sm" icon="close" onClick={stopLogin}>
-                  {t('cancel')}
-                </Button>
-              </div>
-            ) : null}
-
-            {(error !== null || errorKey !== null) && !busy ? (
-              <StatusLine
-                tone="danger"
-                icon="error"
-                parts={error ?? t(errorKey ?? 'signInFailed')}
-              />
-            ) : null}
-
-            {import.meta.env.DEV ? (
-              <>
-                <div style={{ height: 1, background: 'var(--line-1)' }} />
-                <span style={EYEBROW}>{t('devEyebrow')}</span>
-                <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {t('devHint')}
-                </span>
-                <Button variant="secondary" size="lg" block icon="terminal" onClick={devLogin}>
-                  {t('devButton')}
-                </Button>
-              </>
-            ) : null}
-          </div>
-        </Panel>
+        {mustChange ? <ChangePanel /> : <SignInPanel />}
       </div>
     </div>
+  );
+}
+
+/** Login + parol. */
+function SignInPanel(): ReactNode {
+  const signIn = useSession((state) => state.signIn);
+  const loading = useSession((state) => state.loading);
+  const t = useT();
+
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = (): void => {
+    if (!login.trim() || !password || loading) return;
+    setError(null);
+    void signIn(login, password).catch((cause: unknown) => {
+      setError(cause instanceof Error && cause.message ? cause.message : t('signInFailed'));
+    });
+  };
+
+  return (
+    <Panel title={t('signInTitle')} notch brackets glow style={PANEL}>
+      <span className="pb-scan" aria-hidden />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        <span style={PROMPT}>
+          <span style={{ color: 'var(--text-accent)' }}>{'> '}</span>
+          {t('signInHint')}
+          <i className="pb-caret" aria-hidden />
+        </span>
+
+        <TextField
+          label={t('loginLabel')}
+          value={login}
+          onChange={setLogin}
+          placeholder={t('loginPlaceholder')}
+          icon="person"
+          name="username"
+          autoComplete="username"
+          disabled={loading}
+          onSubmitKey={submit}
+        />
+
+        <TextField
+          label={t('passwordLabel')}
+          value={password}
+          onChange={setPassword}
+          type="password"
+          revealable
+          icon="lock"
+          name="current-password"
+          autoComplete="current-password"
+          disabled={loading}
+          onSubmitKey={submit}
+        />
+
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          notch
+          icon="login"
+          disabled={loading || !login.trim() || !password}
+          onClick={submit}
+        >
+          {loading ? t('signingIn') : t('signInButton')}
+        </Button>
+
+        {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+          {t('forgot')}
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * Birov bergan parolni almashtirish.
+ *
+ * Bu ekran chetlab o'tilmaydi: `must_change` holatida boshqa hech qanday
+ * marshrut ochilmaydi (§7.3) — aks holda vaqtinchalik holatdagi hisob mijoz
+ * ma'lumotlarini va hisobotlarni o'qiy olardi.
+ */
+function ChangePanel(): ReactNode {
+  const changePassword = useSession((state) => state.changePassword);
+  const loading = useSession((state) => state.loading);
+  const t = useT();
+
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const mismatch = repeat.length > 0 && next !== repeat;
+  const ready = current.length > 0 && next.length > 0 && next === repeat && !loading;
+
+  const submit = (): void => {
+    if (!ready) return;
+    setError(null);
+    void changePassword(current, next).catch((cause: unknown) => {
+      setError(cause instanceof Error && cause.message ? cause.message : t('signInFailed'));
+    });
+  };
+
+  return (
+    <Panel title={t('changeTitle')} notch brackets glow style={PANEL}>
+      <span className="pb-scan" aria-hidden />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        <StatusLine tone="warn" icon="key" parts={t('changeHint')} />
+
+        <TextField
+          label={t('currentPassword')}
+          value={current}
+          onChange={setCurrent}
+          type="password"
+          revealable
+          icon="lock"
+          autoComplete="current-password"
+          disabled={loading}
+        />
+        <TextField
+          label={t('newPassword')}
+          value={next}
+          onChange={setNext}
+          type="password"
+          revealable
+          icon="lock_reset"
+          autoComplete="new-password"
+          disabled={loading}
+        />
+        <TextField
+          label={t('repeatPassword')}
+          value={repeat}
+          onChange={setRepeat}
+          type="password"
+          revealable
+          icon="lock_reset"
+          autoComplete="new-password"
+          disabled={loading}
+          error={mismatch ? t('mismatch') : undefined}
+          onSubmitKey={submit}
+        />
+
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          notch
+          icon="check"
+          disabled={!ready}
+          onClick={submit}
+        >
+          {t('saveButton')}
+        </Button>
+
+        {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+      </div>
+    </Panel>
   );
 }
 
@@ -427,6 +331,14 @@ const SHELL: CSSProperties = {
   overflow: 'hidden',
 };
 
+const PANEL: CSSProperties = {
+  position: 'relative',
+  overflow: 'hidden',
+  width: '100%',
+  minWidth: 0,
+  gridArea: 'panel',
+};
+
 /**
  * Yumshoq binafsha yorug'lik.
  *
@@ -472,14 +384,4 @@ const MOD_ICON: CSSProperties = {
   border: '1px solid var(--line-1)',
   clipPath: 'var(--clip-tr)',
   color: 'var(--purple-100)',
-};
-
-const WAITING: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--gap-tight)',
-  padding: 'var(--gap-block)',
-  background: 'var(--surface-inset)',
-  border: '1px dashed var(--line-1)',
-  clipPath: 'var(--clip-tr)',
 };

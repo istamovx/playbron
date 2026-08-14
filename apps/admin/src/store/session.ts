@@ -4,11 +4,13 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 
 /**
- * Konsol sessiyasi — **faqat Telegram**. Parol yo'q, login yo'q.
+ * Ilova sessiyasi — **login va parol**.
  *
- * Manba — backend: `/auth/telegram/widget` (Login Widget) yoki lokal ishlab
- * chiqishda `/auth/dev/login`. Sessiya `@playbron/api-client` ichida saqlanadi,
- * bu store faqat UI ko'radigan qismini ushlab turadi.
+ * Telegram bu yerda identifikatsiya qilmaydi: u faqat ilovani ochadigan yuza
+ * (Mini App) va bildirishnoma kanali. Shuning uchun `initData` bu oqimda
+ * umuman ishlatilmaydi — ikkinchi imzo yuzasi paydo bo'lsa, ikki endpoint
+ * bir-birining tokenini qabul qilib qo'yish xavfi tug'ilardi
+ * (`docs/05-auth-redesign.md` §11.1).
  */
 
 export type Role = 'STAFF' | 'CLUB_ADMIN' | 'SUPER_ADMIN';
@@ -19,16 +21,10 @@ export const ROLE_LABEL: Record<Role, string> = {
   SUPER_ADMIN: 'Super admin',
 };
 
-/** Kirish qaysi bot orqali ishlaydi (`@` siz) — deep-link shu nomga ochiladi. */
-export const TELEGRAM_LOGIN_BOT: string =
-  (import.meta.env['VITE_TELEGRAM_LOGIN_BOT'] as string | undefined) ?? 'playbronadminbot';
-
-/** Lokal dev kirish uchun telegram_id — `.env` dagi super admin. */
-const DEV_TELEGRAM_ID = Number(import.meta.env['VITE_DEV_TELEGRAM_ID'] ?? 611207125);
-
 export interface Session {
   userId: number;
   name: string;
+  login: string | null;
   role: Role;
   /** Sessiya tugash lahzasi — refresh muddati. */
   expiresAt: string;
@@ -47,22 +43,21 @@ interface ApiSession {
   access_expires_at: string;
   refresh_token: string;
   refresh_expires_at: string;
-  user: { id: number; first_name: string; last_name: string | null };
+  user: { id: number; first_name: string; last_name: string | null; login: string | null };
   memberships: ApiMembership[];
   is_super_admin: boolean;
+  must_change_password: boolean;
 }
 
 interface SessionState {
   session: Session | null;
   loading: boolean;
   error: string | null;
+  /** Birov bergan parol bir martalik — almashtirilmaguncha boshqa ekran ochilmaydi. */
+  mustChangePassword: boolean;
 
-  /** Bot orqali kirishni boshlaydi — deep-link uchun nonce qaytaradi.
-   *  `lang` — konsolda tanlangan til; bot javobi shu tilda bo'ladi. */
-  beginTelegramLogin: (lang: string) => Promise<string>;
-  /** Nonce holatini so'raydi; `ready` kelganda sessiyani o'zi o'rnatadi. */
-  pollTelegramLogin: (nonce: string) => Promise<'pending' | 'expired' | 'ready'>;
-  signInDev: () => Promise<void>;
+  signIn: (login: string, password: string) => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<void>;
   signOut: () => void;
   /** Sahifa yangilanganda saqlangan sessiyadan tiklaydi. */
   restore: () => Promise<void>;
@@ -81,6 +76,7 @@ function toStoreSession(body: ApiSession): Session {
   return {
     userId: body.user.id,
     name: [body.user.first_name, body.user.last_name].filter(Boolean).join(' ').trim(),
+    login: body.user.login,
     role: topRole(body.memberships, body.is_super_admin),
     expiresAt: body.refresh_expires_at,
     clubs: body.memberships.map((m) => ({ id: m.club_id, name: m.club_name, role: m.role })),
@@ -92,43 +88,43 @@ export const useSession = create<SessionState>()((set, get) => ({
   session: null,
   loading: false,
   error: null,
+  mustChangePassword: false,
 
-  beginTelegramLogin: async (lang) => {
+  signIn: async (login, password) => {
+    set({ loading: true, error: null });
     try {
-      const body = await api.post<{ nonce: string; expires_in: number }>(
-        '/auth/telegram/start',
-        { lang },
+      const body = await api.post<ApiSession>(
+        '/auth/staff/login',
+        { login, password },
         { anonymous: true },
       );
-      return body.nonce;
+      api.setSession(toSession(body));
+      set({
+        session: toStoreSession(body),
+        mustChangePassword: body.must_change_password,
+        loading: false,
+      });
     } catch (cause) {
+      set({ loading: false, error: errorText(cause) });
       throw cause instanceof ApiError ? new Error(errorText(cause)) : cause;
     }
   },
 
-  pollTelegramLogin: async (nonce) => {
-    const body = await api.post<{
-      status: 'pending' | 'expired' | 'ready';
-      session: ApiSession | null;
-    }>(`/auth/telegram/start/${nonce}`, {}, { anonymous: true });
-
-    if (body.status === 'ready' && body.session) {
-      api.setSession(toSession(body.session));
-      set({ session: toStoreSession(body.session), loading: false });
-    }
-    return body.status;
-  },
-
-  signInDev: async () => {
+  changePassword: async (current, next) => {
     set({ loading: true, error: null });
     try {
-      const body = await api.post<ApiSession>(
-        '/auth/dev/login',
-        { telegram_id: DEV_TELEGRAM_ID, first_name: 'Dev' },
-        { anonymous: true },
-      );
+      // Javob — YANGI sessiya: server eski tokenlarni bekor qiladi, shuning
+      // uchun ularni almashtirmasak keyingi so'rov 401 bo'lardi
+      const body = await api.post<ApiSession>('/auth/staff/password/change', {
+        current_password: current,
+        new_password: next,
+      });
       api.setSession(toSession(body));
-      set({ session: toStoreSession(body), loading: false });
+      set({
+        session: toStoreSession(body),
+        mustChangePassword: false,
+        loading: false,
+      });
     } catch (cause) {
       set({ loading: false, error: errorText(cause) });
       throw cause instanceof ApiError ? new Error(errorText(cause)) : cause;
@@ -137,7 +133,7 @@ export const useSession = create<SessionState>()((set, get) => ({
 
   signOut: () => {
     void apiSignOut(api);
-    set({ session: null, error: null });
+    set({ session: null, error: null, mustChangePassword: false });
   },
 
   restore: async () => {
@@ -151,6 +147,7 @@ export const useSession = create<SessionState>()((set, get) => ({
         id: number;
         first_name: string;
         last_name: string | null;
+        login: string | null;
         is_super_admin: boolean;
         clubs: { id: number; name: string; role: string; org_id: number }[];
       }>('/me');
@@ -160,6 +157,7 @@ export const useSession = create<SessionState>()((set, get) => ({
         session: {
           userId: me.id,
           name: [me.first_name, me.last_name].filter(Boolean).join(' ').trim(),
+          login: me.login,
           role: topRole(
             me.clubs.map((c) => ({ club_id: c.id, club_name: c.name, role: c.role })),
             me.is_super_admin,
@@ -180,7 +178,7 @@ export const useSession = create<SessionState>()((set, get) => ({
     const session = get().session;
     if (session && new Date(session.expiresAt).getTime() <= Date.now()) {
       api.signOut();
-      set({ session: null });
+      set({ session: null, mustChangePassword: false });
     }
   },
 }));

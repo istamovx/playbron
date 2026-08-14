@@ -25,6 +25,7 @@ from playbron.core.errors import AppError, Unauthorized
 from playbron.core.passwords import (
     hash_password,
     needs_rehash,
+    validate,
     verify_password,
     waste_time,
 )
@@ -190,3 +191,50 @@ async def staff_login(
         # `true` bo'lsa konsol faqat parol almashtirish ekranini ochadi (§7.3)
         "must_change_password": bool(must_change),
     }
+
+
+async def change_password(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    current: str,
+    new_password: str,
+    role: str,
+    login: str | None,
+) -> None:
+    """O'z parolini almashtirish.
+
+    Joriy parol MAJBURIY: sessiyasi o'g'irlangan hujumchi parolni jimgina
+    almashtirib, haqiqiy egasini butunlay chiqarib yuborolmasin (§7.3).
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT user_id, password_hash, status, must_change"
+                " FROM auth_lookup_staff(:login)"
+            ),
+            {"login": login or ""},
+        )
+    ).first()
+
+    if row is None or int(row[0]) != int(user_id):
+        raise _reject()
+
+    if not await verify_password(row[1], current):
+        delay = await ratelimit.failure_delay("pwchange", str(user_id), window_sec=FAIL_WINDOW)
+        await asyncio.sleep(delay)
+        raise _reject()
+
+    validated = validate(new_password, role=role, login=login)
+    if await verify_password(row[1], validated):
+        raise AppError(
+            "Yangi parol eskisi bilan bir xil", code="PASSWORD_UNCHANGED", status_code=400
+        )
+
+    changed = await session.scalar(
+        text("SELECT auth_change_password(:h)"), {"h": await hash_password(validated)}
+    )
+    if not changed:
+        raise _reject()
+
+    await ratelimit.clear_failures("pwchange", str(user_id))

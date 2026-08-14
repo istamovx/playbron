@@ -5,8 +5,6 @@ import { create } from 'zustand';
  * Konsol i18n — uz/ru/en.
  *
  * Kichik va qaram-liksiz: lug'at shu faylda, tanlov `localStorage` da saqlanadi.
- * Telegram Login Widget ham shu tildan foydalanadi (`data-lang`), shuning uchun
- * til almashganda widget qayta o'rnatiladi (login ekranidagi effekt buni qiladi).
  */
 
 export type Lang = 'uz' | 'ru' | 'en';
@@ -31,7 +29,7 @@ const STRINGS = {
 
   statusOnline: { uz: 'Tizim onlayn', ru: 'Система онлайн', en: 'System online' },
   statusOffline: { uz: 'Ulanish yo‘q', ru: 'Нет связи', en: 'Offline' },
-  authMethodLabel: { uz: 'Kirish: Telegram', ru: 'Вход: Telegram', en: 'Auth: Telegram' },
+  authMethodLabel: { uz: 'Kirish: login', ru: 'Вход: логин', en: 'Auth: login' },
   modulesLabel: { uz: 'Modullar', ru: 'Модули', en: 'Modules' },
 
   featLiveTitle: { uz: 'Live board', ru: 'Live-панель', en: 'Live board' },
@@ -55,9 +53,9 @@ const STRINGS = {
 
   signInTitle: { uz: 'Kirish', ru: 'Вход', en: 'Sign in' },
   signInHint: {
-    uz: 'Ilovaga Telegram hisobingiz bilan kirasiz — login va parol kerak emas.',
-    ru: 'В приложение входят через аккаунт Telegram — логин и пароль не нужны.',
-    en: 'Sign in to the app with your Telegram account — no login or password.',
+    uz: 'Login va parolingizni kiriting. Ularni klub egangiz beradi.',
+    ru: 'Введите логин и пароль. Их выдаёт владелец клуба.',
+    en: 'Enter your login and password. Your club owner issues them.',
   },
   signInFailed: {
     uz: 'Kirish amalga oshmadi',
@@ -65,43 +63,32 @@ const STRINGS = {
     en: 'Sign-in failed',
   },
 
-  telegramButton: {
-    uz: 'Telegram orqali kirish',
-    ru: 'Войти через Telegram',
-    en: 'Sign in with Telegram',
-  },
-  confirmInTelegram: {
-    uz: 'Telegram ochildi — botdagi «Start» tugmasini bosing, ilova o‘zi kiradi',
-    ru: 'Telegram открыт — нажмите «Start» в боте, приложение войдёт само',
-    en: 'Telegram is open — press “Start” in the bot and the app will sign you in',
-  },
-  openViaTme: {
-    uz: 'Ilova ochilmadimi? t.me orqali ochish',
-    ru: 'Приложение не открылось? Открыть через t.me',
-    en: 'App didn’t open? Open via t.me',
-  },
-  cancel: { uz: 'Bekor qilish', ru: 'Отмена', en: 'Cancel' },
-  startExpired: {
-    uz: 'Vaqt tugadi — qaytadan urinib ko‘ring',
-    ru: 'Время истекло — попробуйте ещё раз',
-    en: 'Timed out — try again',
+  loginLabel: { uz: 'Login', ru: 'Логин', en: 'Login' },
+  passwordLabel: { uz: 'Parol', ru: 'Пароль', en: 'Password' },
+  signInButton: { uz: 'Kirish', ru: 'Войти', en: 'Sign in' },
+  signingIn: { uz: 'Kirilmoqda…', ru: 'Вход…', en: 'Signing in…' },
+  loginPlaceholder: { uz: 'aziz.arena', ru: 'aziz.arena', en: 'aziz.arena' },
+  forgot: {
+    uz: 'Parolni unutdingizmi? Klub egangizga murojaat qiling.',
+    ru: 'Забыли пароль? Обратитесь к владельцу клуба.',
+    en: 'Forgot your password? Ask your club owner.',
   },
 
-  devEyebrow: {
-    uz: 'Lokal ishlab chiqish',
-    ru: 'Локальная разработка',
-    en: 'Local development',
+  changeTitle: { uz: 'Parolni almashtiring', ru: 'Смените пароль', en: 'Change your password' },
+  changeHint: {
+    uz: 'Bu parolni sizga boshqa odam bergan. Davom etish uchun o‘zingiznikini qo‘ying.',
+    ru: 'Этот пароль вам выдал другой человек. Чтобы продолжить, задайте свой.',
+    en: 'Someone else set this password. Set your own to continue.',
   },
-  devHint: {
-    uz: 'Telegram Login Widget localhost da ishlamaydi. Bu tugma faqat dev qurilishida ko‘rinadi.',
-    ru: 'Telegram Login Widget не работает на localhost. Кнопка видна только в dev-сборке.',
-    en: 'The Telegram Login Widget does not work on localhost. This button only appears in dev builds.',
+  currentPassword: { uz: 'Joriy parol', ru: 'Текущий пароль', en: 'Current password' },
+  newPassword: { uz: 'Yangi parol', ru: 'Новый пароль', en: 'New password' },
+  repeatPassword: {
+    uz: 'Yangi parolni takrorlang',
+    ru: 'Повторите новый пароль',
+    en: 'Repeat new password',
   },
-  devButton: {
-    uz: 'Dev sifatida kirish',
-    ru: 'Войти как Dev',
-    en: 'Sign in as Dev',
-  },
+  mismatch: { uz: 'Parollar mos kelmadi', ru: 'Пароли не совпадают', en: 'Passwords do not match' },
+  saveButton: { uz: 'Saqlash', ru: 'Сохранить', en: 'Save' },
 } as const satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof STRINGS;

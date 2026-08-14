@@ -84,7 +84,7 @@ def _bot_token() -> str:
 def _widget_token() -> str:
     """Login Widget tokeni.
 
-    Widget klub egasi va xodim uchun — u **admin bot** (`@playbronadminbot`)
+    Widget klub egasi va xodim uchun — u **admin bot** (`@playbronappbot`)
     orqali ishlaydi, chunki konsolga kirish mijoz oqimidan ajratilgan.
     Asosiy botga qaytish faqat lokal muhit uchun: prod'da `ADMIN_BOT_TOKEN`
     config tomonidan majburiy qilinadi (aks holda imzo doim mos kelmasdi).

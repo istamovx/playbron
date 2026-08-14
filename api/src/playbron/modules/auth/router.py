@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from playbron.core import context
 from playbron.core.config import settings
 from playbron.core.errors import NotFound, Unauthorized
 from playbron.core.http import client_ip
-from playbron.core.security import constant_time_equal, now
-from playbron.deps import db, public_db
+from playbron.core.security import AUDIENCE_STAFF, constant_time_equal, now
+from playbron.deps import current_claims, db, public_db
+from playbron.models import User
 from playbron.modules.auth import botlogin, service, staff
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
@@ -205,6 +207,81 @@ async def staff_login(
     out = _to_session(payload, entitlements)
     out.must_change_password = payload["must_change_password"]
     return out
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+def _top_role(memberships: list[dict[str, Any]], super_admin: bool) -> str:
+    """Parol uzunligi roldan kelib chiqadi (§7.2)."""
+    if super_admin:
+        return "SUPER_ADMIN"
+    roles = {m["role"] for m in memberships}
+    if "OWNER" in roles:
+        return "OWNER"
+    if "ADMIN" in roles:
+        return "ADMIN"
+    return "STAFF"
+
+
+@router.post("/staff/password/change", response_model=SessionOut)
+async def change_password(
+    body: PasswordChangeIn,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(db)],
+    _: Annotated[dict[str, Any], Depends(current_claims)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> SessionOut:
+    """O'z parolini almashtirish. Joriy parol majburiy.
+
+    Muvaffaqiyatda BARCHA eski refresh tokenlar bekor qilinadi va yangi
+    sessiya beriladi: parol o'zgargach eski qurilmalardagi sessiyalar
+    yashab qolmasin.
+    """
+    ctx = context.current()
+    user = await session.get(User, ctx.user_id)
+    if user is None:
+        raise NotFound("Foydalanuvchi topilmadi")
+
+    super_admin = await service.is_super_admin(session, user.id)
+    memberships = await service.load_memberships(session, user.id)
+
+    await staff.change_password(
+        session,
+        user_id=user.id,
+        current=body.current_password,
+        new_password=body.new_password,
+        role=_top_role(memberships, super_admin),
+        login=user.login,
+    )
+
+    # Eski tokenlar — hammasi. Yangi sessiya quyida beriladi.
+    await service.revoke_all_tokens(user.id)
+
+    org_id = memberships[0]["org_id"] if memberships else None
+    entitlements = await service.load_entitlements(session, org_id)
+    issued = await service.issue_tokens(
+        session,
+        user=user,
+        memberships=memberships,
+        super_admin=super_admin,
+        entitlements=entitlements,
+        audience=AUDIENCE_STAFF,
+        user_agent=(user_agent[:UA_MAX_LEN] if user_agent else None),
+        ip=client_ip(request),
+    )
+
+    return _to_session(
+        {
+            **issued,
+            "user": user,
+            "memberships": memberships,
+            "is_super_admin": super_admin,
+        },
+        entitlements,
+    )
 
 
 class StartIn(BaseModel):

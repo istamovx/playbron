@@ -29,6 +29,7 @@ class MeOut(BaseModel):
     # Xodimda YO'Q: uning Telegrami shaxsni tasdiqlamaydi va alohida
     # `staff_telegram` jadvalida turadi (docs/05-auth-redesign.md §3.2)
     telegram_id: int | None
+    login: str | None = None
     first_name: str
     last_name: str | None
     username: str | None
@@ -64,6 +65,7 @@ async def me(
     return MeOut(
         id=user.id,
         telegram_id=user.telegram_id,
+        login=user.login,
         first_name=user.first_name,
         last_name=user.last_name,
         username=user.username,

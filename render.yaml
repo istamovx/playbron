@@ -147,8 +147,6 @@ services:
       # birinchi build'dayoq to'g'ri bo'ladi — qayta deploy qilish shart emas.
       - key: VITE_API_URL
         value: 'https://api.playbron.uz/api/v1'
-      - key: VITE_TELEGRAM_LOGIN_BOT
-        value: playbronadminbot
       # Kirish ekranidagi «saytga qaytish» tugmasi. Domen ulangach playbron.uz
       - key: VITE_LANDING_URL
         value: 'https://playbron.uz'
@@ -158,9 +156,10 @@ services:
         source: /*
         destination: /index.html
     headers:
-      - path: /*
-        name: X-Frame-Options
-        value: SAMEORIGIN
+      # `X-Frame-Options` ATAYLAB YO'Q. Ilova `@playbronappbot` ichida Mini App
+      # sifatida ochiladi, Telegram esa uni Desktop va Web'da IFRAME ichida
+      # ko'rsatadi — `SAMEORIGIN` bo'lsa foydalanuvchi bo'sh oyna ko'radi.
+      # Mobil mijozlarda webview, u yerda sarlavhaning ahamiyati yo'q.
       - path: /*
         name: X-Content-Type-Options
         value: nosniff

@@ -56,6 +56,14 @@ services:
     command:
       ['uvicorn', 'playbron.main:app', '--host', '0.0.0.0', '--port', '8000', '--reload']
     env_file: ./api/.env
+    # `.env` dagi manzillar HOST uchun (`localhost`). Konteyner ichida
+    # `localhost` — konteynerning o'zi, shuning uchun servis nomlari bilan
+    # ustidan yoziladi. `environment` `env_file` dan ustun turadi.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://playbron_app:app@postgres:5432/playbron
+      DIRECT_URL: postgresql+psycopg://playbron:playbron@postgres:5432/playbron
+      PLATFORM_DATABASE_URL: postgresql+asyncpg://playbron_platform:platform@postgres:5432/playbron
+      REDIS_URL: redis://redis:6379/0
     ports:
       - '8000:8000'
     volumes:
