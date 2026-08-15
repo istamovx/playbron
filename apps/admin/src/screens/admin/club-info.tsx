@@ -1,38 +1,40 @@
 import {
-  Button,
-  EntityTable,
-  Icon,
-  Panel,
-  Select,
-  StatusLine,
-  Tabs,
-  Tag,
-  TextField,
-} from '@playbron/ui';
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+  createStation,
+  errorText,
+  listStationsForManagement,
+  updateClub,
+  updateStation,
+  type StationDto,
+} from '@playbron/api-client';
+import { Button, EntityTable, Panel, Select, StatusLine, Tabs, Tag, TextField } from '@playbron/ui';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
-import {
-  CONSOLES,
-  DEVICE_KIND,
-  DEVICE_STATUS,
-  ROOM_KINDS,
-  consoleLabel,
-  rateWith,
-  type Device,
-  type DeviceKind,
-  type DeviceStatus,
-  type Room,
-  type Tariff,
-} from '../../mock/club';
+import { api } from '../../lib/api';
 import { S } from '../../mock/data';
-import { nextId, useClub } from '../../store/club';
-import { FormGrid, Labeled, RowActions, hm, parseHm } from './parts';
+import { useSession } from '../../store/session';
+import { FormGrid, Labeled, parseHm } from './parts';
 
-const TABS = ['Umumiy', 'Tariflar', 'Xonalar', 'Qurilmalar'];
-
+const TABS = ['Umumiy', 'Xonalar'];
 const FULL: CSSProperties = { width: '100%' };
 
-/** Klub ma'lumoti — cover, manzil, tariflar, xonalar va qurilmalar CRUD. */
+const CONSOLE_LABEL: Record<string, string> = {
+  ps3: 'PS3',
+  ps4: 'PS4',
+  ps4pro: 'PS4 Pro',
+  ps5: 'PS5',
+  ps5pro: 'PS5 Pro',
+};
+const CONSOLE_TYPES = Object.keys(CONSOLE_LABEL);
+
+/**
+ * Klub ma'lumoti — umumiy sozlamalar va xonalar.
+ *
+ * Prototipda yana "Tariflar" (vaqt bo'yicha narx koeffitsiyenti) va
+ * "Qurilmalar" (inventar) bo'limlari bor edi — backend'da bu ikkisi UCHUN
+ * hech qanday jadval yo'q (stansiyada faqat bitta soatlik narx bor,
+ * inventar kuzatuvi umuman boshqa loyiha). Soxta CRUD ko'rsatishdan ko'ra
+ * olib tashlangan — real narx/inventar qo'shilganda qaytariladi.
+ */
 export function ClubInfoScreen(): ReactNode {
   const [tab, setTab] = useState(TABS[0] as string);
 
@@ -43,318 +45,129 @@ export function ClubInfoScreen(): ReactNode {
       </div>
 
       {tab === 'Umumiy' ? <GeneralTab /> : null}
-      {tab === 'Tariflar' ? <TariffsTab /> : null}
-      {tab === 'Xonalar' ? <RoomsTab /> : null}
-      {tab === 'Qurilmalar' ? <DevicesTab /> : null}
+      {tab === 'Xonalar' ? <StationsTab /> : null}
     </div>
   );
 }
 
 // ─────────────────────────── umumiy ───────────────────────────
 
-const MAX_COVER = 1_500_000;
+/**
+ * `parts.tsx::hm()` daqiqani 24 soatga o'raydi (smena vaqti uchun to'g'ri) —
+ * klub yopilish vaqti 26:00 gacha bo'lishi mumkin (`parseHm` shuni qabul
+ * qiladi), o'ralsa "02:00" bo'lib ko'rinib, ochilish-yopilish teskari
+ * ko'rinardi. Shu yerda o'ramaydigan variant kerak.
+ */
+function hm(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
 
 function GeneralTab(): ReactNode {
-  const club = useClub((state) => state.club);
-  const setClub = useClub((state) => state.setClub);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
+  const clubName = session?.clubs[0]?.name ?? '';
 
-  const [opens, setOpens] = useState(hm(club.opensAt));
-  const [closes, setCloses] = useState(hm(club.closesAt));
+  const [name, setName] = useState(clubName);
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [about, setAbout] = useState('');
+  const [opens, setOpens] = useState('10:00');
+  const [closes, setCloses] = useState('24:00');
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const applyHours = (): void => {
-    const from = parseHm(opens);
-    const to = parseHm(closes);
-    if (from === null || to === null) {
+  useEffect(() => {
+    if (clubId === null) return;
+    // Klub ma'lumoti hozircha faqat ochiq katalogdan o'qiladi — alohida
+    // "bitta klubni olish" endpointi yo'q, lekin GET /clubs allaqachon bor.
+    void (async () => {
+      try {
+        const clubs = await api.get<
+          Array<{
+            id: number;
+            name: string;
+            address: string;
+            phone: string | null;
+            about: string;
+            opens_at_min: number;
+            closes_at_min: number;
+          }>
+        >('/clubs');
+        const club = clubs.find((c) => c.id === clubId);
+        if (club) {
+          setName(club.name);
+          setAddress(club.address);
+          setPhone(club.phone ?? '');
+          setAbout(club.about);
+          setOpens(hm(club.opens_at_min));
+          setCloses(hm(club.closes_at_min));
+        }
+      } finally {
+        setLoaded(true);
+      }
+    })();
+  }, [clubId]);
+
+  const submit = async (): Promise<void> => {
+    if (clubId === null) return;
+    const opensMin = parseHm(opens);
+    const closesMin = parseHm(closes);
+    if (opensMin === null || closesMin === null) {
       setError('Vaqt HH:MM shaklida bo‘lishi kerak');
       return;
     }
-    if (to <= from) {
-      setError('Yopilish vaqti ochilishdan keyin bo‘lsin (tunda 26:00 gacha)');
+    if (closesMin <= opensMin) {
+      setError('Yopilish vaqti ochilishdan keyin bo‘lsin (tunda 26:00 gacha yoziladi)');
       return;
     }
-    setClub({ opensAt: from, closesAt: to });
-    setError(null);
-  };
+    if (name.trim().length === 0) {
+      setError('Klub nomini kiriting');
+      return;
+    }
 
-  const pickCover = (file: File | undefined): void => {
-    if (!file) return;
-    if (file.size > MAX_COVER) {
-      setError('Rasm 1.5 MB dan kichik bo‘lsin');
-      return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await updateClub(api, clubId, {
+        name: name.trim(),
+        address,
+        phone: phone.trim() || null,
+        about,
+        opensAtMin: opensMin,
+        closesAtMin: closesMin,
+      });
+      setSaved(true);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setSaving(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setClub({ cover: String(reader.result) });
-      setError(null);
-    };
-    reader.readAsDataURL(file);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-      <Panel title="Cover rasmi" notch brackets>
-        <div
-          style={{
-            height: 180,
-            background: club.cover
-              ? `center/cover no-repeat url(${club.cover})`
-              : 'var(--surface-inset)',
-            border: '1px solid var(--line-1)',
-            clipPath: 'var(--clip-tr)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 'var(--gap-block)',
-          }}
-        >
-          {club.cover ? null : (
-            <span
-              style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dim)' }}
-            >
-              <Icon name="image" size={20} />
-              <span style={{ font: 'var(--type-body-sm)' }}>Rasm tanlanmagan</span>
-            </span>
-          )}
-        </div>
+    <Panel title="Asosiy ma’lumot" notch brackets>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        <FormGrid>
+          <TextField label="Klub nomi" value={name} onChange={setName} icon="storefront" disabled={!loaded} />
+          <TextField label="Telefon" value={phone} onChange={setPhone} icon="call" inputMode="tel" disabled={!loaded} />
+        </FormGrid>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(event) => pickCover(event.target.files?.[0])}
-        />
+        <TextField label="Manzil" value={address} onChange={setAddress} icon="location_on" disabled={!loaded} />
+        <TextField label="Tavsif" value={about} onChange={setAbout} icon="notes" disabled={!loaded} />
 
-        <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-          <Button variant="secondary" icon="upload" onClick={() => fileRef.current?.click()}>
-            Rasm yuklash
+        <FormGrid>
+          <TextField label="Ochilish" value={opens} onChange={setOpens} icon="schedule" disabled={!loaded} />
+          <TextField label="Yopilish" value={closes} onChange={setCloses} icon="bedtime" disabled={!loaded} />
+          <Button variant="primary" icon="check" disabled={!loaded || saving} onClick={() => void submit()}>
+            {saving ? 'Saqlanmoqda…' : 'Saqlash'}
           </Button>
-          {club.cover ? (
-            <Button variant="ghost" icon="delete" onClick={() => setClub({ cover: '' })}>
-              O‘chirish
-            </Button>
-          ) : null}
-        </div>
-      </Panel>
+        </FormGrid>
 
-      <Panel title="Asosiy ma’lumot" notch>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-          <FormGrid>
-            <TextField
-              label="Klub nomi"
-              value={club.name}
-              onChange={(value) => setClub({ name: value })}
-              icon="storefront"
-            />
-            <TextField
-              label="Telefon"
-              value={club.phone}
-              onChange={(value) => setClub({ phone: value })}
-              icon="call"
-              inputMode="tel"
-            />
-          </FormGrid>
-
-          <TextField
-            label="Manzil"
-            value={club.address}
-            onChange={(value) => setClub({ address: value })}
-            icon="location_on"
-          />
-
-          <TextField
-            label="Tavsif"
-            value={club.about}
-            onChange={(value) => setClub({ about: value })}
-            icon="notes"
-          />
-
-          <FormGrid>
-            <TextField label="Ochilish" value={opens} onChange={setOpens} icon="schedule" />
-            <TextField
-              label="Yopilish"
-              value={closes}
-              onChange={setCloses}
-              icon="bedtime"
-              onSubmitKey={applyHours}
-            />
-            <Button variant="secondary" icon="check" onClick={applyHours}>
-              Vaqtni saqlash
-            </Button>
-          </FormGrid>
-
-          {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-          <StatusLine
-            tone="neutral"
-            icon="info"
-            parts={[
-              `Ish vaqti ${hm(club.opensAt)} – ${hm(club.closesAt)}`,
-              'Yarim tundan keyingi vaqt 24:00 dan katta yoziladi',
-            ]}
-          />
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-// ─────────────────────────── tariflar ───────────────────────────
-
-const EMPTY_TARIFF: Tariff = { id: '', label: '', from: 10 * 60, to: 18 * 60, factor: 1 };
-
-function TariffsTab(): ReactNode {
-  const tariffs = useClub((state) => state.tariffs);
-  const saveTariff = useClub((state) => state.saveTariff);
-  const removeTariff = useClub((state) => state.removeTariff);
-
-  const [draft, setDraft] = useState<Tariff | null>(null);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [factor, setFactor] = useState('1');
-  const [error, setError] = useState<string | null>(null);
-
-  const open = (tariff: Tariff): void => {
-    setDraft(tariff);
-    setFrom(hm(tariff.from));
-    setTo(hm(tariff.to));
-    setFactor(String(tariff.factor));
-    setError(null);
-  };
-
-  const submit = (): void => {
-    if (!draft) return;
-    const start = parseHm(from);
-    const end = parseHm(to);
-
-    if (draft.label.trim().length < 2) {
-      setError('Tarif nomini kiriting');
-      return;
-    }
-    if (start === null || end === null || end <= start) {
-      setError('Vaqt oynasi HH:MM va tugash boshlanishdan keyin bo‘lsin');
-      return;
-    }
-    const value = Number(factor.replace(',', '.'));
-    if (!Number.isFinite(value) || value <= 0 || value > 3) {
-      setError('Koeffitsiyent 0 dan 3 gacha bo‘lsin');
-      return;
-    }
-
-    saveTariff({
-      ...draft,
-      id: draft.id || nextId('t'),
-      label: draft.label.trim(),
-      from: start,
-      to: end,
-      factor: value,
-    });
-    setDraft(null);
-    setError(null);
-  };
-
-  return (
-    <Panel
-      title={`Tariflar (${tariffs.length})`}
-      notch
-      brackets
-      action={
-        draft ? null : (
-          <Button variant="primary" size="sm" icon="add" onClick={() => open(EMPTY_TARIFF)}>
-            Tarif qo‘shish
-          </Button>
-        )
-      }
-    >
-      {draft ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--gap-block)',
-            marginBottom: 'var(--gap-panel)',
-          }}
-        >
-          <FormGrid>
-            <TextField
-              label="Nomi"
-              value={draft.label}
-              onChange={(value) => setDraft({ ...draft, label: value })}
-              icon="sell"
-            />
-            <TextField label="Dan" value={from} onChange={setFrom} icon="schedule" />
-            <TextField label="Gacha" value={to} onChange={setTo} icon="schedule" />
-            <TextField
-              label="Koeffitsiyent"
-              value={factor}
-              onChange={setFactor}
-              icon="percent"
-              inputMode="numeric"
-              onSubmitKey={submit}
-            />
-          </FormGrid>
-
-          {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-          <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-            <Button variant="primary" notch icon="check" onClick={submit}>
-              Saqlash
-            </Button>
-            <Button variant="ghost" onClick={() => setDraft(null)}>
-              Bekor
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <EntityTable
-        rows={tariffs}
-        rowKey={(row) => row.id}
-        empty="Tarif kiritilmagan"
-        columns={[
-          {
-            key: 'label',
-            header: 'Tarif',
-            render: (row) => <span style={{ color: 'var(--text-title)' }}>{row.label}</span>,
-          },
-          {
-            key: 'window',
-            header: 'Vaqt oynasi',
-            render: (row) => (
-              <span style={{ font: 'var(--type-data)' }}>
-                {hm(row.from)} – {hm(row.to)}
-              </span>
-            ),
-          },
-          {
-            key: 'factor',
-            header: 'Koeffitsiyent',
-            align: 'right',
-            render: (row) => (
-              <span style={{ font: 'var(--type-data)', color: 'var(--purple-100)' }}>
-                ×{row.factor}
-              </span>
-            ),
-          },
-          {
-            key: 'actions',
-            header: '',
-            align: 'right',
-            render: (row) => (
-              <RowActions onEdit={() => open(row)} onRemove={() => removeTariff(row.id)} />
-            ),
-          },
-        ]}
-      />
-
-      <div style={{ marginTop: 'var(--gap-block)' }}>
-        <StatusLine
-          tone="neutral"
-          icon="calculate"
-          parts={['Soatlik summa xonada belgilanadi', 'Tarif koeffitsiyenti shu summaga qo‘llanadi']}
-        />
+        {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+        {saved ? <StatusLine tone="ok" icon="check_circle" parts={['Saqlandi']} /> : null}
       </div>
     </Panel>
   );
@@ -362,61 +175,110 @@ function TariffsTab(): ReactNode {
 
 // ─────────────────────────── xonalar ───────────────────────────
 
-const EMPTY_ROOM: Room = {
-  id: '',
-  name: '',
-  floor: 1,
-  kind: ROOM_KINDS[0] as string,
-  console: 'ps5',
-  tv: 55,
-  pads: 2,
-  rate: 40000,
+interface Draft {
+  id: number | null;
+  code: string;
+  roomLabel: string;
+  consoleType: string;
+  rate: string;
+  status: 'active' | 'maintenance';
+}
+
+const EMPTY_DRAFT: Draft = {
+  id: null,
+  code: '',
+  roomLabel: 'Standart',
+  consoleType: 'ps5',
+  rate: '40000',
+  status: 'active',
 };
 
-function RoomsTab(): ReactNode {
-  const rooms = useClub((state) => state.rooms);
-  const tariffs = useClub((state) => state.tariffs);
-  const saveRoom = useClub((state) => state.saveRoom);
-  const removeRoom = useClub((state) => state.removeRoom);
+function StationsTab(): ReactNode {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
 
-  const [draft, setDraft] = useState<Room | null>(null);
+  const [stations, setStations] = useState<StationDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const consoleItems = CONSOLES.map((item) => item.label);
-  // Eng qimmat tarif — narx ustunida shu ko'rsatiladi
-  const peak = tariffs.reduce<Tariff | null>(
-    (best, row) => (best === null || row.factor > best.factor ? row : best),
-    null,
-  );
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setStations(await listStationsForManagement(api, clubId));
+    } catch (cause) {
+      setLoadError(errorText(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
 
-  const submit = (): void => {
-    if (!draft) return;
-    if (draft.name.trim().length < 1) {
-      setError('Xona nomini kiriting');
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const submit = async (): Promise<void> => {
+    if (!draft || clubId === null) return;
+    const rate = Number(draft.rate);
+    if (draft.id === null && draft.code.trim().length === 0) {
+      setError('Xona kodini kiriting');
       return;
     }
-    if (rooms.some((room) => room.name === draft.name.trim() && room.id !== draft.id)) {
-      setError('Bunday nomli xona bor');
-      return;
-    }
-    if (draft.rate < 1000) {
-      setError('Soatlik summa kamida 1 000 so‘m');
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setError('Soatlik summa musbat bo‘lsin');
       return;
     }
 
-    saveRoom({ ...draft, id: draft.id || nextId('r'), name: draft.name.trim() });
-    setDraft(null);
+    setSubmitting(true);
     setError(null);
+    try {
+      if (draft.id === null) {
+        await createStation(api, clubId, {
+          code: draft.code.trim(),
+          roomLabel: draft.roomLabel.trim() || 'Standart',
+          consoleType: draft.consoleType,
+          rate,
+        });
+      } else {
+        await updateStation(api, clubId, draft.id, {
+          roomLabel: draft.roomLabel.trim() || 'Standart',
+          consoleType: draft.consoleType,
+          rate,
+          status: draft.status,
+        });
+      }
+      setDraft(null);
+      await reload();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleMaintenance = async (station: StationDto): Promise<void> => {
+    if (clubId === null) return;
+    await updateStation(api, clubId, station.id, {
+      roomLabel: station.roomLabel,
+      consoleType: station.consoleType,
+      rate: station.rate,
+      status: station.status === 'active' ? 'maintenance' : 'active',
+    });
+    await reload();
   };
 
   return (
     <Panel
-      title={`Xonalar (${rooms.length})`}
+      title={`Xonalar (${stations.length})`}
       notch
       brackets
       action={
         draft ? null : (
-          <Button variant="primary" size="sm" icon="add" onClick={() => setDraft(EMPTY_ROOM)}>
+          <Button variant="primary" size="sm" icon="add" onClick={() => setDraft(EMPTY_DRAFT)}>
             Xona qo‘shish
           </Button>
         )
@@ -432,329 +294,95 @@ function RoomsTab(): ReactNode {
           }}
         >
           <FormGrid>
-            <TextField
-              label="Nomi"
-              value={draft.name}
-              onChange={(value) => setDraft({ ...draft, name: value })}
-              icon="meeting_room"
-            />
-            <TextField
-              label="Qavat"
-              value={String(draft.floor)}
-              onChange={(value) => setDraft({ ...draft, floor: Math.max(1, Number(value) || 1) })}
-              icon="stairs"
-              inputMode="numeric"
-            />
-            <Labeled label="Turi">
-              <Select
-                value={draft.kind}
-                items={ROOM_KINDS}
-                onChange={(value) => setDraft({ ...draft, kind: value })}
-                style={FULL}
+            {draft.id === null ? (
+              <TextField
+                label="Kod"
+                value={draft.code}
+                onChange={(value) => setDraft({ ...draft, code: value })}
+                icon="tag"
+                placeholder="A1"
               />
-            </Labeled>
+            ) : null}
+            <TextField
+              label="Xona turi"
+              value={draft.roomLabel}
+              onChange={(value) => setDraft({ ...draft, roomLabel: value })}
+              icon="meeting_room"
+              placeholder="Standart"
+            />
             <Labeled label="Konsol">
               <Select
-                value={consoleLabel(draft.console)}
-                items={consoleItems}
-                onChange={(value) =>
-                  setDraft({
-                    ...draft,
-                    console: CONSOLES.find((item) => item.label === value)?.id ?? draft.console,
-                  })
-                }
+                value={CONSOLE_LABEL[draft.consoleType] ?? draft.consoleType}
+                items={CONSOLE_TYPES.map((id) => CONSOLE_LABEL[id] as string)}
+                onChange={(label) => {
+                  const id = CONSOLE_TYPES.find((c) => CONSOLE_LABEL[c] === label);
+                  if (id) setDraft({ ...draft, consoleType: id });
+                }}
                 style={FULL}
               />
             </Labeled>
             <TextField
-              label="Ekran (dyuym)"
-              value={String(draft.tv)}
-              onChange={(value) => setDraft({ ...draft, tv: Number(value) || 0 })}
-              icon="tv"
-              inputMode="numeric"
-            />
-            <TextField
-              label="Joystik"
-              value={String(draft.pads)}
-              onChange={(value) => setDraft({ ...draft, pads: Number(value) || 0 })}
-              icon="sports_esports"
-              inputMode="numeric"
-            />
-            <TextField
               label="Soatlik summa"
-              value={String(draft.rate)}
-              onChange={(value) => setDraft({ ...draft, rate: Number(value) || 0 })}
+              value={draft.rate}
+              onChange={(value) => setDraft({ ...draft, rate: value })}
               icon="payments"
               inputMode="numeric"
-              onSubmitKey={submit}
             />
           </FormGrid>
 
           {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
 
           <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-            <Button variant="primary" notch icon="check" onClick={submit}>
-              Saqlash
+            <Button variant="primary" notch icon="check" disabled={submitting} onClick={() => void submit()}>
+              {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
             </Button>
-            <Button variant="ghost" onClick={() => setDraft(null)}>
+            <Button variant="ghost" disabled={submitting} onClick={() => setDraft(null)}>
               Bekor
             </Button>
           </div>
         </div>
       ) : null}
 
+      {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
+
       <EntityTable
-        rows={rooms}
-        rowKey={(row) => row.id}
-        empty="Xona kiritilmagan"
+        rows={stations}
+        rowKey={(row) => String(row.id)}
+        empty={loading ? 'Yuklanmoqda…' : 'Xona qo‘shilmagan'}
         columns={[
           {
-            key: 'name',
+            key: 'code',
             header: 'Xona',
             render: (row) => (
               <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ color: 'var(--text-title)' }}>{row.name}</span>
+                <span style={{ color: 'var(--text-title)' }}>{row.code}</span>
                 <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {row.floor}-qavat · {row.kind}
+                  {row.roomLabel}
                 </span>
               </span>
             ),
           },
           {
-            key: 'spec',
-            header: 'Jihoz',
-            render: (row) => (
-              <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)' }}>
-                {consoleLabel(row.console)} · {row.tv}" · {row.pads} pad
-              </span>
-            ),
+            key: 'console',
+            header: 'Konsol',
+            render: (row) => CONSOLE_LABEL[row.consoleType] ?? row.consoleType,
           },
           {
             key: 'rate',
             header: 'Soatlik',
             align: 'right',
             render: (row) => (
-              <span
-                style={{ font: 'var(--type-data)', color: 'var(--text-title)', whiteSpace: 'nowrap' }}
-              >
+              <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', whiteSpace: 'nowrap' }}>
                 {S(row.rate)}
               </span>
             ),
           },
           {
-            key: 'peak',
-            header: peak ? `Peak · ${peak.label}` : 'Peak',
-            align: 'right',
-            render: (row) => (
-              <span
-                style={{ font: 'var(--type-data)', color: 'var(--purple-100)', whiteSpace: 'nowrap' }}
-              >
-                {peak ? S(rateWith(row, peak)) : '—'}
-              </span>
-            ),
-          },
-          {
-            key: 'actions',
-            header: '',
-            align: 'right',
-            render: (row) => (
-              <RowActions onEdit={() => setDraft(row)} onRemove={() => removeRoom(row.id)} />
-            ),
-          },
-        ]}
-      />
-    </Panel>
-  );
-}
-
-// ─────────────────────────── qurilmalar ───────────────────────────
-
-const KIND_ITEMS = Object.values(DEVICE_KIND);
-const KIND_BY_LABEL = Object.fromEntries(
-  Object.entries(DEVICE_KIND).map(([key, label]) => [label, key as DeviceKind]),
-);
-const DSTATUS_ITEMS = Object.values(DEVICE_STATUS).map((item) => item.label);
-const DSTATUS_BY_LABEL = Object.fromEntries(
-  Object.entries(DEVICE_STATUS).map(([key, value]) => [value.label, key as DeviceStatus]),
-);
-
-const EMPTY_DEVICE: Device = {
-  id: '',
-  kind: 'console',
-  model: 'ps5',
-  serial: '',
-  roomId: '',
-  status: 'OK',
-};
-
-const NO_ROOM = 'Biriktirilmagan';
-
-function DevicesTab(): ReactNode {
-  const devices = useClub((state) => state.devices);
-  const rooms = useClub((state) => state.rooms);
-  const saveDevice = useClub((state) => state.saveDevice);
-  const removeDevice = useClub((state) => state.removeDevice);
-
-  const [draft, setDraft] = useState<Device | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const roomItems = [NO_ROOM, ...rooms.map((room) => room.name)];
-  const roomName = (id: string): string => rooms.find((room) => room.id === id)?.name ?? NO_ROOM;
-  const modelText = (device: Device): string =>
-    device.kind === 'console' ? consoleLabel(device.model) : device.model;
-
-  const submit = (): void => {
-    if (!draft) return;
-    if (draft.serial.trim().length < 2) {
-      setError('Seriya raqamini kiriting');
-      return;
-    }
-    if (devices.some((row) => row.serial === draft.serial.trim() && row.id !== draft.id)) {
-      setError('Bu seriya raqam allaqachon kiritilgan');
-      return;
-    }
-    if (draft.kind !== 'console' && draft.model.trim().length < 2) {
-      setError('Model nomini kiriting');
-      return;
-    }
-
-    saveDevice({ ...draft, id: draft.id || nextId('d'), serial: draft.serial.trim() });
-    setDraft(null);
-    setError(null);
-  };
-
-  const broken = devices.filter((device) => device.status === 'REPAIR').length;
-
-  return (
-    <Panel
-      title={`Qurilmalar (${devices.length})`}
-      notch
-      brackets
-      action={
-        draft ? null : (
-          <Button variant="primary" size="sm" icon="add" onClick={() => setDraft(EMPTY_DEVICE)}>
-            Qurilma qo‘shish
-          </Button>
-        )
-      }
-    >
-      {draft ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--gap-block)',
-            marginBottom: 'var(--gap-panel)',
-          }}
-        >
-          <FormGrid>
-            <Labeled label="Turi">
-              <Select
-                value={DEVICE_KIND[draft.kind]}
-                items={KIND_ITEMS}
-                onChange={(value) => {
-                  const kind = KIND_BY_LABEL[value] ?? 'console';
-                  setDraft({ ...draft, kind, model: kind === 'console' ? 'ps5' : '' });
-                }}
-                style={FULL}
-              />
-            </Labeled>
-
-            {draft.kind === 'console' ? (
-              <Labeled label="Model">
-                <Select
-                  value={consoleLabel(draft.model)}
-                  items={CONSOLES.map((item) => item.label)}
-                  onChange={(value) =>
-                    setDraft({
-                      ...draft,
-                      model: CONSOLES.find((item) => item.label === value)?.id ?? draft.model,
-                    })
-                  }
-                  style={FULL}
-                />
-              </Labeled>
-            ) : (
-              <TextField
-                label="Model"
-                value={draft.model}
-                onChange={(value) => setDraft({ ...draft, model: value })}
-                icon="memory"
-              />
-            )}
-
-            <TextField
-              label="Seriya"
-              value={draft.serial}
-              onChange={(value) => setDraft({ ...draft, serial: value })}
-              icon="tag"
-            />
-            <Labeled label="Xona">
-              <Select
-                value={roomName(draft.roomId)}
-                items={roomItems}
-                onChange={(value) =>
-                  setDraft({ ...draft, roomId: rooms.find((room) => room.name === value)?.id ?? '' })
-                }
-                style={FULL}
-              />
-            </Labeled>
-            <Labeled label="Holat">
-              <Select
-                value={DEVICE_STATUS[draft.status].label}
-                items={DSTATUS_ITEMS}
-                onChange={(value) => setDraft({ ...draft, status: DSTATUS_BY_LABEL[value] ?? 'OK' })}
-                style={FULL}
-              />
-            </Labeled>
-          </FormGrid>
-
-          {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-          <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-            <Button variant="primary" notch icon="check" onClick={submit}>
-              Saqlash
-            </Button>
-            <Button variant="ghost" onClick={() => setDraft(null)}>
-              Bekor
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <EntityTable
-        rows={devices}
-        rowKey={(row) => row.id}
-        empty="Qurilma kiritilmagan"
-        columns={[
-          {
-            key: 'model',
-            header: 'Qurilma',
-            render: (row) => (
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ color: 'var(--text-title)' }}>{modelText(row)}</span>
-                <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {DEVICE_KIND[row.kind]}
-                </span>
-              </span>
-            ),
-          },
-          {
-            key: 'serial',
-            header: 'Seriya',
-            render: (row) => (
-              <span style={{ font: 'var(--type-data)', color: 'var(--purple-100)' }}>
-                {row.serial}
-              </span>
-            ),
-          },
-          { key: 'room', header: 'Xona', render: (row) => roomName(row.roomId) },
-          {
             key: 'status',
             header: 'Holat',
             render: (row) => (
-              <Tag tone={row.status === 'OK' ? 'ok' : row.status === 'REPAIR' ? 'warn' : 'neutral'}>
-                {DEVICE_STATUS[row.status].label}
+              <Tag tone={row.status === 'active' ? 'success' : 'amber'}>
+                {row.status === 'active' ? 'Faol' : 'Ta’mirda'}
               </Tag>
             ),
           },
@@ -763,21 +391,28 @@ function DevicesTab(): ReactNode {
             header: '',
             align: 'right',
             render: (row) => (
-              <RowActions onEdit={() => setDraft(row)} onRemove={() => removeDevice(row.id)} />
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="edit"
+                  onClick={() =>
+                    setDraft({
+                      id: row.id,
+                      code: row.code,
+                      roomLabel: row.roomLabel,
+                      consoleType: row.consoleType,
+                      rate: String(row.rate),
+                      status: row.status === 'active' ? 'active' : 'maintenance',
+                    })
+                  }
+                />
+                <Button variant="ghost" size="sm" icon="build" onClick={() => void toggleMaintenance(row)} />
+              </div>
             ),
           },
         ]}
       />
-
-      {broken > 0 ? (
-        <div style={{ marginTop: 'var(--gap-block)' }}>
-          <StatusLine
-            tone="warn"
-            icon="build"
-            parts={[`${broken} qurilma ta’mirda`, 'Xona jihozini tekshiring']}
-          />
-        </div>
-      ) : null}
     </Panel>
   );
 }

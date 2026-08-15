@@ -148,6 +148,99 @@ export const listStations = async (api: ApiClient, clubId: number): Promise<Stat
   return rows.map(fromStationApi);
 };
 
+/** Boshqaruv ro'yxati — `maintenance` xonalar ham (staff/admin token talab qiladi). */
+export const listStationsForManagement = async (
+  api: ApiClient,
+  clubId: number,
+): Promise<StationDto[]> => {
+  const rows = await api.get<StationApi[]>(`/clubs/${clubId}/stations/manage`);
+  return rows.map(fromStationApi);
+};
+
+export interface StationCreateIn {
+  code: string;
+  roomLabel: string;
+  consoleType: string;
+  rate: number;
+}
+
+export const createStation = async (
+  api: ApiClient,
+  clubId: number,
+  body: StationCreateIn,
+): Promise<StationDto> => {
+  const row = await api.post<StationApi>(`/clubs/${clubId}/stations`, {
+    code: body.code,
+    room_label: body.roomLabel,
+    console_type: body.consoleType,
+    rate: body.rate,
+  });
+  return fromStationApi(row);
+};
+
+export interface StationUpdateIn {
+  roomLabel: string;
+  consoleType: string;
+  rate: number;
+  status: 'active' | 'maintenance';
+}
+
+export const updateStation = async (
+  api: ApiClient,
+  clubId: number,
+  stationId: number,
+  body: StationUpdateIn,
+): Promise<StationDto> => {
+  const row = await api.request<StationApi>(`/clubs/${clubId}/stations/${stationId}`, {
+    method: 'PATCH',
+    body: {
+      room_label: body.roomLabel,
+      console_type: body.consoleType,
+      rate: body.rate,
+      status: body.status,
+    },
+  });
+  return fromStationApi(row);
+};
+
+export interface ClubUpdateIn {
+  name: string;
+  address: string;
+  phone: string | null;
+  about: string;
+  opensAtMin: number;
+  closesAtMin: number;
+}
+
+export const updateClub = async (
+  api: ApiClient,
+  clubId: number,
+  body: ClubUpdateIn,
+): Promise<ClubDto> => {
+  const row = await api.request<ClubApi>(`/clubs/${clubId}`, {
+    method: 'PATCH',
+    body: {
+      name: body.name,
+      address: body.address,
+      phone: body.phone,
+      about: body.about,
+      opens_at_min: body.opensAtMin,
+      closes_at_min: body.closesAtMin,
+    },
+  });
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    phone: row.phone,
+    about: row.about,
+    coverUrl: row.cover_url,
+    opensAtMin: row.opens_at_min,
+    closesAtMin: row.closes_at_min,
+    timezone: row.timezone,
+  };
+};
+
 export interface PendingBookingDto {
   id: number;
   stationId: number;
@@ -332,6 +425,72 @@ export const createStaffBooking = async (
     guest_name: body.guestName,
     guest_phone: body.guestPhone,
   });
+};
+
+// ── Xodim ro'yxati ───────────────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/staff/router.py`. Rol faqat ADMIN/STAFF —
+// OWNER shu yo'l bilan berilmaydi (klub bitta marta o'zi ro'yxatdan o'tadi).
+
+export interface StaffMemberDto {
+  userId: number;
+  login: string;
+  firstName: string;
+  role: string;
+  status: string;
+}
+
+export const listStaffMembers = async (
+  api: ApiClient,
+  clubId: number,
+): Promise<StaffMemberDto[]> => {
+  const rows = await api.get<
+    Array<{ user_id: number; login: string; first_name: string; role: string; status: string }>
+  >(`/clubs/${clubId}/staff`);
+  return rows.map((row) => ({
+    userId: row.user_id,
+    login: row.login,
+    firstName: row.first_name,
+    role: row.role,
+    status: row.status,
+  }));
+};
+
+export interface StaffCreateIn {
+  firstName: string;
+  login: string;
+  password: string;
+  role: 'ADMIN' | 'STAFF';
+}
+
+export interface StaffCreateResult {
+  userId: number;
+  login: string;
+  role: string;
+  mustChangePassword: boolean;
+}
+
+export const createStaffMember = async (
+  api: ApiClient,
+  clubId: number,
+  body: StaffCreateIn,
+): Promise<StaffCreateResult> => {
+  const row = await api.post<{
+    user_id: number;
+    login: string;
+    role: string;
+    must_change_password: boolean;
+  }>(`/clubs/${clubId}/staff`, {
+    first_name: body.firstName,
+    login: body.login,
+    password: body.password,
+    role: body.role,
+  });
+  return {
+    userId: row.user_id,
+    login: row.login,
+    role: row.role,
+    mustChangePassword: row.must_change_password,
+  };
 };
 
 // ── Me ────────────────────────────────────────────────────────────────────
