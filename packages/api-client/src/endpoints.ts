@@ -515,6 +515,239 @@ export const createStaffMember = async (
   };
 };
 
+// ── POS: mahsulot, buyurtma, kassa, live board ─────────────────────────────
+// Manba: `api/src/playbron/modules/pos/router.py`. Mijozga ochiq emas —
+// faqat xodim.
+
+export interface ProductDto {
+  id: number;
+  category: string;
+  name: string;
+  price: number;
+  status: string;
+}
+
+export const listProducts = (api: ApiClient, clubId: number): Promise<ProductDto[]> =>
+  api.get<ProductDto[]>(`/clubs/${clubId}/products`);
+
+export interface ProductCreateIn {
+  category: string;
+  name: string;
+  price: number;
+}
+
+export const createProduct = (
+  api: ApiClient,
+  clubId: number,
+  body: ProductCreateIn,
+): Promise<ProductDto> => api.post<ProductDto>(`/clubs/${clubId}/products`, body);
+
+export interface ProductUpdateIn {
+  category: string;
+  name: string;
+  price: number;
+  status: 'active' | 'archived';
+}
+
+export const updateProduct = (
+  api: ApiClient,
+  clubId: number,
+  productId: number,
+  body: ProductUpdateIn,
+): Promise<ProductDto> =>
+  api.request<ProductDto>(`/clubs/${clubId}/products/${productId}`, {
+    method: 'PATCH',
+    body,
+  });
+
+export interface OrderItemDto {
+  productName: string;
+  qty: number;
+  priceSnapshot: number;
+}
+
+export interface OrderDto {
+  id: number;
+  bookingId: number | null;
+  stationCode: string | null;
+  status: string;
+  total: number;
+  createdAt: string;
+  items: OrderItemDto[];
+}
+
+const fromOrderApi = (row: {
+  id: number;
+  booking_id: number | null;
+  station_code: string | null;
+  status: string;
+  total: number;
+  created_at: string;
+  items: Array<{ product_name: string; qty: number; price_snapshot: number }>;
+}): OrderDto => ({
+  id: row.id,
+  bookingId: row.booking_id,
+  stationCode: row.station_code,
+  status: row.status,
+  total: row.total,
+  createdAt: row.created_at,
+  items: row.items.map((item) => ({
+    productName: item.product_name,
+    qty: item.qty,
+    priceSnapshot: item.price_snapshot,
+  })),
+});
+
+export const listOrders = async (api: ApiClient, clubId: number): Promise<OrderDto[]> => {
+  const rows = await api.get<Parameters<typeof fromOrderApi>[0][]>(`/clubs/${clubId}/orders`);
+  return rows.map(fromOrderApi);
+};
+
+export interface OrderCreateIn {
+  bookingId: number | null;
+  items: { productId: number; qty: number }[];
+}
+
+export const createOrder = async (
+  api: ApiClient,
+  clubId: number,
+  body: OrderCreateIn,
+): Promise<OrderDto> => {
+  const row = await api.post<Parameters<typeof fromOrderApi>[0]>(`/clubs/${clubId}/orders`, {
+    booking_id: body.bookingId,
+    items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
+  });
+  return fromOrderApi(row);
+};
+
+export const advanceOrder = (
+  api: ApiClient,
+  clubId: number,
+  orderId: number,
+): Promise<{ status: string }> =>
+  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/advance`);
+
+export interface OpenBookingDto {
+  id: number;
+  stationCode: string;
+  hours: number;
+  rateSnapshot: number;
+  startsAt: string;
+  endsAt: string;
+  guestLabel: string | null;
+}
+
+export const listOpenBookings = async (
+  api: ApiClient,
+  clubId: number,
+): Promise<OpenBookingDto[]> => {
+  const rows = await api.get<
+    Array<{
+      id: number;
+      station_code: string;
+      hours: number;
+      rate_snapshot: number;
+      starts_at: string;
+      ends_at: string;
+      guest_label: string | null;
+    }>
+  >(`/clubs/${clubId}/bookings/open`);
+  return rows.map((row) => ({
+    id: row.id,
+    stationCode: row.station_code,
+    hours: row.hours,
+    rateSnapshot: row.rate_snapshot,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    guestLabel: row.guest_label,
+  }));
+};
+
+export interface BillDto {
+  bookingId: number;
+  playAmount: number;
+  ordersAmount: number;
+  total: number;
+}
+
+const fromBillApi = (row: {
+  booking_id: number;
+  play_amount: number;
+  orders_amount: number;
+  total: number;
+}): BillDto => ({
+  bookingId: row.booking_id,
+  playAmount: row.play_amount,
+  ordersAmount: row.orders_amount,
+  total: row.total,
+});
+
+export const getBill = async (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+): Promise<BillDto> => {
+  const row = await api.get<Parameters<typeof fromBillApi>[0]>(
+    `/clubs/${clubId}/bookings/${bookingId}/bill`,
+  );
+  return fromBillApi(row);
+};
+
+export const closeBill = async (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+  body: { paymentMethod: 'CASH' | 'TRANSFER'; paidAmount: number },
+): Promise<BillDto> => {
+  const row = await api.post<Parameters<typeof fromBillApi>[0]>(
+    `/clubs/${clubId}/bookings/${bookingId}/close`,
+    { payment_method: body.paymentMethod, paid_amount: body.paidAmount },
+  );
+  return fromBillApi(row);
+};
+
+export interface LiveStationDto {
+  id: number;
+  code: string;
+  roomLabel: string;
+  consoleType: string;
+  rate: number;
+  status: string;
+  bookingId: number | null;
+  endsAt: string | null;
+  guestLabel: string | null;
+}
+
+export const listLiveStations = async (
+  api: ApiClient,
+  clubId: number,
+): Promise<LiveStationDto[]> => {
+  const rows = await api.get<
+    Array<{
+      id: number;
+      code: string;
+      room_label: string;
+      console_type: string;
+      rate: number;
+      status: string;
+      booking_id: number | null;
+      ends_at: string | null;
+      guest_label: string | null;
+    }>
+  >(`/clubs/${clubId}/live`);
+  return rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    roomLabel: row.room_label,
+    consoleType: row.console_type,
+    rate: row.rate,
+    status: row.status,
+    bookingId: row.booking_id,
+    endsAt: row.ends_at,
+    guestLabel: row.guest_label,
+  }));
+};
+
 // ── Me ────────────────────────────────────────────────────────────────────
 
 export const getMe = (api: ApiClient): Promise<Me> => api.get<Me>('/me');

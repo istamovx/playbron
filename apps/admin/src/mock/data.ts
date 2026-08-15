@@ -68,6 +68,45 @@ export const ST: MockStation[] = [
   { id: 10, code: 'VIP-2', room: 'VIP', cons: 'ps5pro', tv: 75, pads: 4, status: 'RESERVED', guest: 'Shohrux Tursunov', phone: '+998 94 512-08-33', code6: '108492', a: 21 * 60 + 30, b: 23 * 60 + 30, rate: 60000, bar: 0, hist: [[15 * 60, 18 * 60, 'Nigora']] },
 ];
 
+/**
+ * Prototipdagi LIVE hisobi: no-show, yopilgan xona va uzaytirish qo'llanadi.
+ *
+ * `screens/live-board.tsx` endi real `GET /clubs/{id}/live`dan o'qiydi —
+ * bu funksiya faqat `screens/timeline.tsx` (kunlik gantt) uchun qoladi, u
+ * hali real bandlikka ko'chirilmagan.
+ */
+export function liveStations(
+  nsMarked: boolean,
+  closedRooms: Record<number, { from: number; to: number }>,
+  extended: Record<number, number>,
+): MockStation[] {
+  return ST.map((station) => {
+    if (nsMarked && station.id === 6) {
+      return { ...station, status: 'FREE' as const, guest: undefined, a: 0, b: 0 };
+    }
+
+    const shut = closedRooms[station.id];
+    if (shut) {
+      return {
+        ...station,
+        status: 'FREE' as const,
+        guest: undefined,
+        a: 0,
+        b: 0,
+        hist: [...station.hist, [shut.from, shut.to, (station.guest ?? '').split(' ')[0] ?? '']] as [
+          number,
+          number,
+          string,
+        ][],
+      };
+    }
+    if (extended[station.id]) {
+      return { ...station, b: station.b + (extended[station.id] as number) };
+    }
+    return station;
+  });
+}
+
 export interface MockMenuItem {
   id: string;
   cat: string;

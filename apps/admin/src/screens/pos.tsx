@@ -1,339 +1,99 @@
-import { Button, Icon, Panel, StatusLine, Tabs, TextField, prepayAmount } from '@playbron/ui';
-import type { ReactNode } from 'react';
+import {
+  closeBill,
+  errorText,
+  getBill,
+  listOpenBookings,
+  type BillDto,
+  type OpenBookingDto,
+} from '@playbron/api-client';
+import { Button, Icon, Panel, StatusLine, toast } from '@playbron/ui';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
-import { BONUS, CLK, DUR, HM, MENU, S, STOCK, soldNow } from '../mock/data';
-import { useBoard, useNow } from '../store/board';
-import { liveStations } from './live-board';
+import { api } from '../lib/api';
+import { S } from '../mock/data';
+import { useSession } from '../store/session';
 
-const MENU_CATS = ['Ichimliklar', 'Snack', 'Ovqat'];
+function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
+}
 
-const CATALOG_NOTE =
-  'Katalog, narx va kirim faqat admin tomonidan kiritiladi. Xodim sotadi va smena yakunida sanaydi.';
-
-const CASH_NOTE = 'Naqd pul kassaga qabul qilinadi va smena yakunida sanaladi.';
-
-/** Kassa — `PlayBron Xodim.dc.html` KASSA / POS bo'limi. */
+/**
+ * Kassa — ochiq (yopilmagan) bronlarni yopish: o'yin summasi + buyurtmalar
+ * yig'indisi = jami hisob. Prototipdagi chek yuklash/tasdiqlash, bonus ball
+ * va bron to'lovi chegirmasi hozircha yo'q — to'lov Bosqich 2'da qo'shiladi
+ * (`docs`), shu bosqichda faqat naqd/o'tkazma belgilanadi.
+ */
 export function PosScreen(): ReactNode {
-  const now = useNow();
-  const state = useBoard();
-  const live = liveStations(state.nsMarked, state.closedRooms, state.extended);
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
 
-  const posStation = live.find((station) => station.id === state.posSel) ?? live[0];
-  if (!posStation) return null;
+  const [open, setOpen] = useState<OpenBookingDto[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [bill, setBill] = useState<BillDto | null>(null);
+  const [payment, setPayment] = useState<'CASH' | 'TRANSFER'>('CASH');
+  const [closing, setClosing] = useState(false);
+  const [closedSummary, setClosedSummary] = useState<{ station: string; bill: BillDto } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  /** Barcha savatlar — qoldiqni kamaytirish uchun. */
-  const allCart: Record<string, number> = {};
-  for (const cart of Object.values(state.carts)) {
-    for (const [id, qty] of Object.entries(cart)) allCart[id] = (allCart[id] ?? 0) + qty;
-  }
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    try {
+      const rows = await listOpenBookings(api, clubId);
+      setOpen(rows);
+      if (selectedId === null && rows.length > 0) setSelectedId(rows[0]?.id ?? null);
+    } catch (cause) {
+      toast.error(errorText(cause));
+    }
+  }, [clubId]);
 
-  const cart = state.carts[state.posSel] ?? {};
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
-  /** Qoldiq avtomatik: admin kiritgan miqdor − yetkazilgan buyurtmalar. */
-  const stockOf = (id: string): number | null => {
-    const entry = STOCK.find((row) => row.id === id);
-    if (!entry) return null;
-    return entry.start - entry.soldBefore - soldNow(id, state.orders, {});
+  const selected = open.find((b) => b.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (clubId === null || selected === null) {
+      setBill(null);
+      return;
+    }
+    void getBill(api, clubId, selected.id)
+      .then(setBill)
+      .catch((cause: unknown) => toast.error(errorText(cause)));
+  }, [clubId, selected]);
+
+  const submit = async (): Promise<void> => {
+    if (clubId === null || selected === null || bill === null) return;
+    setClosing(true);
+    setError(null);
+    try {
+      const result = await closeBill(api, clubId, selected.id, {
+        paymentMethod: payment,
+        paidAmount: bill.total,
+      });
+      setClosedSummary({ station: selected.stationCode, bill: result });
+      setSelectedId(null);
+      setBill(null);
+      toast.success('Hisob yopildi');
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setClosing(false);
+    }
   };
-
-  // Qidiruv bo'sh bo'lsa — joriy kategoriya; aks holda butun katalog bo'ylab
-  const query = state.search.trim().toLocaleLowerCase('uz-UZ');
-  const source = query
-    ? MENU.filter((item) => item.name.toLocaleLowerCase('uz-UZ').includes(query))
-    : MENU.filter((item) => item.cat === state.menuCat);
-
-  const posItems = source.map((item) => {
-    const base = stockOf(item.id);
-    const left = base === null ? null : base - (allCart[item.id] ?? 0);
-    const out = left !== null && left <= 0;
-    return {
-      id: item.id,
-      name: item.name,
-      price: S(item.price),
-      cat: item.cat,
-      stock: left === null ? '∞' : out ? 'Tugadi' : `${left} dona`,
-      stockTone: out
-        ? 'var(--red-100)'
-        : left !== null && left <= 5
-          ? 'var(--yellow-100)'
-          : 'var(--text-dim)',
-      nameTone: out ? 'var(--text-dim)' : 'var(--text-title)',
-      out,
-    };
-  });
-
-  const cartLines = Object.entries(cart).map(([id, qty]) => {
-    const item = MENU.find((menu) => menu.id === id);
-    return {
-      id,
-      name: item?.name ?? '',
-      unit: S(item?.price ?? 0),
-      qty,
-      sum: S((item?.price ?? 0) * qty),
-    };
-  });
-
-  const ordersAmount = cartLines.reduce(
-    (sum, line) => sum + (MENU.find((item) => item.id === line.id)?.price ?? 0) * line.qty,
-    0,
-  );
-
-  const posHours = (posStation.b - posStation.a) / 60;
-  const posPlay = Math.round(posHours * posStation.rate);
-  const prepaid = prepayAmount(posStation.rate);
-  const loyalty = BONUS[posStation.id] ?? 0;
-  const due = Math.max(0, posPlay + ordersAmount - prepaid - loyalty);
-
-  const openBills = live
-    .filter((station) => station.status === 'OCCUPIED')
-    .map((station) => {
-      const on = station.id === state.posSel;
-      const stationCart = state.carts[station.id] ?? {};
-      const bar = Object.entries(stationCart).reduce(
-        (sum, [id, qty]) => sum + (MENU.find((item) => item.id === id)?.price ?? 0) * qty,
-        0,
-      );
-      const hours = (station.b - station.a) / 60;
-      const remaining = station.b * 60 - now;
-      const play = Math.round(hours * station.rate);
-      const dep = prepayAmount(station.rate);
-
-      return {
-        id: station.id,
-        code: station.code,
-        guest: station.guest ?? '',
-        total: S(Math.max(0, play + bar - dep - (BONUS[station.id] ?? 0))),
-        timer: DUR(remaining),
-        timerTone:
-          remaining < 0
-            ? 'var(--red-100)'
-            : remaining < 900
-              ? 'var(--yellow-100)'
-              : 'var(--text-muted)',
-        on,
-      };
-    });
-
-  const closed = state.closed;
-  const notClosed = !closed && posStation.status === 'OCCUPIED';
-  const noOpenBills = !closed && posStation.status !== 'OCCUPIED';
-  const closable = state.pay === 'Naqd' || state.receipt === 'confirmed';
 
   return (
     <div className="ds-split" style={{ alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
-        <div className="ds-scroll-x">
-          <Tabs items={MENU_CATS} value={state.menuCat} onChange={state.setMenuCat} />
-        </div>
-
-        <Panel title="Ochiq hisoblar" notch>
-          <div
-            style={{
-              display: 'grid',
-              minWidth: 0,
-              // 16px shrift uchun kod + taymer bir qatorga sig'ishi kerak
-              gridTemplateColumns: 'repeat(auto-fit, minmax(min(215px, 100%), 1fr))',
-              gap: 'var(--gap-tight)',
-            }}
-          >
-            {openBills.map((bill) => (
-              <div
-                key={bill.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => state.setPosSel(bill.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') state.setPosSel(bill.id);
-                }}
-                style={{
-                  cursor: 'pointer',
-                  padding: 'var(--card-pad)',
-                  background: bill.on ? 'var(--surface-selected)' : 'var(--surface-card)',
-                  border: `1px solid ${bill.on ? 'var(--primary-100)' : 'var(--line-1)'}`,
-                  clipPath: 'var(--clip-tr)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  minWidth: 0,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                    {bill.code}
-                  </span>
-                  <span style={{ font: 'var(--type-data-xs)', color: bill.timerTone }}>
-                    {bill.timer}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    font: 'var(--type-body-sm)',
-                    color: 'var(--text-muted)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {bill.guest}
-                </span>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      font: 'var(--type-label)',
-                      letterSpacing: 'var(--ls-label)',
-                      textTransform: 'uppercase',
-                      color: 'var(--text-dim)',
-                    }}
-                  >
-                    To‘lanadi
-                  </span>
-                  <span style={{ font: 'var(--type-data)', color: 'var(--purple-100)' }}>
-                    {bill.total}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: 10,
-            alignItems: 'flex-start',
-            padding: 'var(--card-pad)',
-            border: '1px dashed var(--line-2)',
-          }}
-        >
-          <span style={{ flex: 'none', color: 'var(--text-dim)', display: 'flex' }}>
-            <Icon name="lock" size={15} />
-          </span>
-          <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-            {CATALOG_NOTE}
-          </span>
-        </div>
-
-        <Panel
-          title="Tez sotuv"
-          notch
-          brackets
-          action={
-            <TextField
-              value={state.search}
-              onChange={state.setSearch}
-              placeholder="Mahsulot qidirish"
-              icon="search"
-              // Sarlavha bilan bir qatorga sig'masa o'z qatoriga tushib to'liq kenglik oladi
-              style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 320 }}
-            />
-          }
-        >
-          <div
-            style={{
-              display: 'grid',
-              minWidth: 0,
-              gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
-              gap: 'var(--gap-panel)',
-            }}
-          >
-            {posItems.map((item) => (
-              <div
-                key={item.id}
-                role="button"
-                tabIndex={item.out ? -1 : 0}
-                onClick={() => {
-                  if (!item.out) state.bump(item.id, 1);
-                }}
-                onKeyDown={(event) => {
-                  if (!item.out && (event.key === 'Enter' || event.key === ' ')) state.bump(item.id, 1);
-                }}
-                style={{
-                  cursor: item.out ? 'not-allowed' : 'pointer',
-                  minWidth: 0,
-                  padding: 'var(--card-pad)',
-                  background: 'var(--surface-card)',
-                  border: '1px solid var(--line-1)',
-                  clipPath: 'var(--clip-tr)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  minHeight: 82,
-                  justifyContent: 'space-between',
-                  transition: 'background 140ms cubic-bezier(.22,.61,.36,1)',
-                }}
-              >
-                <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                  <span
-                    style={{
-                      font: 'var(--type-section)',
-                      color: item.nameTone,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {item.name}
-                  </span>
-                  {query ? (
-                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                      {item.cat}
-                    </span>
-                  ) : null}
-                </span>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <span style={{ font: 'var(--type-data)', color: 'var(--purple-100)' }}>
-                    {item.price}
-                  </span>
-                  <span style={{ font: 'var(--type-data-xs)', color: item.stockTone }}>
-                    {item.stock}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
-        <Panel
-          title={
-            closed
-              ? `Hisob yopildi · ${closed.code}`
-              : posStation.status === 'OCCUPIED'
-                ? `Hisob · ${posStation.code}`
-                : 'Hisob'
-          }
-          notch
-          brackets
-          glow
-        >
-          {noOpenBills ? (
+        <Panel title={`Ochiq hisoblar (${open.length})`} notch brackets>
+          {open.length === 0 ? (
             <div
               style={{
                 border: '1px dashed var(--line-2)',
-                padding: 24,
+                padding: 18,
                 textAlign: 'center',
                 font: 'var(--type-body-sm)',
                 color: 'var(--text-dim)',
@@ -341,140 +101,82 @@ export function PosScreen(): ReactNode {
             >
               Ochiq hisob yo‘q
             </div>
-          ) : null}
-
-          {notClosed ? (
-            <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 12 }}>
-                {[
-                  { k: 'Xona', v: posStation.code },
-                  { k: 'Mijoz', v: posStation.guest ?? '' },
-                  { k: 'Seans', v: `${HM(posStation.a)} → ${HM(posStation.b)}` },
-                  { k: 'O‘ynadi', v: `${posHours.toFixed(1).replace('.0', '')} soat` },
-                  { k: 'Tarif', v: `${S(posStation.rate)} / soat` },
-                ].map((field) => (
-                  <FieldLine key={field.k} label={field.k} value={field.v} />
-                ))}
-              </div>
-
-              <div
-                style={{
-                  font: 'var(--type-label)',
-                  letterSpacing: 'var(--ls-label)',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-label)',
-                  marginBottom: 8,
-                }}
-              >
-                Buyurtmalar
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                {cartLines.map((line) => (
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
+                gap: 'var(--gap-tight)',
+              }}
+            >
+              {open.map((booking) => {
+                const on = booking.id === selectedId;
+                return (
                   <div
-                    key={line.id}
+                    key={booking.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedId(booking.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') setSelectedId(booking.id);
+                    }}
                     style={{
-                      // Nom qisqaradi, stepper va summa hech qachon pastga tushmaydi
-                      display: 'grid',
-                      gridTemplateColumns: 'minmax(0, 1fr) auto auto',
-                      alignItems: 'center',
-                      gap: 8,
+                      cursor: 'pointer',
+                      padding: 'var(--card-pad)',
+                      background: on ? 'var(--surface-selected)' : 'var(--surface-card)',
+                      border: `1px solid ${on ? 'var(--primary-100)' : 'var(--line-1)'}`,
+                      clipPath: 'var(--clip-tr)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      minWidth: 0,
                     }}
                   >
-                    <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                      <span
-                        style={{
-                          font: 'var(--type-body-sm)',
-                          color: 'var(--text-body)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {line.name}
-                      </span>
-                      <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                        {line.unit}
-                      </span>
+                    <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
+                      {booking.stationCode}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Stepper label="−" onClick={() => state.bump(line.id, -1)} />
-                      <span
-                        style={{
-                          font: 'var(--type-data)',
-                          color: 'var(--text-title)',
-                          minWidth: 16,
-                          textAlign: 'center',
-                        }}
-                      >
-                        {line.qty}
-                      </span>
-                      <Stepper label="+" onClick={() => state.bump(line.id, 1)} />
-                    </div>
                     <span
                       style={{
-                        font: 'var(--type-data)',
-                        color: 'var(--text-title)',
-                        minWidth: 76,
-                        textAlign: 'right',
+                        font: 'var(--type-body-sm)',
+                        color: 'var(--text-muted)',
                         whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                       }}
                     >
-                      {line.sum}
+                      {booking.guestLabel ?? 'Mijoz'}
+                    </span>
+                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                      {`${formatClock(booking.startsAt)} → ${formatClock(booking.endsAt)}`}
                     </span>
                   </div>
-                ))}
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      </div>
 
-                {cartLines.length === 0 ? (
-                  <div
-                    style={{
-                      border: '1px dashed var(--line-2)',
-                      padding: 14,
-                      textAlign: 'center',
-                      font: 'var(--type-body-sm)',
-                      color: 'var(--text-dim)',
-                    }}
-                  >
-                    Buyurtma qo‘shilmagan
-                  </div>
-                ) : null}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
+        <Panel
+          title={selected ? `Hisob · ${selected.stationCode}` : 'Hisob'}
+          notch
+          brackets
+          glow
+        >
+          {selected && bill ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FieldLine label="Xona" value={selected.stationCode} />
+                <FieldLine label="Mijoz" value={selected.guestLabel ?? '—'} />
+                <FieldLine label="Soat" value={`${selected.hours} soat`} />
               </div>
 
-              <div style={{ height: 1, background: 'var(--line-1)', marginBottom: 10 }} />
+              <div style={{ height: 1, background: 'var(--line-1)' }} />
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
-                {[
-                  {
-                    k: `O‘yin (${posHours.toFixed(1).replace('.0', '')} soat)`,
-                    v: S(posPlay),
-                    tone: 'var(--text-body)',
-                  },
-                  { k: 'Bar', v: S(ordersAmount), tone: 'var(--text-body)' },
-                  {
-                    k: 'Bron to‘lovi hisobga olindi',
-                    v: `− ${S(prepaid)}`,
-                    tone: 'var(--secondary-500)',
-                  },
-                  { k: 'Bonus ball', v: `− ${S(loyalty)}`, tone: 'var(--secondary-500)' },
-                  { k: 'Chegirma', v: '0', tone: 'var(--text-dim)' },
-                ].map((line) => (
-                  <div
-                    key={line.k}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <span style={{ font: 'var(--type-body-sm)', color: line.tone }}>{line.k}</span>
-                    <span
-                      style={{ font: 'var(--type-data)', color: line.tone, whiteSpace: 'nowrap' }}
-                    >
-                      {line.v}
-                    </span>
-                  </div>
-                ))}
+                <Row label={`O‘yin (${selected.hours} soat)`} value={S(bill.playAmount)} />
+                <Row label="Bar" value={S(bill.ordersAmount)} />
               </div>
 
               <div
@@ -483,8 +185,6 @@ export function PosScreen(): ReactNode {
                   alignItems: 'baseline',
                   justifyContent: 'space-between',
                   gap: 12,
-                  flexWrap: 'wrap',
-                  marginTop: 12,
                   paddingTop: 12,
                   borderTop: '1px solid var(--line-2)',
                 }}
@@ -497,16 +197,15 @@ export function PosScreen(): ReactNode {
                     color: 'var(--text-label)',
                   }}
                 >
-                  To‘lanadi
+                  Jami
                 </span>
                 <span
                   style={{
                     font: 'var(--fw-medium) var(--fs-metric-fluid)/1 var(--font-display)',
                     color: 'var(--text-title)',
-                    whiteSpace: 'nowrap',
                   }}
                 >
-                  {S(due)}
+                  {S(bill.total)}
                 </span>
               </div>
 
@@ -516,33 +215,26 @@ export function PosScreen(): ReactNode {
                   letterSpacing: 'var(--ls-label)',
                   textTransform: 'uppercase',
                   color: 'var(--text-label)',
-                  margin: 'var(--gap-block) 0 8px',
                 }}
               >
                 To‘lov usuli
               </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(120px, 100%), 1fr))',
-                  gap: 'var(--gap-tight)',
-                }}
-              >
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--gap-tight)' }}>
                 {(
                   [
-                    { id: 'Naqd', label: 'Naqd', icon: 'payments' },
-                    { id: 'O‘tkazma', label: 'O‘tkazma', icon: 'account_balance' },
+                    { id: 'CASH', label: 'Naqd', icon: 'payments' },
+                    { id: 'TRANSFER', label: 'O‘tkazma', icon: 'account_balance' },
                   ] as const
                 ).map((option) => {
-                  const on = state.pay === option.id;
+                  const on = payment === option.id;
                   return (
                     <div
                       key={option.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => state.setPay(option.id)}
+                      onClick={() => setPayment(option.id)}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') state.setPay(option.id);
+                        if (event.key === 'Enter' || event.key === ' ') setPayment(option.id);
                       }}
                       style={{
                         cursor: 'pointer',
@@ -555,7 +247,6 @@ export function PosScreen(): ReactNode {
                         border: `1px solid ${on ? 'var(--primary-100)' : 'var(--line-2)'}`,
                         font: 'var(--type-control)',
                         color: on ? 'var(--text-title)' : 'var(--text-body)',
-                        transition: 'background 140ms cubic-bezier(.22,.61,.36,1)',
                       }}
                     >
                       <Icon name={option.icon} size={15} />
@@ -565,264 +256,67 @@ export function PosScreen(): ReactNode {
                 })}
               </div>
 
-              {state.pay === 'Naqd' ? (
-                <div
-                  style={{
-                    marginTop: 'var(--gap-block)',
-                    padding: 'var(--card-pad)',
-                    border: '1px dashed var(--line-2)',
-                    font: 'var(--type-body-sm)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  {CASH_NOTE}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    marginTop: 'var(--gap-block)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--gap-block)',
-                  }}
-                >
-                  {state.receipt === 'waiting' ? (
-                    <div
-                      style={{
-                        padding: 'var(--card-pad)',
-                        border: '1px dashed var(--yellow-100)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                        alignItems: 'center',
-                        textAlign: 'center',
-                      }}
-                    >
-                      <StatusLine
-                        tone="amber"
-                        icon="hourglass_top"
-                        align="center"
-                        parts={['Chek kutilmoqda', 'Mijoz Mini App’dan yuklaydi']}
-                      />
-                      <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-dim)' }}>
-                        Chek kelgach shu yerda ko‘rinadi va tasdiqlash tugmasi ochiladi.
-                      </span>
-                    </div>
-                  ) : null}
+              {error ? <StatusLine tone="danger" icon="error" parts={[error]} /> : null}
 
-                  {state.receipt === 'uploaded' ? (
-                    <div
-                      style={{
-                        border: '1px solid var(--primary-100)',
-                        background: 'var(--surface-card)',
-                        clipPath: 'var(--clip-tr)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: 132,
-                          background: 'var(--surface-inset)',
-                          borderBottom: '1px solid var(--line-1)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 8,
-                          color: 'var(--text-dim)',
-                        }}
-                      >
-                        <Icon name="receipt_long" size={18} />
-                        <span
-                          style={{
-                            font: 'var(--type-label)',
-                            letterSpacing: 'var(--ls-label)',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          Chek rasmi
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          padding: 'var(--card-pad)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 'var(--gap-tight)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            font: 'var(--type-data-xs)',
-                            color: 'var(--purple-100)',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          chek_20260812_2014.jpg · 248 KB
-                        </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <FieldLine label="Yuborildi" value="20:14:02" />
-                          <FieldLine label="Summa" value={S(due)} tone="var(--text-title)" />
-                          <FieldLine label="Mijoz" value={posStation.guest ?? ''} />
-                        </div>
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(min(120px, 100%), 1fr))',
-                            gap: 'var(--gap-tight)',
-                          }}
-                        >
-                          <Button
-                            variant="primary"
-                            block
-                            icon="check"
-                            onClick={() => state.setReceipt('confirmed')}
-                          >
-                            Tasdiqlash
-                          </Button>
-                          <Button
-                            variant="danger"
-                            block
-                            icon="close"
-                            onClick={() => state.setReceipt('rejected')}
-                          >
-                            Rad etish
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {state.receipt === 'confirmed' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
-                      <StatusLine
-                        tone="success"
-                        icon="check_circle"
-                        parts={['Chek tasdiqlandi', 'Reestrga yozildi']}
-                      />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <FieldLine label="Usul" value="O‘tkazma" />
-                        <FieldLine label="Summa" value={S(due)} tone="var(--text-title)" />
-                        <FieldLine label="Tasdiqladi" value="Kamola R. · 20:14:38" />
-                        <FieldLine
-                          label="Reestr"
-                          value="PAY-2041 yozildi"
-                          tone="var(--secondary-500)"
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {state.receipt === 'rejected' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
-                      <StatusLine
-                        tone="danger"
-                        icon="error"
-                        parts={['Chek rad etildi', 'Mijozdan qayta so‘raldi']}
-                      />
-                      <Button
-                        variant="secondary"
-                        block
-                        icon="refresh"
-                        onClick={() => state.setReceipt('waiting')}
-                      >
-                        Chekni qayta so‘rash
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-
-              <div style={{ marginTop: 'var(--gap-block)' }}>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  notch
-                  block
-                  icon="lock"
-                  disabled={!closable}
-                  onClick={() => state.closeBill(CLK(now))}
-                >
-                  {closable ? 'Hisobni yopish' : 'Chek tasdiqlanmagan'}
-                </Button>
-              </div>
-            </>
-          ) : null}
-
-          {closed ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-              <StatusLine
-                tone="success"
-                icon="check_circle"
-                parts={['Hisob yopildi', closed.code, 'Telegram’ga xabar yuborildi']}
-              />
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <FieldLine label="Xona" value={closed.room} />
-                <FieldLine label="Mijoz" value={closed.guest} tone="var(--text-title)" />
-                <FieldLine label="O‘ynagan vaqt" value={closed.hours} />
-                <FieldLine label="O‘yin" value={closed.play} />
-                <FieldLine label="Bar" value={closed.bar} />
-                <FieldLine label="To‘landi" value={closed.total} tone="var(--text-title)" />
-                <FieldLine label="Usul" value={closed.method} />
-                <FieldLine label="Yopdi" value={`Kamola R. · ${closed.at}`} />
-              </div>
-
-              <div style={{ border: '1px solid var(--line-1)', background: 'var(--surface-card)' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '10px var(--card-pad)',
-                    borderBottom: '1px solid var(--line-1)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  <Icon name="send" size={15} />
-                  <span
-                    style={{
-                      font: 'var(--type-label)',
-                      letterSpacing: 'var(--ls-label)',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Mijozga Telegram xabari
-                  </span>
-                </div>
-                <div
-                  style={{
-                    padding: 'var(--card-pad)',
-                    font: 'var(--type-data-xs)',
-                    color: 'var(--text-body)',
-                    whiteSpace: 'pre-line',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {`Neon Arena · hisob yopildi\n${closed.room} · ${closed.hours}\nO‘yin ${closed.play} · Bar ${closed.bar}\nJami to‘landi: ${closed.total} so‘m\nBonus: +${closed.points} ball\nRahmat! Sharh qoldirasizmi?`}
-                </div>
-              </div>
-
-              <Button variant="secondary" size="lg" block icon="add" onClick={state.newBill}>
-                Yangi hisob
+              <Button
+                variant="primary"
+                size="lg"
+                notch
+                block
+                icon="lock"
+                disabled={closing}
+                onClick={() => void submit()}
+              >
+                {closing ? 'Yopilmoqda…' : 'Hisobni yopish'}
               </Button>
             </div>
-          ) : null}
+          ) : closedSummary ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+              <StatusLine
+                tone="ok"
+                icon="check_circle"
+                parts={['Hisob yopildi', closedSummary.station]}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FieldLine label="O‘yin" value={S(closedSummary.bill.playAmount)} />
+                <FieldLine label="Bar" value={S(closedSummary.bill.ordersAmount)} />
+                <FieldLine label="Jami to‘landi" value={S(closedSummary.bill.total)} />
+              </div>
+              <Button variant="secondary" size="lg" block icon="add" onClick={() => setClosedSummary(null)}>
+                Yopish
+              </Button>
+            </div>
+          ) : (
+            <div
+              style={{
+                border: '1px dashed var(--line-2)',
+                padding: 24,
+                textAlign: 'center',
+                font: 'var(--type-body-sm)',
+                color: 'var(--text-dim)',
+              }}
+            >
+              Ochiq hisob yo‘q
+            </div>
+          )}
         </Panel>
       </div>
     </div>
   );
 }
 
-function FieldLine({
-  label,
-  value,
-  tone = 'var(--text-title)',
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-}): ReactNode {
+function Row({ label, value }: { label: string; value: string }): ReactNode {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+      <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-body)' }}>{label}</span>
+      <span style={{ font: 'var(--type-data)', color: 'var(--text-body)', whiteSpace: 'nowrap' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function FieldLine({ label, value }: { label: string; value: string }): ReactNode {
   return (
     <div
       style={{
@@ -846,30 +340,9 @@ function FieldLine({
       >
         {label}
       </span>
-      <span style={{ font: 'var(--type-data)', color: tone, textAlign: 'right' }}>{value}</span>
+      <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', textAlign: 'right' }}>
+        {value}
+      </span>
     </div>
-  );
-}
-
-function Stepper({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        cursor: 'pointer',
-        width: 'var(--control-h)',
-        height: 'var(--control-h)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '1px solid var(--line-2)',
-        background: 'transparent',
-        color: 'var(--text-muted)',
-        font: 'var(--type-control)',
-      }}
-    >
-      {label}
-    </button>
   );
 }

@@ -9,11 +9,11 @@ import {
   TOMORROW,
   YESTERDAY,
   consoleLabel,
+  liveStations,
   type DayId,
   type MockStation,
 } from '../mock/data';
 import { useBoard, useNow } from '../store/board';
-import { liveStations } from './live-board';
 
 const LEGEND = [
   { k: 'Band', c: 'var(--primary-100)' },
