@@ -555,6 +555,22 @@ input:autofill {
   color: var(--fg-1);
 }
 
+/* Mobil brauzerlar (iOS Safari, Android Chrome) fokusga o'tganda input matni
+   16px'dan kichik bo'lsa butun sahifani avtomatik zoom qiladi — foydalanuvchiga
+   xuddi "font kattalashib ketayotgandek" ko'rinadi. Konsol matni ataylab zich
+   (`--type-data` ~12px), shuning uchun token o'zi o'zgarmaydi (`tokens/**`ga
+   tegilmaydi) — faqat TOUCH ko'rsatkichda haqiqiy input/select/textarea matni
+   16px'ga ko'tariladi, `breakpoints.css`dagi `(pointer:coarse)` naqshi bilan
+   bir xil. `!important` shart: inline `style` (`font: var(--type-data)`)
+   spetsifikligi har qanday oddiy selektordan yuqori. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Harakat faqat rang va chegarada — layout animatsiya qilinmaydi */
 button,
 a,
