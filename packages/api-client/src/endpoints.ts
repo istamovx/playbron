@@ -739,6 +739,63 @@ export const listLiveStations = async (
   }));
 };
 
+// ── Platforma (super admin) ─────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/platform/router.py`. Faqat o'qish,
+// cross-tenant — `docs/06-super-admin.md` §3, kichik kesim
+// (`0015_platform_stats.py`).
+
+export interface PlatformTopClubDto {
+  clubId: number;
+  clubName: string;
+  orgName: string;
+  bookings: number;
+}
+
+export interface PlatformStatsDto {
+  organizationsTotal: number;
+  clubsActive: number;
+  clubsDraft: number;
+  bookingsToday: number;
+  revenueToday: number;
+  bookingsThisMonth: number;
+  revenueThisMonth: number;
+  /** Kun (ISO, YYYY-MM-DD) → shu kundagi CONFIRMED bronlar soni. */
+  dailyTrend: Record<string, number>;
+  topClubs: PlatformTopClubDto[];
+}
+
+interface PlatformStatsApi {
+  organizations_total: number;
+  clubs_active: number;
+  clubs_draft: number;
+  bookings_today: number;
+  revenue_today: number;
+  bookings_this_month: number;
+  revenue_this_month: number;
+  daily_trend: Record<string, number>;
+  top_clubs: { club_id: number; club_name: string; org_name: string; bookings: number }[];
+}
+
+export const getPlatformStats = async (api: ApiClient): Promise<PlatformStatsDto> => {
+  const row = await api.get<PlatformStatsApi>('/platform/stats');
+  return {
+    organizationsTotal: row.organizations_total,
+    clubsActive: row.clubs_active,
+    clubsDraft: row.clubs_draft,
+    bookingsToday: row.bookings_today,
+    revenueToday: row.revenue_today,
+    bookingsThisMonth: row.bookings_this_month,
+    revenueThisMonth: row.revenue_this_month,
+    dailyTrend: row.daily_trend,
+    topClubs: row.top_clubs.map((r) => ({
+      clubId: r.club_id,
+      clubName: r.club_name,
+      orgName: r.org_name,
+      bookings: r.bookings,
+    })),
+  };
+};
+
 // ── Me ────────────────────────────────────────────────────────────────────
 
 export const getMe = (api: ApiClient): Promise<Me> => api.get<Me>('/me');

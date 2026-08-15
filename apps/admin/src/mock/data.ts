@@ -204,7 +204,9 @@ export type ScreenId =
   | 'products'
   | 'reports'
   | 'expenses'
-  | 'settings';
+  | 'settings'
+  // Super admin
+  | 'platform';
 
 export interface NavItem {
   id: ScreenId;
@@ -234,6 +236,10 @@ export const NAV_ADMIN: NavItem[] = [
   { id: 'settings', icon: 'settings', label: 'Sozlamalar' },
 ];
 
+export const NAV_SUPER_ADMIN: NavItem[] = [
+  { id: 'platform', icon: 'hub', label: 'Platforma' },
+];
+
 export const TITLES: Record<ScreenId, [string, string[]]> = {
   live: ['Live board', ['Neon Arena', 'A-blok', '10 xona']],
   timeline: ['Kunlik timeline', ['Neon Arena', '10 xona', '10:00 – 02:00']],
@@ -250,6 +256,8 @@ export const TITLES: Record<ScreenId, [string, string[]]> = {
   reports: ['Hisobot', ['Tushum, xarajat va foyda']],
   expenses: ['Xarajatlar', ['Kommunal, ijara va maosh']],
   settings: ['Sozlamalar', ['Shaxsiy hisob']],
+
+  platform: ['Platforma', ['Barcha tashkilotlar', 'Cross-tenant, faqat o‘qish']],
 };
 
 /** Stansiya id → yig'ilgan bonus. */

@@ -7,7 +7,7 @@ from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
-from playbron.core.db import session_scope
+from playbron.core.db import platform_scope, session_scope
 from playbron.core.errors import Forbidden, Unauthorized
 from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_CUSTOMER, AUDIENCE_STAFF, decode_access
@@ -148,3 +148,16 @@ async def require_super_admin(
         ip = client_ip(request) or ""
         if ip not in allowlist:
             raise Unauthorized("Topilmadi", code="NOT_FOUND", status_code=404)
+
+
+async def platform_db(
+    _: Annotated[None, Depends(require_super_admin)],
+) -> AsyncIterator[AsyncSession]:
+    """`/platform/*` uchun cross-tenant o'qish sessiyasi.
+
+    `require_super_admin`ga bog'liq — shu tufayli `platform_scope()`ning
+    o'zidagi tekshiruv hech qachon yiqilmaydi, lekin ikkalasi ham qoladi
+    (bitta joyda xato qilinsa ham teshik ochilmasin).
+    """
+    async with platform_scope() as session:
+        yield session

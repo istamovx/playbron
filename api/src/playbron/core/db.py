@@ -127,6 +127,15 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 async def platform_scope() -> AsyncIterator[AsyncSession]:
     """Cross-tenant o'qish. Faqat super admin marshrutlari uchun.
 
+    `playbron_platform` **haqiqiy** BYPASSRLS bo'lsa bu pool RLS'ni butunlay
+    chetlab o'tadi. Lekin Render bepul rejasida rol BYPASSRLS ololmaydi
+    (`0001_core.py::_create_roles()` buni jimgina yutadi —
+    `[[render-free-tier-no-bypassrls]]`), ya'ni faqat shu sabab bilan
+    ishlashga tayanish prod'da statistikani doim bo'sh qaytarardi. Shu
+    yerda ham `SET LOCAL app.platform` qo'yiladi — `0015_platform_stats.py`
+    dagi `*_platform_read` policy'lari orqali BYPASSRLS'siz muhitda ham
+    ishlaydi (ikkalasi bir-birini yopadi, bittasi yetarli bo'lsa ham).
+
     Bu pool RLS'ni chetlab o'tadi, shuning uchun chaqiruvchi **oldindan**
     super admin ekanini tekshirgan bo'lishi shart.
     """
@@ -135,6 +144,10 @@ async def platform_scope() -> AsyncIterator[AsyncSession]:
 
     async with PlatformSession() as session:
         async with session.begin():
+            # Faqat o'qish — bu pool yozish uchun emas, xato bilan yozib
+            # yuborilsa ham DB darajasida to'xtaydi.
+            await session.execute(text("SET TRANSACTION READ ONLY"))
+            await session.execute(text("SELECT set_config('app.platform', 'true', true)"))
             yield session
 
 

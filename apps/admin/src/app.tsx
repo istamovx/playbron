@@ -2,7 +2,15 @@ import { Icon, SidebarNav, ToastHost, UserMenu, Wordmark, useMedia } from '@play
 import { useCallback, useEffect, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
-import { CLK, NAV_ADMIN, NAV_STAFF, TITLES, type NavItem, type ScreenId } from './mock/data';
+import {
+  CLK,
+  NAV_ADMIN,
+  NAV_STAFF,
+  NAV_SUPER_ADMIN,
+  TITLES,
+  type NavItem,
+  type ScreenId,
+} from './mock/data';
 import { ClubInfoScreen } from './screens/admin/club-info';
 import { DashboardScreen } from './screens/admin/dashboard';
 import { ExpensesScreen } from './screens/admin/expenses';
@@ -14,6 +22,7 @@ import { BlacklistScreen } from './screens/blacklist';
 import { BookingsScreen } from './screens/bookings';
 import { LiveBoardScreen } from './screens/live-board';
 import { OrdersScreen } from './screens/orders';
+import { PlatformScreen } from './screens/platform';
 import { PosScreen } from './screens/pos';
 import { ShiftScreen } from './screens/shift';
 import { LoginScreen } from './screens/login';
@@ -74,8 +83,12 @@ export function App(): ReactNode {
     setActiveClub(session.clubs[0]?.id ?? null);
   }, [session, activeClubId, setActiveClub]);
 
-  // Super admin hozircha klub admini menyusini ko'radi; platforma paneli — Faza 7
-  const items = session && session.role !== 'STAFF' ? NAV_ADMIN : NAV_STAFF;
+  const items =
+    session?.role === 'SUPER_ADMIN'
+      ? NAV_SUPER_ADMIN
+      : session && session.role !== 'STAFF'
+        ? NAV_ADMIN
+        : NAV_STAFF;
 
   // Manba — URL. Noma'lum yoki rolga tegishli bo'lmagan manzil bo'lsa rolning
   // birinchi bo'limi ochiladi (route guard shu yerda).
@@ -286,6 +299,8 @@ export function App(): ReactNode {
             {active === 'reports' ? <ReportsScreen /> : null}
             {active === 'expenses' ? <ExpensesScreen /> : null}
             {active === 'settings' ? <SettingsScreen /> : null}
+
+            {active === 'platform' ? <PlatformScreen /> : null}
           </main>
         </div>
       </div>
