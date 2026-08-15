@@ -25,12 +25,24 @@ Xavfni KAMAYTIRUVCHI uchta qaror shu faylda:
    o'rnatilganda/yangilanganda WARNING darajasida yoziladi — Render
    log'ida ko'rinib turadi, o'zgaruvchi "unutilib qolgani" jimgina
    yashirinmaydi.
+
+**Hisobning o'zi ham shu yerda yaratiladi.** `scripts/seed_super_admins.py`
+faqat `SUPER_ADMIN_TELEGRAM_IDS` (Telegram orqali kirish) uchun — login
+asosidagi hisobni u yaratmaydi. Render bepul rejasida Shell yo'q, ya'ni
+skriptni qo'lda ham yugurtirib bo'lmaydi. Avvalgi variant `users` qatori
+allaqachon mavjud deb faraz qilardi va faqat parolni yangilardi — agar
+`SUPER_ADMIN_LOGINS`dagi login hali umuman mavjud bo'lmasa, funksiya
+jimgina hech narsa qilmay qaytar edi (faqat log'da WARNING, foydalanuvchi
+buni ko'rmaydi) va super admin HECH QACHON birinchi marta kira olmasdi.
+Shuning uchun topilmasa — `users` (kind='staff') va `super_admins` qatori
+shu yerning o'zida yaratiladi (`ALTER TABLE ... NO FORCE ROW LEVEL
+SECURITY`, `seed_super_admins.py`dagi bilan bir xil texnika).
 """
 
 import logging
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from playbron.core.config import settings
 from playbron.core.errors import AppError
@@ -87,9 +99,11 @@ async def _sync_one(engine: AsyncEngine, login: str, password: str) -> None:
         )
         found = row.first()
         if found is None:
-            log.warning("SUPER_ADMIN_PASSWORD: login topilmadi — %r", login)
-            return
-        user_id, _status = found
+            user_id = await _create_super_admin_account(conn, login)
+            log.warning("SUPER_ADMIN_PASSWORD: yangi super admin hisobi yaratildi — %r", login)
+        else:
+            user_id, _status = found
+            await _ensure_super_admin_membership(conn, user_id)
 
         # `refresh_tokens_scope` policy'si `user_id = app_user_id()` talab
         # qiladi — pastdagi bekor qilish shu GUC'siz jimgina 0 qatorga
@@ -135,3 +149,61 @@ async def _sync_one(engine: AsyncEngine, login: str, password: str) -> None:
         )
 
     log.warning("SUPER_ADMIN_PASSWORD orqali parol yangilandi: login=%r", login)
+
+
+async def _create_super_admin_account(conn: AsyncConnection, login: str) -> int:
+    """`users` (kind='staff') va `super_admins` qatorini nol'dan yaratadi.
+
+    `seed_super_admins.py`dagi bilan bir xil texnika: ikkala jadval ham
+    `FORCE ROW LEVEL SECURITY` ostida, hozircha esa hali tabiiy aktor yo'q
+    (yangi hisob), shuning uchun vaqtincha `NO FORCE` qilinadi, keyin
+    darhol qaytariladi — bitta tranzaksiya ichida (`_sync_one`ning o'zi
+    `engine.begin()`).
+    """
+    await conn.execute(text("ALTER TABLE users NO FORCE ROW LEVEL SECURITY"))
+    await conn.execute(text("ALTER TABLE super_admins NO FORCE ROW LEVEL SECURITY"))
+    try:
+        user_id = await conn.scalar(
+            text(
+                "INSERT INTO users (kind, login, status, first_name)"
+                " VALUES ('staff', :login, 'active', 'Super admin')"
+                " RETURNING id"
+            ),
+            {"login": login},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO super_admins (user_id, note) VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
+                " ON CONFLICT (user_id) DO NOTHING"
+            ),
+            {"uid": user_id},
+        )
+    finally:
+        await conn.execute(text("ALTER TABLE users FORCE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE super_admins FORCE ROW LEVEL SECURITY"))
+    return int(user_id)
+
+
+async def _ensure_super_admin_membership(conn: AsyncConnection, user_id: int) -> None:
+    """Login mavjud, lekin `super_admins`da bo'lmasligi mumkin — masalan avval
+    oddiy xodim sifatida yaratilgan hisob keyin `SUPER_ADMIN_LOGINS`ga
+    qo'shilsa. Bu holatda ham parolni yangilashning o'zi yetarli emas —
+    rol berilmasa kirish `SUPER_ADMIN` sifatida emas, oddiy xodim sifatida
+    bo'ladi (`auth/router.py::_top_role`).
+    """
+    already = await conn.scalar(
+        text("SELECT 1 FROM super_admins WHERE user_id = :uid"), {"uid": user_id}
+    )
+    if already:
+        return
+    await conn.execute(text("ALTER TABLE super_admins NO FORCE ROW LEVEL SECURITY"))
+    try:
+        await conn.execute(
+            text(
+                "INSERT INTO super_admins (user_id, note) VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
+                " ON CONFLICT (user_id) DO NOTHING"
+            ),
+            {"uid": user_id},
+        )
+    finally:
+        await conn.execute(text("ALTER TABLE super_admins FORCE ROW LEVEL SECURITY"))
