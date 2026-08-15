@@ -449,6 +449,8 @@ async def test_owner_updates_club_info(client: httpx.AsyncClient, world: dict[st
             "about": "Yangilangan tavsif",
             "opens_at_min": 9 * 60,
             "closes_at_min": 25 * 60,
+            "google_maps_url": "https://maps.google.com/?q=41.3,69.2",
+            "yandex_maps_url": "https://yandex.uz/maps/?ll=69.2,41.3",
         },
         headers=staff_h,
     )
@@ -456,10 +458,33 @@ async def test_owner_updates_club_info(client: httpx.AsyncClient, world: dict[st
     body = r.json()
     assert body["name"] == "Bkg Club Yangi"
     assert body["opens_at_min"] == 9 * 60
+    assert body["google_maps_url"] == "https://maps.google.com/?q=41.3,69.2"
+    assert body["yandex_maps_url"] == "https://yandex.uz/maps/?ll=69.2,41.3"
 
     r = await client.get("/api/v1/clubs")
     listed = next(c for c in r.json() if c["id"] == world["club"])
     assert listed["name"] == "Bkg Club Yangi"
+    assert listed["google_maps_url"] == "https://maps.google.com/?q=41.3,69.2"
+
+
+@skip_no_db
+async def test_club_maps_url_must_be_https(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    r = await client.patch(
+        f"/api/v1/clubs/{world['club']}",
+        json={
+            "name": "Bkg Club",
+            "address": "",
+            "phone": None,
+            "about": "",
+            "opens_at_min": 9 * 60,
+            "closes_at_min": 25 * 60,
+            "google_maps_url": "javascript:alert(1)",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "MAPS_URL_INVALID"
 
 
 @skip_no_db

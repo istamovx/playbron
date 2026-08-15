@@ -83,3 +83,18 @@ export function haptic(type: 'success' | 'error' | 'tap'): void {
   else app.HapticFeedback.notificationOccurred(type);
 }
 
+/**
+ * Tashqi havolani (masalan xarita) ochadi. Telegram ichida `openLink` —
+ * Mini App o'z brauzerida emas, tizim brauzerida/navigator ilovasida
+ * ochiladi (Telegram'ning o'z tavsiyasi). Telegram tashqarisida (masalan
+ * lokal test) oddiy yangi tab.
+ */
+export function openExternalLink(url: string): void {
+  const app = webApp();
+  if (app) {
+    app.openLink(url);
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
+

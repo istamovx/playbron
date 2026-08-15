@@ -84,6 +84,8 @@ export interface ClubDto {
   opensAtMin: number;
   closesAtMin: number;
   timezone: string;
+  googleMapsUrl: string | null;
+  yandexMapsUrl: string | null;
 }
 
 interface ClubApi {
@@ -96,21 +98,27 @@ interface ClubApi {
   opens_at_min: number;
   closes_at_min: number;
   timezone: string;
+  google_maps_url: string | null;
+  yandex_maps_url: string | null;
 }
+
+const fromClubApi = (row: ClubApi): ClubDto => ({
+  id: row.id,
+  name: row.name,
+  address: row.address,
+  phone: row.phone,
+  about: row.about,
+  coverUrl: row.cover_url,
+  opensAtMin: row.opens_at_min,
+  closesAtMin: row.closes_at_min,
+  timezone: row.timezone,
+  googleMapsUrl: row.google_maps_url,
+  yandexMapsUrl: row.yandex_maps_url,
+});
 
 export const listClubs = async (api: ApiClient): Promise<ClubDto[]> => {
   const rows = await api.get<ClubApi[]>('/clubs');
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    address: row.address,
-    phone: row.phone,
-    about: row.about,
-    coverUrl: row.cover_url,
-    opensAtMin: row.opens_at_min,
-    closesAtMin: row.closes_at_min,
-    timezone: row.timezone,
-  }));
+  return rows.map(fromClubApi);
 };
 
 export interface StationDto {
@@ -207,6 +215,8 @@ export interface ClubUpdateIn {
   about: string;
   opensAtMin: number;
   closesAtMin: number;
+  googleMapsUrl?: string | null;
+  yandexMapsUrl?: string | null;
 }
 
 export interface ClubDetailDto extends ClubDto {
@@ -216,18 +226,7 @@ export interface ClubDetailDto extends ClubDto {
 /** Xodim/egasi o'z klubini status'i (draft ham) bilan ko'radi. */
 export const getClub = async (api: ApiClient, clubId: number): Promise<ClubDetailDto> => {
   const row = await api.get<ClubApi & { status: string }>(`/clubs/${clubId}`);
-  return {
-    id: row.id,
-    name: row.name,
-    address: row.address,
-    phone: row.phone,
-    about: row.about,
-    coverUrl: row.cover_url,
-    opensAtMin: row.opens_at_min,
-    closesAtMin: row.closes_at_min,
-    timezone: row.timezone,
-    status: row.status,
-  };
+  return { ...fromClubApi(row), status: row.status };
 };
 
 /** Draft klubni faollashtiradi — kamida bitta faol xona talab qilinadi. */
@@ -248,19 +247,11 @@ export const updateClub = async (
       about: body.about,
       opens_at_min: body.opensAtMin,
       closes_at_min: body.closesAtMin,
+      google_maps_url: body.googleMapsUrl ?? null,
+      yandex_maps_url: body.yandexMapsUrl ?? null,
     },
   });
-  return {
-    id: row.id,
-    name: row.name,
-    address: row.address,
-    phone: row.phone,
-    about: row.about,
-    coverUrl: row.cover_url,
-    opensAtMin: row.opens_at_min,
-    closesAtMin: row.closes_at_min,
-    timezone: row.timezone,
-  };
+  return fromClubApi(row);
 };
 
 export interface PendingBookingDto {

@@ -64,7 +64,8 @@ async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
         await session.execute(
             text(
                 "SELECT id, name, address, phone, about, cover_url,"
-                "       opens_at_min, closes_at_min, timezone"
+                "       opens_at_min, closes_at_min, timezone,"
+                "       google_maps_url, yandex_maps_url"
                 " FROM clubs WHERE status = 'active' ORDER BY name"
             )
         )
@@ -80,6 +81,8 @@ async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
             "opens_at_min": r.opens_at_min,
             "closes_at_min": r.closes_at_min,
             "timezone": r.timezone,
+            "google_maps_url": r.google_maps_url,
+            "yandex_maps_url": r.yandex_maps_url,
         }
         for r in rows
     ]
@@ -96,7 +99,8 @@ async def get_club_for_staff(session: AsyncSession, club_id: int) -> dict[str, A
         await session.execute(
             text(
                 "SELECT id, name, address, phone, about, cover_url,"
-                "       opens_at_min, closes_at_min, timezone, status"
+                "       opens_at_min, closes_at_min, timezone, status,"
+                "       google_maps_url, yandex_maps_url"
                 " FROM clubs WHERE id = :id"
             ),
             {"id": club_id},
@@ -115,6 +119,8 @@ async def get_club_for_staff(session: AsyncSession, club_id: int) -> dict[str, A
         "closes_at_min": row.closes_at_min,
         "timezone": row.timezone,
         "status": row.status,
+        "google_maps_url": row.google_maps_url,
+        "yandex_maps_url": row.yandex_maps_url,
     }
 
 
@@ -238,6 +244,24 @@ async def update_station(
     return _station_row_to_dict(row)
 
 
+def _clean_maps_url(value: str | None, *, field_label: str) -> str | None:
+    """Bo'sh qatorni `NULL`ga tenglaydi, aks holda `https://` shart —
+    havola keyin BOSHQA foydalanuvchi (mijoz) tomonidan ochiladi, shuning
+    uchun `javascript:`/`data:` kabi sxemalar bu yerda kesib tashlanadi
+    (DB'dagi `clubs_google_maps_url_https_ck`/`..._yandex_..._ck` — ikkinchi
+    qatlam, `0014_club_maps_links.py`)."""
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not cleaned.startswith("https://"):
+        raise AppError(
+            f"{field_label} havolasi https:// bilan boshlanishi kerak", code="MAPS_URL_INVALID"
+        )
+    return cleaned
+
+
 async def update_club(
     session: AsyncSession,
     *,
@@ -248,6 +272,8 @@ async def update_club(
     about: str,
     opens_at_min: int,
     closes_at_min: int,
+    google_maps_url: str | None = None,
+    yandex_maps_url: str | None = None,
 ) -> dict[str, Any]:
     if not name.strip():
         raise AppError("Klub nomini kiriting", code="NAME_REQUIRED")
@@ -256,15 +282,19 @@ async def update_club(
             "Ish vaqti noto'g'ri — yopilish ochilishdan keyin, 26:00 (1560) gacha",
             code="HOURS_INVALID",
         )
+    google_maps_url = _clean_maps_url(google_maps_url, field_label="Google Maps")
+    yandex_maps_url = _clean_maps_url(yandex_maps_url, field_label="Yandex Maps")
 
     row = (
         await session.execute(
             text(
                 "UPDATE clubs SET name = :name, address = :address, phone = :phone,"
-                " about = :about, opens_at_min = :opens_at_min, closes_at_min = :closes_at_min"
+                " about = :about, opens_at_min = :opens_at_min, closes_at_min = :closes_at_min,"
+                " google_maps_url = :google_maps_url, yandex_maps_url = :yandex_maps_url"
                 " WHERE id = :id"
                 " RETURNING id, name, address, phone, about, cover_url,"
-                "           opens_at_min, closes_at_min, timezone"
+                "           opens_at_min, closes_at_min, timezone,"
+                "           google_maps_url, yandex_maps_url"
             ),
             {
                 "name": name.strip(),
@@ -273,6 +303,8 @@ async def update_club(
                 "about": about.strip(),
                 "opens_at_min": opens_at_min,
                 "closes_at_min": closes_at_min,
+                "google_maps_url": google_maps_url,
+                "yandex_maps_url": yandex_maps_url,
                 "id": club_id,
             },
         )
@@ -290,6 +322,8 @@ async def update_club(
         "opens_at_min": row.opens_at_min,
         "closes_at_min": row.closes_at_min,
         "timezone": row.timezone,
+        "google_maps_url": row.google_maps_url,
+        "yandex_maps_url": row.yandex_maps_url,
     }
 
 

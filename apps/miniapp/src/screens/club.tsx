@@ -1,9 +1,10 @@
-import { Panel, Tag } from '@playbron/ui';
+import { Button, Panel, Tag } from '@playbron/ui';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo } from 'react';
 
 import { HM, S } from '../mock/data';
 import { CONSOLE_LABEL, isoDateOf, nowMinutesOfDay } from '../lib/slots';
+import { openExternalLink } from '../lib/telegram';
 import { useApp } from '../store/app';
 import { useBooking, useDayBookings } from '../store/booking';
 
@@ -103,6 +104,31 @@ export function ClubScreen(): ReactNode {
         <Tag tone="neutral">{`${HM(club.opensAtMin)} – ${HM(club.closesAtMin)}`}</Tag>
         {club.address ? <Tag tone="neutral">{club.address}</Tag> : null}
       </div>
+
+      {club.googleMapsUrl || club.yandexMapsUrl ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {club.googleMapsUrl ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="location_on"
+              onClick={() => openExternalLink(club.googleMapsUrl as string)}
+            >
+              {club.yandexMapsUrl ? 'Google Maps' : 'Manzil'}
+            </Button>
+          ) : null}
+          {club.yandexMapsUrl ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="location_on"
+              onClick={() => openExternalLink(club.yandexMapsUrl as string)}
+            >
+              {club.googleMapsUrl ? 'Yandex Maps' : 'Manzil'}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {club.about ? (
         <div style={{ font: 'var(--type-body)', color: 'var(--text-body)' }}>{club.about}</div>

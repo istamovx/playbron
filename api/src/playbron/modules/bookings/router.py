@@ -42,6 +42,8 @@ class ClubOut(BaseModel):
     opens_at_min: int
     closes_at_min: int
     timezone: str
+    google_maps_url: str | None
+    yandex_maps_url: str | None
 
 
 class ClubDetailOut(ClubOut):
@@ -114,6 +116,10 @@ class ClubUpdateIn(BaseModel):
     about: str = Field(default="", max_length=2000)
     opens_at_min: int = Field(ge=0, le=1559)
     closes_at_min: int = Field(ge=1, le=1560)
+    # Xom havola — mijoz ilovasidagi "Manzil" tugmasi to'g'ridan-to'g'ri shuni
+    # ochadi. Https tekshiruvi servis qatlamida (`service.py::update_club`).
+    google_maps_url: str | None = Field(default=None, max_length=500)
+    yandex_maps_url: str | None = Field(default=None, max_length=500)
 
 
 class StationCreateIn(BaseModel):
@@ -187,6 +193,8 @@ async def update_club(
         about=body.about,
         opens_at_min=body.opens_at_min,
         closes_at_min=body.closes_at_min,
+        google_maps_url=body.google_maps_url,
+        yandex_maps_url=body.yandex_maps_url,
     )
     return ClubOut(**row)
 

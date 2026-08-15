@@ -86,6 +86,8 @@ function GeneralTab(): ReactNode {
   const [about, setAbout] = useState('');
   const [opens, setOpens] = useState('10:00');
   const [closes, setCloses] = useState('24:00');
+  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
+  const [yandexMapsUrl, setYandexMapsUrl] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +105,8 @@ function GeneralTab(): ReactNode {
       setAbout(club.about);
       setOpens(hm(club.opensAtMin));
       setCloses(hm(club.closesAtMin));
+      setGoogleMapsUrl(club.googleMapsUrl ?? '');
+      setYandexMapsUrl(club.yandexMapsUrl ?? '');
       setStatus(club.status);
     } catch (cause) {
       toast.error(errorText(cause));
@@ -157,6 +161,8 @@ function GeneralTab(): ReactNode {
         about,
         opensAtMin: opensMin,
         closesAtMin: closesMin,
+        googleMapsUrl: googleMapsUrl.trim() || null,
+        yandexMapsUrl: yandexMapsUrl.trim() || null,
       });
       setSaved(true);
       toast.success('Klub ma’lumoti saqlandi');
@@ -234,6 +240,28 @@ function GeneralTab(): ReactNode {
           icon="notes"
           disabled={!loaded}
         />
+
+        <FormGrid>
+          <TextField
+            label="Google Maps havolasi"
+            value={googleMapsUrl}
+            onChange={setGoogleMapsUrl}
+            icon="map"
+            placeholder="https://maps.google.com/?q=..."
+            disabled={!loaded}
+          />
+          <TextField
+            label="Yandex Maps havolasi"
+            value={yandexMapsUrl}
+            onChange={setYandexMapsUrl}
+            icon="map"
+            placeholder="https://yandex.uz/maps/?ll=..."
+            disabled={!loaded}
+          />
+        </FormGrid>
+        {/* Mijoz ilovasidagi "Manzil" tugmasi shu havolani ochadi — klub
+            haritada joylashuvni Google/Yandex'dan ulashib, shu yerga
+            qo'yish yetarli, koordinata qo'lda kiritilmaydi. */}
 
         <FormGrid>
           <TextField
