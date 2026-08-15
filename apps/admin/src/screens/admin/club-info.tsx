@@ -1,7 +1,9 @@
 import {
   createStation,
   errorText,
+  getClub,
   listStationsForManagement,
+  publishClub,
   updateClub,
   updateStation,
   type StationDto,
@@ -84,42 +86,48 @@ function GeneralTab(): ReactNode {
   const [about, setAbout] = useState('');
   const [opens, setOpens] = useState('10:00');
   const [closes, setCloses] = useState('24:00');
+  const [status, setStatus] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  const reloadClub = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    try {
+      const club = await getClub(api, clubId);
+      setName(club.name);
+      setAddress(club.address);
+      setPhone(club.phone ?? '');
+      setAbout(club.about);
+      setOpens(hm(club.opensAtMin));
+      setCloses(hm(club.closesAtMin));
+      setStatus(club.status);
+    } catch (cause) {
+      toast.error(errorText(cause));
+    } finally {
+      setLoaded(true);
+    }
+  }, [clubId]);
 
   useEffect(() => {
+    void reloadClub();
+  }, [reloadClub]);
+
+  const publish = async (): Promise<void> => {
     if (clubId === null) return;
-    // Klub ma'lumoti hozircha faqat ochiq katalogdan o'qiladi — alohida
-    // "bitta klubni olish" endpointi yo'q, lekin GET /clubs allaqachon bor.
-    void (async () => {
-      try {
-        const clubs = await api.get<
-          Array<{
-            id: number;
-            name: string;
-            address: string;
-            phone: string | null;
-            about: string;
-            opens_at_min: number;
-            closes_at_min: number;
-          }>
-        >('/clubs');
-        const club = clubs.find((c) => c.id === clubId);
-        if (club) {
-          setName(club.name);
-          setAddress(club.address);
-          setPhone(club.phone ?? '');
-          setAbout(club.about);
-          setOpens(hm(club.opens_at_min));
-          setCloses(hm(club.closes_at_min));
-        }
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, [clubId]);
+    setPublishing(true);
+    try {
+      await publishClub(api, clubId);
+      toast.success('Klub faollashtirildi — endi mijozlarga ko‘rinadi');
+      await reloadClub();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const submit = async (): Promise<void> => {
     if (clubId === null) return;
@@ -164,6 +172,36 @@ function GeneralTab(): ReactNode {
   return (
     <Panel title="Asosiy ma’lumot" notch brackets>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+        {status === 'draft' ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              padding: 'var(--card-pad)',
+              background: 'var(--surface-inset)',
+              border: '1px solid var(--yellow-100)',
+              clipPath: 'var(--clip-tr)',
+            }}
+          >
+            <StatusLine
+              tone="warn"
+              icon="visibility_off"
+              parts={['Klub hali mijozlarga ko‘rinmaydi', 'Kamida bitta faol xona kerak']}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              icon="rocket_launch"
+              disabled={publishing}
+              onClick={() => void publish()}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {publishing ? 'Faollashtirilmoqda…' : 'Klubni faollashtirish'}
+            </Button>
+          </div>
+        ) : null}
+
         <FormGrid>
           <TextField
             label="Klub nomi"

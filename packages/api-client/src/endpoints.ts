@@ -10,10 +10,7 @@ import type { AuthSession, Entitlements, Me } from './types';
 // ── Auth ──────────────────────────────────────────────────────────────────
 
 /** Mini App: `window.Telegram.WebApp.initData` bilan kirish. */
-export async function signInWithInitData(
-  api: ApiClient,
-  initData: string,
-): Promise<AuthSession> {
+export async function signInWithInitData(api: ApiClient, initData: string): Promise<AuthSession> {
   const body = await api.post<AuthSession>(
     '/auth/telegram/initdata',
     { init_data: initData },
@@ -211,6 +208,31 @@ export interface ClubUpdateIn {
   opensAtMin: number;
   closesAtMin: number;
 }
+
+export interface ClubDetailDto extends ClubDto {
+  status: string;
+}
+
+/** Xodim/egasi o'z klubini status'i (draft ham) bilan ko'radi. */
+export const getClub = async (api: ApiClient, clubId: number): Promise<ClubDetailDto> => {
+  const row = await api.get<ClubApi & { status: string }>(`/clubs/${clubId}`);
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    phone: row.phone,
+    about: row.about,
+    coverUrl: row.cover_url,
+    opensAtMin: row.opens_at_min,
+    closesAtMin: row.closes_at_min,
+    timezone: row.timezone,
+    status: row.status,
+  };
+};
+
+/** Draft klubni faollashtiradi — kamida bitta faol xona talab qilinadi. */
+export const publishClub = (api: ApiClient, clubId: number): Promise<void> =>
+  api.post<void>(`/clubs/${clubId}/publish`);
 
 export const updateClub = async (
   api: ApiClient,
