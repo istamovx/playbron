@@ -8,7 +8,7 @@ import {
   type PendingBookingDto,
   type StationDto,
 } from '@playbron/api-client';
-import { Button, Panel, Select, StatusLine, TextField } from '@playbron/ui';
+import { Button, Modal, Panel, Select, StatusLine, TextField, toast } from '@playbron/ui';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -75,6 +75,7 @@ export function BookingsScreen(): ReactNode {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [acting, setActing] = useState<number | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
 
   const reload = useCallback(async (): Promise<void> => {
     if (clubId === null) return;
@@ -88,7 +89,9 @@ export function BookingsScreen(): ReactNode {
       setPending(p);
       setStations(s);
     } catch (cause) {
-      setLoadError(errorText(cause));
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -104,21 +107,44 @@ export function BookingsScreen(): ReactNode {
     try {
       if (kind === 'confirm') await confirmBooking(api, clubId, id);
       else await rejectBooking(api, clubId, id);
+      toast.success(kind === 'confirm' ? 'Bron tasdiqlandi' : 'Bron rad etildi');
       await reload();
     } catch (cause) {
-      setLoadError(errorText(cause));
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setActing(null);
     }
   };
 
   return (
-    <div className="ds-split" style={{ alignItems: 'start' }}>
+    <>
+      <Modal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        title="Qo‘lda bron"
+        variant="drawer"
+      >
+        <ManualBookingPanel
+          clubId={clubId}
+          stations={stations}
+          onCreated={() => {
+            void reload();
+            setManualOpen(false);
+          }}
+        />
+      </Modal>
+
       <Panel
         title={`Kutilayotgan bronlar (${pending.length})`}
         notch
         brackets
-        style={{ minWidth: 0 }}
+        action={
+          <Button variant="primary" size="sm" icon="add" onClick={() => setManualOpen(true)}>
+            Qo‘lda bron
+          </Button>
+        }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
           {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
@@ -148,13 +174,7 @@ export function BookingsScreen(): ReactNode {
           ))}
         </div>
       </Panel>
-
-      <ManualBookingPanel
-        clubId={clubId}
-        stations={stations}
-        onCreated={() => void reload()}
-      />
-    </div>
+    </>
   );
 }
 
@@ -182,7 +202,9 @@ function PendingCard({
         minWidth: 0,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+      <div
+        style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}
+      >
         <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
           {booking.stationCode}
         </span>
@@ -270,47 +292,28 @@ function ManualBookingPanel({
       setGuestPhone(PHONE_PREFIX);
       setStarts(defaultStart());
       setDone(true);
+      toast.success('Bron ochildi');
       onCreated();
     } catch (cause) {
-      setError(errorText(cause));
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Panel title="Qo‘lda bron" notch dashed style={{ minWidth: 0 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-        <StatusLine
-          tone="neutral"
-          icon="call"
-          parts={['Telefon yoki kelib bron qilgan mijoz uchun', 'Darhol tasdiqlangan holda ochiladi']}
-        />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+      <StatusLine
+        tone="neutral"
+        icon="call"
+        parts={['Telefon yoki kelib bron qilgan mijoz uchun', 'Darhol tasdiqlangan holda ochiladi']}
+      />
 
-        {activeStations.length === 0 ? (
-          <StatusLine tone="warn" icon="warning" parts={['Faol xona topilmadi']} />
-        ) : (
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span
-              style={{
-                font: 'var(--type-label)',
-                letterSpacing: 'var(--ls-label)',
-                textTransform: 'uppercase',
-                color: 'var(--text-label)',
-              }}
-            >
-              Xona
-            </span>
-            <Select
-              value={stationLabel}
-              items={activeStations.map(labelOf)}
-              onChange={setStationLabel}
-              size="lg"
-              notch
-            />
-          </label>
-        )}
-
+      {activeStations.length === 0 ? (
+        <StatusLine tone="warn" icon="warning" parts={['Faol xona topilmadi']} />
+      ) : (
         <label style={{ display: 'grid', gap: 6 }}>
           <span
             style={{
@@ -320,66 +323,86 @@ function ManualBookingPanel({
               color: 'var(--text-label)',
             }}
           >
-            Boshlanish vaqti
+            Xona
           </span>
-          <input
-            type="datetime-local"
-            value={starts}
-            onChange={(event) => setStarts(event.target.value)}
-            style={{
-              height: 'var(--control-h-lg)',
-              padding: '0 10px',
-              background: 'var(--surface-field)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--r-1)',
-              clipPath: 'var(--clip-tr)',
-              font: 'var(--type-data)',
-              color: 'var(--fg-1)',
-            }}
+          <Select
+            value={stationLabel}
+            items={activeStations.map(labelOf)}
+            onChange={setStationLabel}
+            size="lg"
+            notch
           />
         </label>
+      )}
 
-        <TextField
-          label="Necha soat"
-          value={hours}
-          onChange={setHours}
-          type="number"
-          inputMode="numeric"
-          icon="schedule"
-        />
-
-        <TextField
-          label="Mijoz ismi"
-          value={guestName}
-          onChange={setGuestName}
-          placeholder="Ism"
-          icon="person"
-        />
-
-        <TextField
-          label="Mijoz telefoni"
-          value={guestPhone}
-          onChange={(next) => setGuestPhone(formatPhone(next))}
-          placeholder={`${PHONE_PREFIX} 90 123 45 67`}
-          icon="call"
-          inputMode="tel"
-        />
-
-        <Button
-          variant="primary"
-          size="lg"
-          block
-          notch
-          icon="event_available"
-          disabled={!ready}
-          onClick={() => void submit()}
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span
+          style={{
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--ls-label)',
+            textTransform: 'uppercase',
+            color: 'var(--text-label)',
+          }}
         >
-          {submitting ? 'Yuborilmoqda…' : 'Bron ochish'}
-        </Button>
+          Boshlanish vaqti
+        </span>
+        <input
+          type="datetime-local"
+          value={starts}
+          onChange={(event) => setStarts(event.target.value)}
+          style={{
+            height: 'var(--control-h-lg)',
+            padding: '0 10px',
+            background: 'var(--surface-field)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-1)',
+            clipPath: 'var(--clip-tr)',
+            font: 'var(--type-data)',
+            color: 'var(--fg-1)',
+          }}
+        />
+      </label>
 
-        {done ? <StatusLine tone="ok" icon="check_circle" parts={['Bron ochildi']} /> : null}
-        {error ? <StatusLine tone="danger" icon="error" parts={[error]} /> : null}
-      </div>
-    </Panel>
+      <TextField
+        label="Necha soat"
+        value={hours}
+        onChange={setHours}
+        type="number"
+        inputMode="numeric"
+        icon="schedule"
+      />
+
+      <TextField
+        label="Mijoz ismi"
+        value={guestName}
+        onChange={setGuestName}
+        placeholder="Ism"
+        icon="person"
+      />
+
+      <TextField
+        label="Mijoz telefoni"
+        value={guestPhone}
+        onChange={(next) => setGuestPhone(formatPhone(next))}
+        placeholder={`${PHONE_PREFIX} 90 123 45 67`}
+        icon="call"
+        inputMode="tel"
+      />
+
+      <Button
+        variant="primary"
+        size="lg"
+        block
+        notch
+        icon="event_available"
+        disabled={!ready}
+        onClick={() => void submit()}
+      >
+        {submitting ? 'Yuborilmoqda…' : 'Bron ochish'}
+      </Button>
+
+      {done ? <StatusLine tone="ok" icon="check_circle" parts={['Bron ochildi']} /> : null}
+      {error ? <StatusLine tone="danger" icon="error" parts={[error]} /> : null}
+    </div>
   );
 }

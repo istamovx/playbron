@@ -1,4 +1,4 @@
-import { Icon, SidebarNav, UserMenu, Wordmark, useMedia } from '@playbron/ui';
+import { Icon, SidebarNav, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
 import { useCallback, useEffect, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
@@ -94,7 +94,14 @@ export function App(): ReactNode {
   // `must_change` holatida BOSHQA hech qanday marshrut ochilmaydi: aks holda
   // vaqtinchalik parol bilan kirgan hisob mijoz ma'lumotlarini va hisobotlarni
   // o'qiy olardi (docs/05-auth-redesign.md §7.3)
-  if (!session || mustChangePassword) return <LoginScreen />;
+  if (!session || mustChangePassword) {
+    return (
+      <>
+        <ToastHost />
+        <LoginScreen />
+      </>
+    );
+  }
 
   const [title, meta] = TITLES[active];
 
@@ -110,6 +117,7 @@ export function App(): ReactNode {
         overflow: 'hidden',
       }}
     >
+      <ToastHost />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {compact ? null : <Nav items={items} active={active} onSelect={go} />}
 
@@ -219,7 +227,10 @@ export function App(): ReactNode {
                 </span>
               </div>
 
-              <div className="ds-hide-xs" style={{ width: 1, height: 30, background: 'var(--line-1)' }} />
+              <div
+                className="ds-hide-xs"
+                style={{ width: 1, height: 30, background: 'var(--line-1)' }}
+              />
 
               <UserMenu
                 name={session.name}

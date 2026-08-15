@@ -6,3 +6,5 @@ export * from './components/layout';
 export * from './components/data';
 export * from './components/wordmark';
 export * from './components/time';
+export * from './components/modal';
+export * from './components/toast';

@@ -6,7 +6,18 @@ import {
   updateStation,
   type StationDto,
 } from '@playbron/api-client';
-import { Button, EntityTable, Panel, Select, StatusLine, Tabs, Tag, TextField } from '@playbron/ui';
+import {
+  Button,
+  EntityTable,
+  Modal,
+  Panel,
+  Select,
+  StatusLine,
+  Tabs,
+  Tag,
+  TextField,
+  toast,
+} from '@playbron/ui';
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
@@ -140,8 +151,11 @@ function GeneralTab(): ReactNode {
         closesAtMin: closesMin,
       });
       setSaved(true);
+      toast.success('Klub ma’lumoti saqlandi');
     } catch (cause) {
-      setError(errorText(cause));
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -151,17 +165,59 @@ function GeneralTab(): ReactNode {
     <Panel title="Asosiy ma’lumot" notch brackets>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
         <FormGrid>
-          <TextField label="Klub nomi" value={name} onChange={setName} icon="storefront" disabled={!loaded} />
-          <TextField label="Telefon" value={phone} onChange={setPhone} icon="call" inputMode="tel" disabled={!loaded} />
+          <TextField
+            label="Klub nomi"
+            value={name}
+            onChange={setName}
+            icon="storefront"
+            disabled={!loaded}
+          />
+          <TextField
+            label="Telefon"
+            value={phone}
+            onChange={setPhone}
+            icon="call"
+            inputMode="tel"
+            disabled={!loaded}
+          />
         </FormGrid>
 
-        <TextField label="Manzil" value={address} onChange={setAddress} icon="location_on" disabled={!loaded} />
-        <TextField label="Tavsif" value={about} onChange={setAbout} icon="notes" disabled={!loaded} />
+        <TextField
+          label="Manzil"
+          value={address}
+          onChange={setAddress}
+          icon="location_on"
+          disabled={!loaded}
+        />
+        <TextField
+          label="Tavsif"
+          value={about}
+          onChange={setAbout}
+          icon="notes"
+          disabled={!loaded}
+        />
 
         <FormGrid>
-          <TextField label="Ochilish" value={opens} onChange={setOpens} icon="schedule" disabled={!loaded} />
-          <TextField label="Yopilish" value={closes} onChange={setCloses} icon="bedtime" disabled={!loaded} />
-          <Button variant="primary" icon="check" disabled={!loaded || saving} onClick={() => void submit()}>
+          <TextField
+            label="Ochilish"
+            value={opens}
+            onChange={setOpens}
+            icon="schedule"
+            disabled={!loaded}
+          />
+          <TextField
+            label="Yopilish"
+            value={closes}
+            onChange={setCloses}
+            icon="bedtime"
+            disabled={!loaded}
+          />
+          <Button
+            variant="primary"
+            icon="check"
+            disabled={!loaded || saving}
+            onClick={() => void submit()}
+          >
             {saving ? 'Saqlanmoqda…' : 'Saqlash'}
           </Button>
         </FormGrid>
@@ -211,7 +267,9 @@ function StationsTab(): ReactNode {
     try {
       setStations(await listStationsForManagement(api, clubId));
     } catch (cause) {
-      setLoadError(errorText(cause));
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -243,6 +301,7 @@ function StationsTab(): ReactNode {
           consoleType: draft.consoleType,
           rate,
         });
+        toast.success(`Xona qo‘shildi — ${draft.code.trim()}`);
       } else {
         await updateStation(api, clubId, draft.id, {
           roomLabel: draft.roomLabel.trim() || 'Standart',
@@ -250,11 +309,14 @@ function StationsTab(): ReactNode {
           rate,
           status: draft.status,
         });
+        toast.success('Xona yangilandi');
       }
       setDraft(null);
       await reload();
     } catch (cause) {
-      setError(errorText(cause));
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -262,157 +324,200 @@ function StationsTab(): ReactNode {
 
   const toggleMaintenance = async (station: StationDto): Promise<void> => {
     if (clubId === null) return;
-    await updateStation(api, clubId, station.id, {
-      roomLabel: station.roomLabel,
-      consoleType: station.consoleType,
-      rate: station.rate,
-      status: station.status === 'active' ? 'maintenance' : 'active',
-    });
-    await reload();
+    try {
+      await updateStation(api, clubId, station.id, {
+        roomLabel: station.roomLabel,
+        consoleType: station.consoleType,
+        rate: station.rate,
+        status: station.status === 'active' ? 'maintenance' : 'active',
+      });
+      toast.success(
+        station.status === 'active' ? 'Xona ta’mirga chiqarildi' : 'Xona faollashtirildi',
+      );
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    }
   };
 
   return (
-    <Panel
-      title={`Xonalar (${stations.length})`}
-      notch
-      brackets
-      action={
-        draft ? null : (
-          <Button variant="primary" size="sm" icon="add" onClick={() => setDraft(EMPTY_DRAFT)}>
+    <>
+      <Modal
+        open={draft !== null}
+        onClose={() => {
+          setDraft(null);
+          setError(null);
+        }}
+        title={draft?.id === null ? 'Xona qo‘shish' : 'Xonani tahrirlash'}
+        variant="center"
+      >
+        {draft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <FormGrid>
+              {draft.id === null ? (
+                <TextField
+                  label="Kod"
+                  value={draft.code}
+                  onChange={(value) => setDraft({ ...draft, code: value })}
+                  icon="tag"
+                  placeholder="A1"
+                />
+              ) : null}
+              <TextField
+                label="Xona turi"
+                value={draft.roomLabel}
+                onChange={(value) => setDraft({ ...draft, roomLabel: value })}
+                icon="meeting_room"
+                placeholder="Standart"
+              />
+              <Labeled label="Konsol">
+                <Select
+                  value={CONSOLE_LABEL[draft.consoleType] ?? draft.consoleType}
+                  items={CONSOLE_TYPES.map((id) => CONSOLE_LABEL[id] as string)}
+                  onChange={(label) => {
+                    const id = CONSOLE_TYPES.find((c) => CONSOLE_LABEL[c] === label);
+                    if (id) setDraft({ ...draft, consoleType: id });
+                  }}
+                  style={FULL}
+                />
+              </Labeled>
+              <TextField
+                label="Soatlik summa"
+                value={draft.rate}
+                onChange={(value) => setDraft({ ...draft, rate: value })}
+                icon="payments"
+                inputMode="numeric"
+              />
+            </FormGrid>
+
+            {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={submitting}
+                onClick={() => void submit()}
+              >
+                {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={submitting}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Panel
+        title={`Xonalar (${stations.length})`}
+        notch
+        brackets
+        action={
+          <Button
+            variant="primary"
+            size="sm"
+            icon="add"
+            onClick={() => {
+              setError(null);
+              setDraft(EMPTY_DRAFT);
+            }}
+          >
             Xona qo‘shish
           </Button>
-        )
-      }
-    >
-      {draft ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--gap-block)',
-            marginBottom: 'var(--gap-panel)',
-          }}
-        >
-          <FormGrid>
-            {draft.id === null ? (
-              <TextField
-                label="Kod"
-                value={draft.code}
-                onChange={(value) => setDraft({ ...draft, code: value })}
-                icon="tag"
-                placeholder="A1"
-              />
-            ) : null}
-            <TextField
-              label="Xona turi"
-              value={draft.roomLabel}
-              onChange={(value) => setDraft({ ...draft, roomLabel: value })}
-              icon="meeting_room"
-              placeholder="Standart"
-            />
-            <Labeled label="Konsol">
-              <Select
-                value={CONSOLE_LABEL[draft.consoleType] ?? draft.consoleType}
-                items={CONSOLE_TYPES.map((id) => CONSOLE_LABEL[id] as string)}
-                onChange={(label) => {
-                  const id = CONSOLE_TYPES.find((c) => CONSOLE_LABEL[c] === label);
-                  if (id) setDraft({ ...draft, consoleType: id });
-                }}
-                style={FULL}
-              />
-            </Labeled>
-            <TextField
-              label="Soatlik summa"
-              value={draft.rate}
-              onChange={(value) => setDraft({ ...draft, rate: value })}
-              icon="payments"
-              inputMode="numeric"
-            />
-          </FormGrid>
+        }
+      >
+        {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
 
-          {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-          <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-            <Button variant="primary" notch icon="check" disabled={submitting} onClick={() => void submit()}>
-              {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
-            </Button>
-            <Button variant="ghost" disabled={submitting} onClick={() => setDraft(null)}>
-              Bekor
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
-
-      <EntityTable
-        rows={stations}
-        rowKey={(row) => String(row.id)}
-        empty={loading ? 'Yuklanmoqda…' : 'Xona qo‘shilmagan'}
-        columns={[
-          {
-            key: 'code',
-            header: 'Xona',
-            render: (row) => (
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span style={{ color: 'var(--text-title)' }}>{row.code}</span>
-                <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {row.roomLabel}
+        <EntityTable
+          rows={stations}
+          rowKey={(row) => String(row.id)}
+          empty={loading ? 'Yuklanmoqda…' : 'Xona qo‘shilmagan'}
+          columns={[
+            {
+              key: 'code',
+              header: 'Xona',
+              render: (row) => (
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                  <span style={{ color: 'var(--text-title)' }}>{row.code}</span>
+                  <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                    {row.roomLabel}
+                  </span>
                 </span>
-              </span>
-            ),
-          },
-          {
-            key: 'console',
-            header: 'Konsol',
-            render: (row) => CONSOLE_LABEL[row.consoleType] ?? row.consoleType,
-          },
-          {
-            key: 'rate',
-            header: 'Soatlik',
-            align: 'right',
-            render: (row) => (
-              <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', whiteSpace: 'nowrap' }}>
-                {S(row.rate)}
-              </span>
-            ),
-          },
-          {
-            key: 'status',
-            header: 'Holat',
-            render: (row) => (
-              <Tag tone={row.status === 'active' ? 'success' : 'amber'}>
-                {row.status === 'active' ? 'Faol' : 'Ta’mirda'}
-              </Tag>
-            ),
-          },
-          {
-            key: 'actions',
-            header: '',
-            align: 'right',
-            render: (row) => (
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="edit"
-                  onClick={() =>
-                    setDraft({
-                      id: row.id,
-                      code: row.code,
-                      roomLabel: row.roomLabel,
-                      consoleType: row.consoleType,
-                      rate: String(row.rate),
-                      status: row.status === 'active' ? 'active' : 'maintenance',
-                    })
-                  }
-                />
-                <Button variant="ghost" size="sm" icon="build" onClick={() => void toggleMaintenance(row)} />
-              </div>
-            ),
-          },
-        ]}
-      />
-    </Panel>
+              ),
+            },
+            {
+              key: 'console',
+              header: 'Konsol',
+              render: (row) => CONSOLE_LABEL[row.consoleType] ?? row.consoleType,
+            },
+            {
+              key: 'rate',
+              header: 'Soatlik',
+              align: 'right',
+              render: (row) => (
+                <span
+                  style={{
+                    font: 'var(--type-data)',
+                    color: 'var(--text-title)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {S(row.rate)}
+                </span>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Holat',
+              render: (row) => (
+                <Tag tone={row.status === 'active' ? 'success' : 'amber'}>
+                  {row.status === 'active' ? 'Faol' : 'Ta’mirda'}
+                </Tag>
+              ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              align: 'right',
+              render: (row) => (
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="edit"
+                    onClick={() => {
+                      setError(null);
+                      setDraft({
+                        id: row.id,
+                        code: row.code,
+                        roomLabel: row.roomLabel,
+                        consoleType: row.consoleType,
+                        rate: String(row.rate),
+                        status: row.status === 'active' ? 'active' : 'maintenance',
+                      });
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="build"
+                    onClick={() => void toggleMaintenance(row)}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+    </>
   );
 }

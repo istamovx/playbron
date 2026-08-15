@@ -4,7 +4,18 @@ import {
   listStaffMembers,
   type StaffMemberDto,
 } from '@playbron/api-client';
-import { Button, EntityTable, Panel, Select, StatTile, StatusLine, Tag, TextField } from '@playbron/ui';
+import {
+  Button,
+  EntityTable,
+  Modal,
+  Panel,
+  Select,
+  StatTile,
+  StatusLine,
+  Tag,
+  TextField,
+  toast,
+} from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
@@ -41,7 +52,8 @@ export function StaffScreen(): ReactNode {
   // Faol klubdagi CHAQIRUVCHI roli — ADMIN o'ziga teng (ADMIN) rol bera
   // olmaydi, server ham shuni majburlaydi (`ROLE_NOT_ALLOWED`)
   const callerRole = session?.clubs.find((c) => c.id === clubId)?.role ?? 'STAFF';
-  const roleOptions: Array<'ADMIN' | 'STAFF'> = callerRole === 'OWNER' ? ['ADMIN', 'STAFF'] : ['STAFF'];
+  const roleOptions: Array<'ADMIN' | 'STAFF'> =
+    callerRole === 'OWNER' ? ['ADMIN', 'STAFF'] : ['STAFF'];
 
   const [staff, setStaff] = useState<StaffMemberDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,7 +71,9 @@ export function StaffScreen(): ReactNode {
     try {
       setStaff(await listStaffMembers(api, clubId));
     } catch (cause) {
-      setLoadError(errorText(cause));
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -95,9 +109,12 @@ export function StaffScreen(): ReactNode {
       });
       setCreated({ login: result.login, password: draft.password });
       setDraft(null);
+      toast.success(`Xodim yaratildi — ${result.login}`);
       await reload();
     } catch (cause) {
-      setError(errorText(cause));
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -131,35 +148,17 @@ export function StaffScreen(): ReactNode {
         </Panel>
       ) : null}
 
-      <Panel
-        title={`Xodimlar (${staff.length})`}
-        notch
-        brackets
-        action={
-          draft ? null : (
-            <Button
-              variant="primary"
-              size="sm"
-              icon="person_add"
-              onClick={() => {
-                setCreated(null);
-                setDraft({ ...EMPTY_DRAFT, password: randomPassword() });
-              }}
-            >
-              Qo‘shish
-            </Button>
-          )
-        }
+      <Modal
+        open={draft !== null}
+        onClose={() => {
+          setDraft(null);
+          setError(null);
+        }}
+        title="Xodim qo‘shish"
+        variant="center"
       >
         {draft ? (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--gap-block)',
-              marginBottom: 'var(--gap-panel)',
-            }}
-          >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
             <FormGrid>
               <TextField
                 label="Ism"
@@ -196,7 +195,13 @@ export function StaffScreen(): ReactNode {
             {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
 
             <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-              <Button variant="primary" notch icon="check" disabled={submitting} onClick={() => void submit()}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={submitting}
+                onClick={() => void submit()}
+              >
                 {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
               </Button>
               <Button
@@ -212,7 +217,27 @@ export function StaffScreen(): ReactNode {
             </div>
           </div>
         ) : null}
+      </Modal>
 
+      <Panel
+        title={`Xodimlar (${staff.length})`}
+        notch
+        brackets
+        action={
+          <Button
+            variant="primary"
+            size="sm"
+            icon="person_add"
+            onClick={() => {
+              setCreated(null);
+              setError(null);
+              setDraft({ ...EMPTY_DRAFT, password: randomPassword() });
+            }}
+          >
+            Qo‘shish
+          </Button>
+        }
+      >
         {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
 
         <EntityTable
