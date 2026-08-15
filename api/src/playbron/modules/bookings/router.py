@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
-from playbron.core.errors import BadRequest, Forbidden
+from playbron.core.errors import BadRequest, Forbidden, NotFound
 from playbron.deps import db, public_db, require_admin, require_customer_token, require_staff
 from playbron.modules.bookings import service
 
@@ -42,6 +42,10 @@ class ClubOut(BaseModel):
     opens_at_min: int
     closes_at_min: int
     timezone: str
+
+
+class ClubDetailOut(ClubOut):
+    status: str
 
 
 class StationOut(BaseModel):
@@ -145,6 +149,23 @@ async def list_stations(
     return [StationOut(**r) for r in rows]
 
 
+@router.get(
+    "/{club_id}",
+    response_model=ClubDetailOut,
+    dependencies=[Depends(require_staff)],
+)
+async def get_club(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> ClubDetailOut:
+    """Xodim/egasi o'z klubini `status`i bilan ko'radi — `draft` ham (`clubs_read`)."""
+    _assert_path_matches_header(club_id)
+    row = await service.get_club_for_staff(session, club_id)
+    if row is None:
+        raise NotFound("Klub topilmadi")
+    return ClubDetailOut(**row)
+
+
 @router.patch(
     "/{club_id}",
     response_model=ClubOut,
@@ -168,6 +189,20 @@ async def update_club(
         closes_at_min=body.closes_at_min,
     )
     return ClubOut(**row)
+
+
+@router.post(
+    "/{club_id}/publish",
+    status_code=204,
+    dependencies=[Depends(require_admin)],
+)
+async def publish_club(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> None:
+    """Klub egasi/admini `draft` klubni o'zi faollashtiradi — super admin shart emas."""
+    _assert_path_matches_header(club_id)
+    await service.publish_club(session, club_id=club_id)
 
 
 @router.get(

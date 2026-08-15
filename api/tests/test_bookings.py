@@ -325,6 +325,106 @@ async def test_stations_are_publicly_readable_for_active_club(
 
 
 @skip_no_db
+async def test_owner_publishes_draft_club_with_station(client: httpx.AsyncClient) -> None:
+    """`draft` klub — egasi o'zi faollashtiradi, super admin shart emas."""
+    engine = _owner_engine()
+    ids: dict[str, int] = {}
+    password_hash = await hash_password(PASSWORD)
+
+    async with engine.begin() as conn:
+        async with rls_bypass(
+            conn, "users", "organizations", "clubs", "memberships", "staff_credentials"
+        ):
+            ids["owner"] = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', 'pub.owner', 'active', 'Pub')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = false"
+                ),
+                {"uid": ids["owner"], "h": password_hash},
+            )
+            ids["org"] = await conn.scalar(
+                text(
+                    "INSERT INTO organizations (owner_user_id, name, status, plan_code)"
+                    " VALUES (:u, 'Pub Org', 'pending', NULL) RETURNING id"
+                ),
+                {"u": ids["owner"]},
+            )
+            ids["club"] = await conn.scalar(
+                text(
+                    "INSERT INTO clubs (org_id, name, status) VALUES (:o, 'Pub Club', 'draft')"
+                    " RETURNING id"
+                ),
+                {"o": ids["org"]},
+            )
+            await conn.execute(
+                text("INSERT INTO memberships (user_id, club_id, role) VALUES (:u, :c, 'OWNER')"),
+                {"u": ids["owner"], "c": ids["club"]},
+            )
+    await core_db.dispose()
+
+    try:
+        signed = await client.post(
+            "/api/v1/auth/staff/login", json={"login": "pub.owner", "password": PASSWORD}
+        )
+        assert signed.status_code == 200, signed.text
+        headers = {
+            "Authorization": f"Bearer {signed.json()['access_token']}",
+            "X-Club-Id": str(ids["club"]),
+        }
+
+        # `draft` klub — ochiq /clubs ro'yxatida yo'q, lekin egasi
+        # `GET /clubs/{id}` orqali status'ini ko'radi
+        detail = await client.get(f"/api/v1/clubs/{ids['club']}", headers=headers)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["status"] == "draft"
+
+        # Xonasiz — rad etiladi
+        r = await client.post(f"/api/v1/clubs/{ids['club']}/publish", headers=headers)
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "CLUB_NO_STATIONS"
+
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "stations"):
+                await conn.execute(
+                    text(
+                        "INSERT INTO stations (club_id, code, console_type, rate, status)"
+                        " VALUES (:c, 'PUB-1', 'ps5', 30000, 'active')"
+                    ),
+                    {"c": ids["club"]},
+                )
+        await core_db.dispose()
+
+        r = await client.post(f"/api/v1/clubs/{ids['club']}/publish", headers=headers)
+        assert r.status_code == 204, r.text
+
+        # Endi ochiq katalogda ko'rinadi
+        catalog = await client.get("/api/v1/clubs")
+        assert any(c["id"] == ids["club"] for c in catalog.json())
+    finally:
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "organizations", "users", "stations"):
+                await conn.execute(
+                    text("DELETE FROM stations WHERE club_id = :c"), {"c": ids["club"]}
+                )
+                await conn.execute(
+                    text("DELETE FROM organizations WHERE id = :o"), {"o": ids["org"]}
+                )
+                await conn.execute(
+                    text("DELETE FROM users WHERE login = 'pub.owner' AND kind = 'staff'")
+                )
+        await engine.dispose()
+
+
+@skip_no_db
 async def test_active_club_appears_in_public_catalog(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

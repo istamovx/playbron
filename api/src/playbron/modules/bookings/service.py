@@ -34,6 +34,29 @@ def _station_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
+_PUBLISH_ERRORS = {
+    "NOT_AUTHENTICATED": ("Avval kiring", "NOT_AUTHENTICATED"),
+    "NOT_ALLOWED": ("Bu amal uchun ruxsat yo'q", "ROLE_FORBIDDEN"),
+    "NOT_FOUND": ("Klub topilmadi", "CLUB_NOT_FOUND"),
+    "ALREADY_ACTIVE": ("Klub allaqachon faol", "CLUB_ALREADY_ACTIVE"),
+    "NO_STATIONS": ("Kamida bitta faol xona qo'shing", "CLUB_NO_STATIONS"),
+}
+
+
+async def publish_club(session: AsyncSession, *, club_id: int) -> None:
+    """Klub egasi/admini `draft` klubni o'zi faollashtiradi (`0012_club_publish.py`).
+
+    Super admin tasdig'i SHART EMAS — bu `organizations.status` (tarif)
+    bilan ARALASHTIRILMAYDI, u alohida o'q.
+    """
+    result = await session.scalar(text("SELECT club_publish(:c)"), {"c": club_id})
+    if result != "OK":
+        message, code = _PUBLISH_ERRORS.get(
+            str(result), ("Faollashtirib bo'lmadi", "PUBLISH_FAILED")
+        )
+        raise AppError(message, code=code, status_code=409 if code != "ROLE_FORBIDDEN" else 403)
+
+
 async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
     """Mijoz ilovasidagi klub katalogi — `clubs_read` (`0001`) status='active'ni
     tokensiz ochadi, boshqa GUC kerak emas."""
@@ -60,6 +83,39 @@ async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+async def get_club_for_staff(session: AsyncSession, club_id: int) -> dict[str, Any] | None:
+    """Xodim/egasi o'z klubini `status`i (shu jumladan `draft`) bilan ko'radi.
+
+    `list_active_clubs()`dan farqi — u faqat `active`ni qaytaradi, ya'ni
+    hali nashr qilinmagan klub egasiga ham UMUMAN ko'rinmas edi. `clubs_read`
+    (`0001`) o'z a'zoligi orqali `draft`ni ham ochadi.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, name, address, phone, about, cover_url,"
+                "       opens_at_min, closes_at_min, timezone, status"
+                " FROM clubs WHERE id = :id"
+            ),
+            {"id": club_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "name": row.name,
+        "address": row.address,
+        "phone": row.phone,
+        "about": row.about,
+        "cover_url": row.cover_url,
+        "opens_at_min": row.opens_at_min,
+        "closes_at_min": row.closes_at_min,
+        "timezone": row.timezone,
+        "status": row.status,
+    }
 
 
 async def list_stations(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
