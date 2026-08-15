@@ -38,11 +38,7 @@ async def guard_replay(identity: TelegramIdentity) -> None:
     Redis'da `SET NX` — birinchi kelgan o'tadi, ikkinchisi rad etiladi.
     TTL imzo yashash muddatiga teng, ya'ni eskirgani o'zi tozalanadi.
     """
-    ttl = (
-        settings.initdata_ttl_sec
-        if identity.source == "initdata"
-        else settings.widget_ttl_sec
-    )
+    ttl = settings.initdata_ttl_sec if identity.source == "initdata" else settings.widget_ttl_sec
     key = f"{REPLAY_PREFIX}{identity.source}:{identity.raw_hash}"
 
     stored = await redis_client().set(key, "1", ex=ttl, nx=True)
@@ -155,8 +151,7 @@ async def issue_tokens(
         # `org_id` ham tokenga kiradi: RLS `app.org_id` ga tayanadi va usiz
         # xodim o'z klubining tashkilotini (demak tarifini) ko'ra olmaydi
         memberships=[
-            {"club_id": m["club_id"], "role": m["role"], "org_id": m["org_id"]}
-            for m in memberships
+            {"club_id": m["club_id"], "role": m["role"], "org_id": m["org_id"]} for m in memberships
         ],
         is_super_admin=super_admin,
         entitlements=entitlements,
@@ -281,7 +276,17 @@ async def rotate_refresh(
     stored.revoked_at = now()
     stored.replaced_by = sha256_hex(issued["refresh_token"])
 
-    return {**issued, "user": user, "memberships": memberships, "is_super_admin": super_admin}
+    return {
+        **issued,
+        "user": user,
+        "memberships": memberships,
+        "is_super_admin": super_admin,
+        # Chaqiruvchi qayta so'ramasin: yuqorida hisoblangan, JWT'ga ham
+        # shu qiymat kirgan — ikkinchi DB so'rovi faqat ortiqcha tarmoq
+        # sakrashi bo'lardi (har bir kirish/yangilash yo'lida qo'shimcha
+        # round-trip).
+        "entitlements": entitlements,
+    }
 
 
 async def sign_in(
@@ -324,7 +329,13 @@ async def sign_in(
         ip=ip,
     )
 
-    return {**issued, "user": user, "memberships": memberships, "is_super_admin": super_admin}
+    return {
+        **issued,
+        "user": user,
+        "memberships": memberships,
+        "is_super_admin": super_admin,
+        "entitlements": entitlements,
+    }
 
 
 async def sign_out(session: AsyncSession, *, refresh_token: str) -> None:

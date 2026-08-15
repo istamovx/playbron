@@ -75,7 +75,14 @@ class SessionOut(BaseModel):
     must_change_password: bool = False
 
 
-def _to_session(payload: dict[str, Any], entitlements: dict[str, Any] | None) -> SessionOut:
+def _to_session(payload: dict[str, Any]) -> SessionOut:
+    """`payload` — `service.sign_in`/`rotate_refresh` yoki `staff.staff_login` natijasi.
+
+    `entitlements` shu yerda QAYTA SO'RALMAYDI: uni chaqiruvchi funksiya
+    JWT'ga singdirish uchun allaqachon hisoblagan va `payload["entitlements"]`
+    ichida qaytargan. Avval har bir marshrut uni ikkinchi marta so'rar edi —
+    har bir kirish/yangilash bitta ortiqcha DB round-trip qilardi.
+    """
     user = payload["user"]
     return SessionOut(
         access_token=payload["access_token"],
@@ -97,7 +104,7 @@ def _to_session(payload: dict[str, Any], entitlements: dict[str, Any] | None) ->
             for m in payload["memberships"]
         ],
         is_super_admin=payload["is_super_admin"],
-        entitlements=entitlements,
+        entitlements=payload.get("entitlements"),
     )
 
 
@@ -133,10 +140,7 @@ async def sign_in_initdata(
     identity = verify_init_data(body.init_data)
     ua, ip = _client(request, user_agent)
     payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
-
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-    return _to_session(payload, entitlements)
+    return _to_session(payload)
 
 
 @router.post("/telegram/widget", response_model=SessionOut)
@@ -150,10 +154,7 @@ async def sign_in_widget(
     identity = verify_widget(body.model_dump(exclude_none=True))
     ua, ip = _client(request, user_agent)
     payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
-
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-    return _to_session(payload, entitlements)
+    return _to_session(payload)
 
 
 @router.post("/refresh", response_model=SessionOut)
@@ -167,10 +168,7 @@ async def refresh(
     payload = await service.rotate_refresh(
         session, presented=body.refresh_token, user_agent=ua, ip=ip
     )
-
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-    return _to_session(payload, entitlements)
+    return _to_session(payload)
 
 
 class StaffLoginIn(BaseModel):
@@ -201,10 +199,7 @@ async def staff_login(
         ip=ip,
     )
 
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-
-    out = _to_session(payload, entitlements)
+    out = _to_session(payload)
     out.must_change_password = payload["must_change_password"]
     return out
 
@@ -314,8 +309,8 @@ async def change_password(
             "user": user,
             "memberships": memberships,
             "is_super_admin": super_admin,
-        },
-        entitlements,
+            "entitlements": entitlements,
+        }
     )
 
 
@@ -377,10 +372,7 @@ async def poll_bot_login(
 
     ua, ip = _client(request, user_agent)
     payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
-
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-    return PollOut(status="ready", session=_to_session(payload, entitlements))
+    return PollOut(status="ready", session=_to_session(payload))
 
 
 @router.post("/telegram/webhook/admin")
@@ -457,10 +449,7 @@ async def dev_login(
 
     ua, ip = _client(request, user_agent)
     payload = await service.sign_in(session, identity, user_agent=ua, ip=ip)
-
-    org_id = payload["memberships"][0]["org_id"] if payload["memberships"] else None
-    entitlements = await service.load_entitlements(session, org_id)
-    return _to_session(payload, entitlements)
+    return _to_session(payload)
 
 
 @router.post("/logout", status_code=204)

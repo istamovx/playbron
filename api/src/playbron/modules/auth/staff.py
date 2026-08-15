@@ -205,6 +205,9 @@ async def staff_login(
         "is_super_admin": super_admin,
         # `true` bo'lsa konsol faqat parol almashtirish ekranini ochadi (§7.3)
         "must_change_password": bool(must_change),
+        # Chaqiruvchi (router) buni QAYTA so'ramasin — pastda hisoblangan,
+        # ikkinchi so'rov faqat qo'shimcha tarmoq sakrashi bo'lardi.
+        "entitlements": entitlements,
     }
 
 
