@@ -10,9 +10,11 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from playbron.core import db as core_db
 from playbron.core.config import settings
 from playbron.core.passwords import hash_password
 from playbron.main import app
@@ -64,55 +66,75 @@ async def world() -> AsyncIterator[dict[str, int]]:
     password_hash = await hash_password(PASSWORD)
 
     async with engine.begin() as conn:
-        for key, login in (("owner", OWNER_LOGIN), ("admin", ADMIN_LOGIN)):
-            ids[key] = await conn.scalar(
+        # `world` butun grafni nol'dan quradi — hali tabiiy aktor yo'q,
+        # shuning uchun `rls_bypass` (`conftest.py`).
+        async with rls_bypass(
+            conn, "users", "staff_credentials", "organizations", "clubs", "memberships"
+        ):
+            for key, login in (("owner", OWNER_LOGIN), ("admin", ADMIN_LOGIN)):
+                ids[key] = await conn.scalar(
+                    text(
+                        "INSERT INTO users (kind, login, status, first_name)"
+                        " VALUES ('staff', :login, 'active', :name)"
+                        " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                        " DO UPDATE SET status = 'active' RETURNING id"
+                    ),
+                    {"login": login, "name": key},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                        " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
+                        " SET password_hash = EXCLUDED.password_hash, must_change = false"
+                    ),
+                    {"uid": ids[key], "h": password_hash},
+                )
+
+            ids["org"] = await conn.scalar(
                 text(
-                    "INSERT INTO users (kind, login, status, first_name)"
-                    " VALUES ('staff', :login, 'active', :name)"
-                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
-                    " DO UPDATE SET status = 'active' RETURNING id"
+                    "INSERT INTO organizations (owner_user_id, name, status, plan_code)"
+                    " VALUES (:u, 'Prov Org', 'active', 'gold') RETURNING id"
                 ),
-                {"login": login, "name": key},
+                {"u": ids["owner"]},
+            )
+            ids["club"] = await conn.scalar(
+                text(
+                    "INSERT INTO clubs (org_id, name, status)"
+                    " VALUES (:o, 'Prov Club', 'active') RETURNING id"
+                ),
+                {"o": ids["org"]},
             )
             await conn.execute(
                 text(
-                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
-                    " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
-                    " SET password_hash = EXCLUDED.password_hash, must_change = false"
+                    "INSERT INTO memberships (user_id, club_id, role) VALUES"
+                    " (:owner, :club, 'OWNER'), (:admin, :club, 'ADMIN')"
                 ),
-                {"uid": ids[key], "h": password_hash},
+                {"owner": ids["owner"], "admin": ids["admin"], "club": ids["club"]},
             )
 
-        ids["org"] = await conn.scalar(
-            text(
-                "INSERT INTO organizations (owner_user_id, name, status, plan_code)"
-                " VALUES (:u, 'Prov Org', 'active', 'gold') RETURNING id"
-            ),
-            {"u": ids["owner"]},
-        )
-        ids["club"] = await conn.scalar(
-            text(
-                "INSERT INTO clubs (org_id, name, status)"
-                " VALUES (:o, 'Prov Club', 'active') RETURNING id"
-            ),
-            {"o": ids["org"]},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO memberships (user_id, club_id, role) VALUES"
-                " (:owner, :club, 'OWNER'), (:admin, :club, 'ADMIN')"
-            ),
-            {"owner": ids["owner"], "admin": ids["admin"], "club": ids["club"]},
-        )
+    # `rls_bypass()` yuqorida FORCE RLS'ni vaqtincha olib turdi (DDL) — ilova
+    # pool'ining tayyorlangan bayonot keshi eskirgan katalog holatiga ishora
+    # qilib qolishi mumkin (`test_bookings.py::world`dagi bilan bir xil sabab).
+    await core_db.dispose()
 
     yield ids
 
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM clubs WHERE id = :i"), {"i": ids["club"]})
-        await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
-        await conn.execute(
-            text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'prov.%'")
-        )
+        async with rls_bypass(conn, "organizations", "users"):
+            # Login shabloni bo'yicha o'chiriladi, aniq id bo'yicha emas:
+            # login `ON CONFLICT DO UPDATE` bilan qatorni doim qayta
+            # ishlatadi, ya'ni bitta muvaffaqiyatsiz tozalash keyingi HAR
+            # BIR yurishni `organizations_owner_user_id_fkey` bilan abadiy
+            # blokidan qoldirardi — o'z-o'zini davolaydigan tozalash kerak.
+            await conn.execute(
+                text(
+                    "DELETE FROM organizations WHERE owner_user_id IN"
+                    " (SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'prov.%')"
+                )
+            )
+            await conn.execute(
+                text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'prov.%'")
+            )
     await engine.dispose()
 
 
@@ -161,6 +183,21 @@ async def test_owner_creates_staff_and_they_can_sign_in(
 
 
 @skip_no_db
+async def test_owner_lists_club_staff(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+    headers = await _auth(client, OWNER_LOGIN, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/staff", json=_payload(), headers=headers
+    )
+    assert created.status_code == 201, created.text
+
+    r = await client.get(f"/api/v1/clubs/{world['club']}/staff", headers=headers)
+    assert r.status_code == 200, r.text
+    logins = {row["login"] for row in r.json()}
+    assert {OWNER_LOGIN, ADMIN_LOGIN, "prov.kassa"} <= logins
+
+
+@skip_no_db
 async def test_admin_cannot_create_another_admin(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:
@@ -177,9 +214,7 @@ async def test_admin_cannot_create_another_admin(
 
 
 @skip_no_db
-async def test_admin_can_create_staff(
-    client: httpx.AsyncClient, world: dict[str, int]
-) -> None:
+async def test_admin_can_create_staff(client: httpx.AsyncClient, world: dict[str, int]) -> None:
     headers = await _auth(client, ADMIN_LOGIN, world["club"])
     r = await client.post(
         f"/api/v1/clubs/{world['club']}/staff",

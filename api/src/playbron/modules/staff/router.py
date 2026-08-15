@@ -41,6 +41,14 @@ class StaffCreateOut(BaseModel):
     must_change_password: bool = True
 
 
+class StaffMemberOut(BaseModel):
+    user_id: int
+    login: str
+    first_name: str
+    role: str
+    status: str
+
+
 def _assert_path_matches_header(club_id: int) -> None:
     """Yo'ldagi `club_id` va `X-Club-Id` bir xil bo'lishi shart.
 
@@ -53,6 +61,38 @@ def _assert_path_matches_header(club_id: int) -> None:
     active = context.current().club_id
     if active is None or int(active) != int(club_id):
         raise Forbidden("Faol klub mos kelmadi", code="CLUB_MISMATCH")
+
+
+@router.get(
+    "/{club_id}/staff",
+    response_model=list[StaffMemberOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_staff(
+    session: Annotated[AsyncSession, Depends(db)],
+    club_id: Annotated[int, Path()],
+) -> list[StaffMemberOut]:
+    """Klub xodimlari — `memberships_read` (`0007`) OWNER/ADMIN uchun
+    butun ro'yxatni ochadi (`app.club_role` GUC orqali)."""
+    _assert_path_matches_header(club_id)
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT u.id, u.login, u.first_name, m.role, u.status"
+                " FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE m.club_id = :club_id AND m.status = 'active'"
+                " ORDER BY m.role, u.login"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [
+        StaffMemberOut(
+            user_id=r.id, login=r.login, first_name=r.first_name, role=r.role, status=r.status
+        )
+        for r in rows
+    ]
 
 
 @router.post(
