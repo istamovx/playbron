@@ -76,6 +76,167 @@ async def list_stations(session: AsyncSession, club_id: int) -> list[dict[str, A
     return [_station_row_to_dict(r) for r in rows]
 
 
+async def list_all_stations(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Boshqaruv uchun — `maintenance` xonalar ham, faqat `active` emas."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, code, room_label, console_type, rate, status"
+                " FROM stations WHERE club_id = :club_id ORDER BY code"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [_station_row_to_dict(r) for r in rows]
+
+
+CONSOLE_TYPES = ("ps3", "ps4", "ps4pro", "ps5", "ps5pro")
+
+
+async def create_station(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    code: str,
+    room_label: str,
+    console_type: str,
+    rate: int,
+) -> dict[str, Any]:
+    if console_type not in CONSOLE_TYPES:
+        raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
+    if rate <= 0:
+        raise AppError("Narx musbat bo'lsin", code="RATE_INVALID")
+
+    code = code.strip()
+    if not code:
+        raise AppError("Xona kodini kiriting", code="CODE_REQUIRED")
+
+    try:
+        station_id = await session.scalar(
+            text(
+                "INSERT INTO stations (club_id, code, room_label, console_type, rate, status)"
+                " VALUES (:club_id, :code, :room_label, :console_type, :rate, 'active')"
+                " RETURNING id"
+            ),
+            {
+                "club_id": club_id,
+                "code": code,
+                "room_label": room_label.strip() or "Standart",
+                "console_type": console_type,
+                "rate": rate,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if sqlstate == "23505":
+            raise AppError("Bu kod bilan xona allaqachon bor", code="STATION_CODE_TAKEN") from exc
+        raise
+
+    return {
+        "id": station_id,
+        "code": code,
+        "room_label": room_label.strip() or "Standart",
+        "console_type": console_type,
+        "rate": rate,
+        "status": "active",
+    }
+
+
+async def update_station(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    station_id: int,
+    room_label: str,
+    console_type: str,
+    rate: int,
+    status: str,
+) -> dict[str, Any]:
+    if console_type not in CONSOLE_TYPES:
+        raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
+    if rate <= 0:
+        raise AppError("Narx musbat bo'lsin", code="RATE_INVALID")
+    if status not in ("active", "maintenance"):
+        raise AppError("Noma'lum holat", code="STATUS_INVALID")
+
+    row = (
+        await session.execute(
+            text(
+                "UPDATE stations SET room_label = :room_label, console_type = :console_type,"
+                " rate = :rate, status = :status"
+                " WHERE id = :id AND club_id = :club_id"
+                " RETURNING id, code, room_label, console_type, rate, status"
+            ),
+            {
+                "room_label": room_label.strip() or "Standart",
+                "console_type": console_type,
+                "rate": rate,
+                "status": status,
+                "id": station_id,
+                "club_id": club_id,
+            },
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Xona topilmadi")
+    return _station_row_to_dict(row)
+
+
+async def update_club(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    name: str,
+    address: str,
+    phone: str | None,
+    about: str,
+    opens_at_min: int,
+    closes_at_min: int,
+) -> dict[str, Any]:
+    if not name.strip():
+        raise AppError("Klub nomini kiriting", code="NAME_REQUIRED")
+    if not (0 <= opens_at_min < closes_at_min <= 1560):
+        raise AppError(
+            "Ish vaqti noto'g'ri — yopilish ochilishdan keyin, 26:00 (1560) gacha",
+            code="HOURS_INVALID",
+        )
+
+    row = (
+        await session.execute(
+            text(
+                "UPDATE clubs SET name = :name, address = :address, phone = :phone,"
+                " about = :about, opens_at_min = :opens_at_min, closes_at_min = :closes_at_min"
+                " WHERE id = :id"
+                " RETURNING id, name, address, phone, about, cover_url,"
+                "           opens_at_min, closes_at_min, timezone"
+            ),
+            {
+                "name": name.strip(),
+                "address": address.strip(),
+                "phone": phone.strip() if phone else None,
+                "about": about.strip(),
+                "opens_at_min": opens_at_min,
+                "closes_at_min": closes_at_min,
+                "id": club_id,
+            },
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Klub topilmadi")
+
+    return {
+        "id": row.id,
+        "name": row.name,
+        "address": row.address,
+        "phone": row.phone,
+        "about": row.about,
+        "cover_url": row.cover_url,
+        "opens_at_min": row.opens_at_min,
+        "closes_at_min": row.closes_at_min,
+        "timezone": row.timezone,
+    }
+
+
 async def list_day_bookings(
     session: AsyncSession, club_id: int, day: datetime
 ) -> list[dict[str, Any]]:

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
 from playbron.core.errors import BadRequest, Forbidden
-from playbron.deps import db, public_db, require_customer_token, require_staff
+from playbron.deps import db, public_db, require_admin, require_customer_token, require_staff
 from playbron.modules.bookings import service
 
 router = APIRouter(prefix="/clubs", tags=["bookings"])
@@ -103,6 +103,29 @@ class RejectIn(BaseModel):
     reason: str | None = Field(default=None, max_length=300)
 
 
+class ClubUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    address: str = Field(default="", max_length=300)
+    phone: str | None = Field(default=None, max_length=20)
+    about: str = Field(default="", max_length=2000)
+    opens_at_min: int = Field(ge=0, le=1559)
+    closes_at_min: int = Field(ge=1, le=1560)
+
+
+class StationCreateIn(BaseModel):
+    code: str = Field(min_length=1, max_length=16)
+    room_label: str = Field(default="Standart", max_length=32)
+    console_type: str = Field(pattern="^(ps3|ps4|ps4pro|ps5|ps5pro)$")
+    rate: int = Field(gt=0)
+
+
+class StationUpdateIn(BaseModel):
+    room_label: str = Field(default="Standart", max_length=32)
+    console_type: str = Field(pattern="^(ps3|ps4|ps4pro|ps5|ps5pro)$")
+    rate: int = Field(gt=0)
+    status: str = Field(pattern="^(active|maintenance)$")
+
+
 # ── Ochiq o'qish ──────────────────────────────────────────────────────────
 
 
@@ -120,6 +143,93 @@ async def list_stations(
 ) -> list[StationOut]:
     rows = await service.list_stations(session, club_id)
     return [StationOut(**r) for r in rows]
+
+
+@router.patch(
+    "/{club_id}",
+    response_model=ClubOut,
+    dependencies=[Depends(require_admin)],
+)
+async def update_club(
+    body: ClubUpdateIn,
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> ClubOut:
+    """Klub umumiy ma'lumoti — `clubs_write` (`0001`) org egasi/adminiga ochiq."""
+    _assert_path_matches_header(club_id)
+    row = await service.update_club(
+        session,
+        club_id=club_id,
+        name=body.name,
+        address=body.address,
+        phone=body.phone,
+        about=body.about,
+        opens_at_min=body.opens_at_min,
+        closes_at_min=body.closes_at_min,
+    )
+    return ClubOut(**row)
+
+
+@router.get(
+    "/{club_id}/stations/manage",
+    response_model=list[StationOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_stations_for_management(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> list[StationOut]:
+    """Boshqaruv ro'yxati — `maintenance` xonalar ham (ochiq `/stations` faqat `active`)."""
+    _assert_path_matches_header(club_id)
+    rows = await service.list_all_stations(session, club_id)
+    return [StationOut(**r) for r in rows]
+
+
+@router.post(
+    "/{club_id}/stations",
+    response_model=StationOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_station(
+    body: StationCreateIn,
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> StationOut:
+    _assert_path_matches_header(club_id)
+    row = await service.create_station(
+        session,
+        club_id=club_id,
+        code=body.code,
+        room_label=body.room_label,
+        console_type=body.console_type,
+        rate=body.rate,
+    )
+    return StationOut(**row)
+
+
+@router.patch(
+    "/{club_id}/stations/{station_id}",
+    response_model=StationOut,
+    dependencies=[Depends(require_admin)],
+)
+async def update_station(
+    body: StationUpdateIn,
+    club_id: Annotated[int, Path()],
+    station_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> StationOut:
+    _assert_path_matches_header(club_id)
+    row = await service.update_station(
+        session,
+        club_id=club_id,
+        station_id=station_id,
+        room_label=body.room_label,
+        console_type=body.console_type,
+        rate=body.rate,
+        status=body.status,
+    )
+    return StationOut(**row)
 
 
 @router.get("/{club_id}/bookings/day", response_model=list[DayBookingOut])

@@ -338,6 +338,64 @@ async def test_active_club_appears_in_public_catalog(
 
 
 @skip_no_db
+async def test_owner_updates_club_info(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    r = await client.patch(
+        f"/api/v1/clubs/{world['club']}",
+        json={
+            "name": "Bkg Club Yangi",
+            "address": "Toshkent, Yangi ko‘cha",
+            "phone": "+998901234567",
+            "about": "Yangilangan tavsif",
+            "opens_at_min": 9 * 60,
+            "closes_at_min": 25 * 60,
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Bkg Club Yangi"
+    assert body["opens_at_min"] == 9 * 60
+
+    r = await client.get("/api/v1/clubs")
+    listed = next(c for c in r.json() if c["id"] == world["club"])
+    assert listed["name"] == "Bkg Club Yangi"
+
+
+@skip_no_db
+async def test_owner_manages_stations(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/stations",
+        json={"code": "BKG-9", "room_label": "VIP", "console_type": "ps5pro", "rate": 90000},
+        headers=staff_h,
+    )
+    assert created.status_code == 201, created.text
+    station_id = created.json()["id"]
+
+    updated = await client.patch(
+        f"/api/v1/clubs/{world['club']}/stations/{station_id}",
+        json={
+            "room_label": "VIP",
+            "console_type": "ps5pro",
+            "rate": 95000,
+            "status": "maintenance",
+        },
+        headers=staff_h,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["status"] == "maintenance"
+
+    # `maintenance` — ochiq ro'yxatda ko'rinmaydi, boshqaruv ro'yxatida ko'rinadi
+    public = await client.get(f"/api/v1/clubs/{world['club']}/stations")
+    assert not any(s["id"] == station_id for s in public.json())
+
+    managed = await client.get(f"/api/v1/clubs/{world['club']}/stations/manage", headers=staff_h)
+    assert any(s["id"] == station_id and s["status"] == "maintenance" for s in managed.json())
+
+
+@skip_no_db
 async def test_hours_out_of_range_is_rejected(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:
