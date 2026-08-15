@@ -325,6 +325,19 @@ async def test_stations_are_publicly_readable_for_active_club(
 
 
 @skip_no_db
+async def test_active_club_appears_in_public_catalog(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Mijoz ilovasidagi klub katalogi — `GET /clubs`, tokensiz."""
+    r = await client.get("/api/v1/clubs")
+    assert r.status_code == 200
+    body = r.json()
+    listed = next((c for c in body if c["id"] == world["club"]), None)
+    assert listed is not None, "faol klub katalogda ko'rinishi kerak"
+    assert listed["name"] == "Bkg Club"
+
+
+@skip_no_db
 async def test_hours_out_of_range_is_rejected(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

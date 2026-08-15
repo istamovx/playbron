@@ -1,196 +1,125 @@
-import { Button, Icon, NO_SHOW_MIN } from '@playbron/ui';
+import type { MyBookingDto } from '@playbron/api-client';
 import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 
-import { BILL_SUMMARY, CLK, CLOSED_BILL_CODE, MY_BOOKINGS } from '../mock/data';
-import { useNow } from '../store/app';
+import { S } from '../mock/data';
+import { useBooking } from '../store/booking';
 
-/** Bronlarim — `PlayBron Mijoz.dc.html` BRONLARIM ekrani. */
+const STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Kutilmoqda',
+  CONFIRMED: 'Tasdiqlangan',
+  CANCELLED: 'Bekor qilingan',
+};
+
+const STATUS_TONE: Record<string, string> = {
+  PENDING: 'var(--yellow-100)',
+  CONFIRMED: 'var(--secondary-500)',
+  CANCELLED: 'var(--fg-4)',
+};
+
+const STATUS_LINE: Record<string, string> = {
+  PENDING: 'var(--yellow-100)',
+  CONFIRMED: 'var(--line-1)',
+  CANCELLED: 'var(--line-1)',
+};
+
+function formatWhen(startsAt: string, endsAt: string): string {
+  const from = new Date(startsAt);
+  const to = new Date(endsAt);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const date = `${pad(from.getDate())}-${pad(from.getMonth() + 1)}-${from.getFullYear()}`;
+  const hm = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${date}  ${hm(from)} → ${hm(to)}`;
+}
+
+/** Bronlarim — real `GET /me/bookings`. */
 export function BookingsScreen(): ReactNode {
-  const now = useNow();
+  const bookings = useBooking((state) => state.myBookings);
+  const loading = useBooking((state) => state.myBookingsLoading);
+  const error = useBooking((state) => state.myBookingsError);
+  const load = useBooking((state) => state.loadMyBookings);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (error) {
+    return <div style={{ font: 'var(--type-body-sm)', color: 'var(--red-100)' }}>{error}</div>;
+  }
+
+  if (!loading && bookings.length === 0) {
+    return (
+      <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
+        Hali bron yo‘q — klub tanlab bron qiling.
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-      {/* Bot xabari — hisob yopilgach Telegram'ga keladigan yakun */}
+      {bookings.map((booking) => (
+        <BookingCard key={booking.id} booking={booking} />
+      ))}
+    </div>
+  );
+}
+
+function BookingCard({ booking }: { booking: MyBookingDto }): ReactNode {
+  const accent = STATUS_TONE[booking.status] ?? 'var(--text-muted)';
+  const line = STATUS_LINE[booking.status] ?? 'var(--line-1)';
+
+  return (
+    <div
+      style={{
+        padding: 'var(--card-pad)',
+        background: 'var(--surface-panel)',
+        border: `1px solid ${line}`,
+        boxShadow: `inset 3px 0 0 ${accent}`,
+        clipPath: 'var(--clip-tr)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
       <div
         style={{
-          border: '1px solid var(--line-1)',
-          background: 'var(--surface-panel)',
-          clipPath: 'var(--clip-tr)',
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '2px 8px',
         }}
       >
-        <div
+        <span style={{ font: 'var(--type-section)', color: 'var(--text-title)', whiteSpace: 'nowrap' }}>
+          {`${booking.clubName} · ${booking.stationCode}`}
+        </span>
+        <span
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px var(--card-pad)',
-            borderBottom: '1px solid var(--line-1)',
-            color: 'var(--text-muted)',
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--ls-label)',
+            textTransform: 'uppercase',
+            color: accent,
+            whiteSpace: 'nowrap',
           }}
         >
-          <Icon name="notifications" size={15} />
-          <span
-            style={{
-              flex: 1,
-              font: 'var(--type-label)',
-              letterSpacing: 'var(--ls-label)',
-              textTransform: 'uppercase',
-            }}
-          >
-            Neon Arena · bot
-          </span>
-          <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>{CLK(now)}</span>
-        </div>
-
-        <div
-          style={{
-            padding: 'var(--card-pad)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--gap-tight)',
-          }}
-        >
-          <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-            Hisob yopildi · {CLOSED_BILL_CODE}
-          </span>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {BILL_SUMMARY.map((field) => (
-              <div
-                key={field.k}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  minHeight: 'var(--field-h)',
-                  padding: '4px 10px',
-                  background: 'var(--surface-field)',
-                  border: '1px solid var(--line-1)',
-                }}
-              >
-                <span
-                  style={{
-                    font: 'var(--type-label)',
-                    letterSpacing: 'var(--ls-label)',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-label)',
-                  }}
-                >
-                  {field.k}
-                </span>
-                <span style={{ font: 'var(--type-data)', color: field.tone }}>{field.v}</span>
-              </div>
-            ))}
-          </div>
-
-          <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-            Rahmat! Seans haqida sharh qoldirsangiz — 50 bonus ball.
-          </span>
-
-          <Button variant="secondary" size="lg" block icon="star">
-            Sharh qoldirish
-          </Button>
-        </div>
+          {STATUS_LABEL[booking.status] ?? booking.status}
+        </span>
       </div>
 
-      {MY_BOOKINGS.map((booking) => (
-        <div
-          key={booking.code}
-          style={{
-            padding: 'var(--card-pad)',
-            background: 'var(--surface-panel)',
-            border: `1px solid ${booking.ln}`,
-            boxShadow: `inset 3px 0 0 ${booking.acc}`,
-            clipPath: 'var(--clip-tr)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          {/* Tor ekranda status pastki qatorga tushadi — klub nomi sinmaydi */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '2px 8px',
-            }}
-          >
-            <span
-              style={{
-                font: 'var(--type-section)',
-                color: 'var(--text-title)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {booking.club}
-            </span>
-            <span
-              style={{
-                font: 'var(--type-label)',
-                letterSpacing: 'var(--ls-label)',
-                textTransform: 'uppercase',
-                color: booking.acc,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {booking.status}
-            </span>
-          </div>
+      <div style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)' }}>
+        {formatWhen(booking.startsAt, booking.endsAt)}
+      </div>
 
-          <div style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)' }}>
-            {booking.when}
-          </div>
+      <div style={{ height: 1, background: 'var(--line-1)' }} />
 
-          <div style={{ height: 1, background: 'var(--line-1)' }} />
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span style={{ font: 'var(--type-data)', color: 'var(--purple-100)' }}>
-              {booking.code}
-            </span>
-            <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>
-              {booking.amount}
-            </span>
-          </div>
-
-          {/* Kelmaslik qoidasi faqat kutilayotgan bronlarda ko'rsatiladi */}
-          {booking.cancellable ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 7,
-                font: 'var(--type-body-sm)',
-                color: 'var(--text-dim)',
-              }}
-            >
-              <span style={{ flex: 'none', display: 'flex', color: 'var(--yellow-100)' }}>
-                <Icon name="timer" size={15} />
-              </span>
-              <span>
-                Kechikish limiti {NO_SHOW_MIN} daqiqa — kelmasangiz bron to‘lovi qaytarilmaydi va
-                hisobingiz kuzatuvga tushadi.
-              </span>
-            </div>
-          ) : null}
-
-          {booking.cancellable ? (
-            <Button variant="ghost" block icon="close">
-              Bekor qilish
-            </Button>
-          ) : null}
-        </div>
-      ))}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+          {`${booking.hours} soat`}
+        </span>
+        <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>
+          {`${S(booking.rateSnapshot * booking.hours)} so‘m`}
+        </span>
+      </div>
     </div>
   );
 }

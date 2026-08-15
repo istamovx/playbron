@@ -77,6 +77,45 @@ export const pollTelegramLink = async (
 // (Bosqich 1) — mijoz PENDING yuboradi, xodim tasdiqlaydi/rad etadi yoki
 // o'zi qo'lda CONFIRMED bron ochadi (telefon/kelib bron qiluvchi uchun).
 
+export interface ClubDto {
+  id: number;
+  name: string;
+  address: string;
+  phone: string | null;
+  about: string;
+  coverUrl: string | null;
+  opensAtMin: number;
+  closesAtMin: number;
+  timezone: string;
+}
+
+interface ClubApi {
+  id: number;
+  name: string;
+  address: string;
+  phone: string | null;
+  about: string;
+  cover_url: string | null;
+  opens_at_min: number;
+  closes_at_min: number;
+  timezone: string;
+}
+
+export const listClubs = async (api: ApiClient): Promise<ClubDto[]> => {
+  const rows = await api.get<ClubApi[]>('/clubs');
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    phone: row.phone,
+    about: row.about,
+    coverUrl: row.cover_url,
+    opensAtMin: row.opens_at_min,
+    closesAtMin: row.closes_at_min,
+    timezone: row.timezone,
+  }));
+};
+
 export interface StationDto {
   id: number;
   code: string;
@@ -148,6 +187,118 @@ export const listPendingBookings = async (
     rateSnapshot: row.rate_snapshot,
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
+  }));
+};
+
+export interface DayBookingDto {
+  stationId: number;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+}
+
+interface DayBookingApi {
+  station_id: number;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+}
+
+/** Berilgan kunning FAOL bandliklari — xom oraliqlar, bo'sh slot hisobi mijoz tomonida. */
+export const listDayBookings = async (
+  api: ApiClient,
+  clubId: number,
+  date: string,
+): Promise<DayBookingDto[]> => {
+  const rows = await api.get<DayBookingApi[]>(`/clubs/${clubId}/bookings/day`, {
+    query: { date },
+  });
+  return rows.map((row) => ({
+    stationId: row.station_id,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status,
+  }));
+};
+
+export interface CustomerBookingIn {
+  stationId: number;
+  startsAt: string;
+  hours: number;
+}
+
+export interface BookingDto {
+  id: number;
+  stationId: number;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+  rateSnapshot: number;
+}
+
+export const createCustomerBooking = async (
+  api: ApiClient,
+  clubId: number,
+  body: CustomerBookingIn,
+): Promise<BookingDto> => {
+  const row = await api.post<{
+    id: number;
+    station_id: number;
+    status: string;
+    starts_at: string;
+    ends_at: string;
+    hours: number;
+    rate_snapshot: number;
+  }>(`/clubs/${clubId}/bookings`, {
+    station_id: body.stationId,
+    starts_at: body.startsAt,
+    hours: body.hours,
+  });
+  return {
+    id: row.id,
+    stationId: row.station_id,
+    status: row.status,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    hours: row.hours,
+    rateSnapshot: row.rate_snapshot,
+  };
+};
+
+export interface MyBookingDto {
+  id: number;
+  status: string;
+  hours: number;
+  rateSnapshot: number;
+  startsAt: string;
+  endsAt: string;
+  stationCode: string;
+  clubName: string;
+}
+
+export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> => {
+  const rows = await api.get<
+    Array<{
+      id: number;
+      status: string;
+      hours: number;
+      rate_snapshot: number;
+      starts_at: string;
+      ends_at: string;
+      station_code: string;
+      club_name: string;
+    }>
+  >('/me/bookings');
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    hours: row.hours,
+    rateSnapshot: row.rate_snapshot,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    stationCode: row.station_code,
+    clubName: row.club_name,
   }));
 };
 

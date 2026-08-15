@@ -1,29 +1,21 @@
-import { Icon, prepayAmount } from '@playbron/ui';
+import { Icon } from '@playbron/ui';
 import { type ReactNode } from 'react';
 
-import {
-  CLK,
-  HM,
-  MENU,
-  S,
-  STATIONS,
-  TABS,
-  TAB_ROOT,
-  TITLES,
-  freeStations,
-  type ScreenId,
-} from './mock/data';
+import { CLK, HM, MENU, S, TABS, TAB_ROOT, TITLES, type ScreenId } from './mock/data';
+import { freeStations, isoDateOf, startInstantIso } from './lib/slots';
 import { useTelegramAuth } from './lib/auth';
 import { BillScreen } from './screens/bill';
 import { BookingsScreen } from './screens/bookings';
 import { ClubScreen } from './screens/club';
 import { ClubsScreen } from './screens/clubs';
-import { PendingScreen } from './screens/pending';
+import { ConfirmScreen } from './screens/confirm';
 import { ProfileScreen } from './screens/profile';
 import { RegisterScreen } from './screens/register';
+import { SentScreen } from './screens/sent';
 import { SessionScreen } from './screens/session';
 import { SlotsScreen } from './screens/slots';
 import { useApp, useClock, useNow, useProfile } from './store/app';
+import { useBooking } from './store/booking';
 
 /** Mijoz Mini App — `docs/designs/PlayBron Mijoz.dc.html` shelli. */
 export function App(): ReactNode {
@@ -34,8 +26,9 @@ export function App(): ReactNode {
   const signedIn = useProfile((current) => current.signedIn);
   // Telegram ichida sessiya jimgina ochiladi; brauzerda darhol `ready` bo'ladi
   const boot = useTelegramAuth();
+  const bookingSubmitting = useBooking((s) => s.submitting);
 
-  const main = mainButton(state);
+  const main = mainButton(state, bookingSubmitting);
   const canBack = state.stack.length > 0;
   const activeTab = TAB_ROOT[state.screen] ?? state.screen;
   const [title] = TITLES[state.screen];
@@ -140,8 +133,8 @@ export function App(): ReactNode {
               {state.screen === 'clubs' ? <ClubsScreen /> : null}
               {state.screen === 'club' ? <ClubScreen /> : null}
               {state.screen === 'slots' ? <SlotsScreen /> : null}
-              {state.screen === 'confirm' ? <PendingScreen section="Tasdiqlash" /> : null}
-              {state.screen === 'qr' ? <PendingScreen section="QR kod" /> : null}
+              {state.screen === 'confirm' ? <ConfirmScreen /> : null}
+              {state.screen === 'qr' ? <SentScreen /> : null}
               {state.screen === 'session' ? <SessionScreen /> : null}
               {state.screen === 'bill' ? <BillScreen /> : null}
               {state.screen === 'bookings' ? <BookingsScreen /> : null}
@@ -227,21 +220,26 @@ interface MainAction {
   enabled?: boolean;
 }
 
-/** Prototipdagi `MAIN` jadvali — ekranga qarab MainButton. */
-function mainButton(state: ReturnType<typeof useApp.getState>): MainAction | null {
-  const free = freeStations(state.day, state.start, state.hours, {
-    room: state.room,
-    console: state.console,
-  });
-  const picked = free.find((item) => item.code === state.station) ?? free[0];
-  const station =
-    picked ??
-    STATIONS.find((item) => item.code === state.station) ??
-    (STATIONS[0] as (typeof STATIONS)[number]);
+/**
+ * Prototipdagi `MAIN` jadvali — ekranga qarab MainButton.
+ *
+ * `club`/`slots`/`confirm`/`qr` — real bron oqimi (`store/booking.ts`),
+ * qolgani hali mock (seans, bar, hisob — backend yo'q).
+ */
+function mainButton(
+  state: ReturnType<typeof useApp.getState>,
+  bookingSubmitting: boolean,
+): MainAction | null {
+  const booking = useBooking.getState();
+  const clubId = state.clubId;
+  const stationScope = { room: state.room, console: state.console };
+  const dayBookings = clubId === null ? [] : booking.dayBookings[isoDateOf(state.day)] ?? [];
+  const club = clubId === null ? null : booking.clubs.find((c) => c.id === clubId) ?? null;
+  const closeMin = club?.closesAtMin ?? 0;
 
-  const price = state.hours * station.rate;
-  // Depozit yo'q: bron uchun 1 soatlik summa to'lanadi (kelsa hisobga, kelmasa jarimaga)
-  const prepay = prepayAmount(station.rate);
+  const free = freeStations(booking.stations, dayBookings, state.start, state.hours, closeMin, stationScope);
+  const station = free.find((item) => item.id === state.station) ?? null;
+
   const ordersAmount = Object.entries(state.cart).reduce(
     (sum, [id, qty]) => sum + (MENU.find((item) => item.id === id)?.price ?? 0) * qty,
     0,
@@ -251,14 +249,30 @@ function mainButton(state: ReturnType<typeof useApp.getState>): MainAction | nul
     case 'club':
       return { label: 'Bron qilish', act: () => state.go('slots') };
     case 'slots':
-      return picked
+      return station
         ? {
-            label: `${HM(state.start)} → ${HM(state.start + state.hours * 60)} · ${S(price)} so‘m`,
+            label: `${HM(state.start)} → ${HM(state.start + state.hours * 60)} · ${S(station.rate * state.hours)} so‘m`,
             act: () => state.go('confirm'),
           }
         : { label: 'Bo‘sh vaqtni tanlang', act: () => undefined, enabled: false };
     case 'confirm':
-      return { label: `${S(prepay)} so‘m to‘lash · ${state.pay}`, act: () => state.go('qr') };
+      if (!station || clubId === null) {
+        return { label: 'Xona tanlanmagan', act: () => undefined, enabled: false };
+      }
+      return {
+        label: bookingSubmitting ? 'Yuborilmoqda…' : 'Bronni yuborish',
+        enabled: !bookingSubmitting,
+        act: () => {
+          if (useBooking.getState().submitting) return;
+          const iso = startInstantIso(state.day, state.start);
+          void useBooking
+            .getState()
+            .submitBooking(clubId, station.id, iso, state.hours)
+            .then((ok) => {
+              if (ok) state.go('qr');
+            });
+        },
+      };
     case 'qr':
       return { label: 'Bronlarim', act: () => state.tab('bookings') };
     case 'session':

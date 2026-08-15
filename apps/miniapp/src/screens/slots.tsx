@@ -1,59 +1,80 @@
 import { Panel } from '@playbron/ui';
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 
+import { S, dayOptions, HM } from '../mock/data';
 import {
   ANY,
   DURATIONS,
-  HM,
-  S,
-  SLOT_STEP,
-  clubConsoles,
-  clubRoomTypes,
-  dayOptions,
-  freeSlotCount,
+  consoleTypes,
   freeStations,
   isPast,
+  isoDateOf,
   maxHours,
+  nowMinutesOfDay,
+  roomTypes,
   slotTimes,
   stationSpec,
   type SlotFilter,
-} from '../mock/data';
-import { useApp, useNow } from '../store/app';
+} from '../lib/slots';
+import { useApp } from '../store/app';
+import { useBooking, useDayBookings } from '../store/booking';
 
 /**
- * Slot tanlash — sana, xona turi/konsol filtri, davomiylik va vaqt.
- * Bo'sh vaqtlar `bookedRanges()` dan hisoblanadi: band slot tanlanmaydi,
- * davomiylik esa faqat sig'adigan qismigacha ochiq turadi.
+ * Slot tanlash — real stansiya + `GET /clubs/{id}/bookings/day` ustida.
+ *
+ * Mock versiyada kun tasmasi har bir kun uchun "N bo'sh" hisoblardi — bu
+ * 14 kunni OLDINDAN so'rashni talab qilardi (14 so'rov). Soddalik uchun
+ * shu bosqichda tasma faqat sana ko'rsatadi, bandlik faqat TANLANGAN kun
+ * uchun yuklanadi — asosiy oqim (vaqt tanlash) o'zgarmaydi.
  */
 export function SlotsScreen(): ReactNode {
   const state = useApp();
-  const nowMin = Math.floor(useNow() / 60);
-  // Slot chegarasiga yaxlitlash — effekt har soniyada emas, har 30 daqiqada qayta ishlaydi
-  const nowSlot = Math.floor(nowMin / SLOT_STEP) * SLOT_STEP;
+  const clubId = state.clubId;
+  const club = useBooking((s) => s.clubs.find((item) => item.id === clubId) ?? null);
+  const stations = useBooking((s) => s.stations);
+  const loadStations = useBooking((s) => s.loadStations);
+  const loadDay = useBooking((s) => s.loadDay);
+  const dayLoading = useBooking((s) => s.dayLoading);
+
+  const dateKey = isoDateOf(state.day);
+  const dayBookings = useDayBookings(dateKey);
+  const nowMin = nowMinutesOfDay();
+
+  const openMin = club?.opensAtMin ?? 0;
+  const closeMin = club?.closesAtMin ?? 0;
+
+  useEffect(() => {
+    if (clubId === null) return;
+    if (stations.length === 0) void loadStations(clubId);
+  }, [clubId, stations.length, loadStations]);
+
+  useEffect(() => {
+    if (clubId === null) return;
+    void loadDay(clubId, dateKey);
+  }, [clubId, dateKey, loadDay]);
 
   const filter: SlotFilter = { room: state.room, console: state.console };
   const days = dayOptions();
-  // O'tib ketgan slotlar ko'rsatilmaydi — bugungi to'r qolgan vaqtdan boshlanadi
-  const times = slotTimes().filter((from) => !isPast(state.day, from, nowSlot));
-  const open = times.filter((from) => freeStations(state.day, from, 1, filter).length > 0);
-  const limit = maxHours(state.day, state.start, filter);
-  const stations = freeStations(state.day, state.start, state.hours, filter);
+  const times = slotTimes(openMin, closeMin).filter((from) => !isPast(state.day, from, nowMin));
+  const open = times.filter(
+    (from) => freeStations(stations, dayBookings, from, 1, closeMin, filter).length > 0,
+  );
+  const limit = maxHours(stations, dayBookings, state.start, closeMin, filter);
+  const freeNow = freeStations(stations, dayBookings, state.start, state.hours, closeMin, filter);
 
   const { day, start, hours, station, setDay, setStart, setHours, setStation } = state;
 
-  // Filtr yoki kun o'zgarganda tanlov yaroqsiz bo'lib qolmasin
+  // Filtr, kun yoki bandlik o'zgarganda tanlov yaroqsiz bo'lib qolmasin.
   useEffect(() => {
+    if (stations.length === 0) return;
     const scope: SlotFilter = { room: state.room, console: state.console };
-    const free = slotTimes().filter(
-      (from) => !isPast(day, from, nowSlot) && freeStations(day, from, 1, scope).length > 0,
+    const free = slotTimes(openMin, closeMin).filter(
+      (from) =>
+        !isPast(day, from, nowMin) && freeStations(stations, dayBookings, from, 1, closeMin, scope).length > 0,
     );
 
-    // Filtr joriy kunni bo'shatib qo'ysa — eng yaqin bo'sh kunga o'tamiz
     if (free.length === 0) {
-      const nearest = dayOptions().find(
-        (option) => freeSlotCount(option.index, 1, scope, nowSlot) > 0,
-      );
-      if (nearest && nearest.index !== day) setDay(nearest.index);
+      setStation(null);
       return;
     }
 
@@ -62,29 +83,40 @@ export function SlotsScreen(): ReactNode {
       return;
     }
 
-    const max = maxHours(day, start, scope);
+    const max = maxHours(stations, dayBookings, start, closeMin, scope);
     if (hours > max) {
       setHours(max);
       return;
     }
 
-    const list = freeStations(day, start, hours, scope);
-    if (list.length > 0 && !list.some((item) => item.code === station)) {
-      setStation((list[0] as (typeof list)[number]).code);
+    const list = freeStations(stations, dayBookings, start, hours, closeMin, scope);
+    if (list.length > 0 && !list.some((item) => item.id === station)) {
+      setStation((list[0] as (typeof list)[number]).id);
+    } else if (list.length === 0) {
+      setStation(null);
     }
   }, [
+    stations,
+    dayBookings,
     day,
     start,
     hours,
     station,
     state.room,
     state.console,
-    nowSlot,
-    setDay,
+    openMin,
+    closeMin,
+    nowMin,
+    setStation,
     setStart,
     setHours,
-    setStation,
   ]);
+
+  if (clubId === null || !club) {
+    return (
+      <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>Klub tanlanmagan</div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
@@ -93,19 +125,15 @@ export function SlotsScreen(): ReactNode {
         <div style={STRIP}>
           {days.map((option) => {
             const on = option.index === state.day;
-            const free = freeSlotCount(option.index, state.hours, filter, nowSlot);
-            // Tanlangan davomiylik sig'masa ham kun ochiq qoladi — qisqaroq seans bo'lishi mumkin
-            const shorter = free > 0 ? free : freeSlotCount(option.index, 1, filter, nowSlot);
             return (
               <button
                 key={option.index}
                 type="button"
-                onClick={() => state.setDay(option.index)}
+                onClick={() => setDay(option.index)}
                 aria-current={on ? 'date' : undefined}
-                disabled={shorter === 0}
                 style={{
                   flex: 'none',
-                  cursor: shorter === 0 ? 'not-allowed' : 'pointer',
+                  cursor: 'pointer',
                   width: 62,
                   padding: '7px 0',
                   display: 'flex',
@@ -115,7 +143,6 @@ export function SlotsScreen(): ReactNode {
                   background: on ? 'var(--surface-selected)' : 'var(--surface-card)',
                   border: `1px solid ${on ? 'var(--primary-100)' : 'var(--line-1)'}`,
                   clipPath: 'var(--clip-tr)',
-                  opacity: shorter === 0 ? 0.4 : 1,
                   transition: 'var(--t-control)',
                 }}
               >
@@ -130,19 +157,6 @@ export function SlotsScreen(): ReactNode {
                 >
                   {option.day}
                 </span>
-                <span
-                  style={{
-                    font: 'var(--type-data-xs)',
-                    color:
-                      free > 0
-                        ? 'var(--secondary-500)'
-                        : shorter > 0
-                          ? 'var(--yellow-100)'
-                          : 'var(--text-dim)',
-                  }}
-                >
-                  {free > 0 ? free : shorter > 0 ? 'qisqa' : 'band'}
-                </span>
               </button>
             );
           })}
@@ -155,7 +169,7 @@ export function SlotsScreen(): ReactNode {
           <Pick on={state.room === ANY} onClick={() => state.setRoom(ANY)}>
             {ANY}
           </Pick>
-          {clubRoomTypes().map((room) => (
+          {roomTypes(stations).map((room) => (
             <Pick key={room} on={state.room === room} onClick={() => state.setRoom(room)}>
               {room}
             </Pick>
@@ -169,7 +183,7 @@ export function SlotsScreen(): ReactNode {
           <Pick on={state.console === ANY} onClick={() => state.setConsole(ANY)}>
             {ANY}
           </Pick>
-          {clubConsoles().map((type) => (
+          {consoleTypes(stations).map((type) => (
             <Pick
               key={type.id}
               on={state.console === type.id}
@@ -200,16 +214,17 @@ export function SlotsScreen(): ReactNode {
       </section>
 
       <Panel title="Bo‘sh vaqt" notch>
-        {open.length === 0 ? (
+        {dayLoading ? (
+          <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>Yuklanmoqda…</div>
+        ) : open.length === 0 ? (
           <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
             Bu kunda tanlangan filtr bo‘yicha bo‘sh vaqt yo‘q. Boshqa sana yoki xona turini tanlang.
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
             {times.map((from) => {
-              const count = freeStations(state.day, from, state.hours, filter).length;
-              // Tanlangan davomiylik sig'masa — shu vaqtdan qancha olish mumkinligi
-              const fits = count > 0 ? 0 : maxHours(state.day, from, filter);
+              const count = freeStations(stations, dayBookings, from, state.hours, closeMin, filter).length;
+              const fits = count > 0 ? 0 : maxHours(stations, dayBookings, from, closeMin, filter);
               const on = from === state.start;
               const usable = count > 0 || fits > 0;
 
@@ -261,19 +276,19 @@ export function SlotsScreen(): ReactNode {
         title={`Bo‘sh xonalar · ${HM(state.start)} → ${HM(state.start + state.hours * 60)}`}
         notch
       >
-        {stations.length === 0 ? (
+        {freeNow.length === 0 ? (
           <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
             {state.hours} soatga bo‘sh xona yo‘q — davomiylikni qisqartiring.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {stations.map((item) => {
-              const on = item.code === state.station;
+            {freeNow.map((item) => {
+              const on = item.id === state.station;
               return (
                 <button
-                  key={item.code}
+                  key={item.id}
                   type="button"
-                  onClick={() => state.setStation(item.code)}
+                  onClick={() => state.setStation(item.id)}
                   aria-pressed={on}
                   style={{
                     cursor: 'pointer',
@@ -292,16 +307,11 @@ export function SlotsScreen(): ReactNode {
                       {item.code}
                     </span>
                     <span
-                      style={{
-                        font: 'var(--type-data)',
-                        color: 'var(--purple-100)',
-                        whiteSpace: 'nowrap',
-                      }}
+                      style={{ font: 'var(--type-data)', color: 'var(--purple-100)', whiteSpace: 'nowrap' }}
                     >
                       {S(item.rate * state.hours)} so‘m
                     </span>
                   </span>
-                  {/* Soatlik narx klub sahifasida — bu yerda faqat spetsifikatsiya sig'adi */}
                   <span
                     style={{
                       font: 'var(--type-data-xs)',
@@ -311,7 +321,7 @@ export function SlotsScreen(): ReactNode {
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    {stationSpec(item)}
+                    {`${item.roomLabel} · ${stationSpec(item)}`}
                   </span>
                 </button>
               );
@@ -359,7 +369,6 @@ function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }
   );
 }
 
-/** Tanlov tugmasi — `Chip` ning o'chiriladigan varianti. */
 function Pick({
   children,
   on,

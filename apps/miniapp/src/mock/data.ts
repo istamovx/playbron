@@ -340,11 +340,11 @@ export type ScreenId =
   | 'profile';
 
 export const TITLES: Record<ScreenId, [string, string]> = {
-  clubs: ['PlayBron', 'Toshkent · 24 klub'],
-  club: ['Neon Arena', 'Chilonzor · Reyting 4.8'],
-  slots: ['Vaqt tanlash', 'Neon Arena'],
-  confirm: ['Tasdiqlash', 'Neon Arena'],
-  qr: ['Bron tayyor', 'Kirishda ko‘rsating'],
+  clubs: ['PlayBron', 'Klublar'],
+  club: ['Klub', 'Xonalar va narxlar'],
+  slots: ['Vaqt tanlash', 'Sana va xona'],
+  confirm: ['Tasdiqlash', 'Bron xulosasi'],
+  qr: ['Bron yuborildi', 'Xodim tasdiqlashini kuting'],
   session: ['Aktiv seans', 'Neon Arena · 1-xona'],
   bill: ['Hisob', 'Neon Arena · 1-xona'],
   bookings: ['Bronlarim', '3 ta aktiv'],

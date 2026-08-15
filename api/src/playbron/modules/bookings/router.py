@@ -32,6 +32,18 @@ def _assert_path_matches_header(club_id: int) -> None:
 # ── Sxemalar ──────────────────────────────────────────────────────────────
 
 
+class ClubOut(BaseModel):
+    id: int
+    name: str
+    address: str
+    phone: str | None
+    about: str
+    cover_url: str | None
+    opens_at_min: int
+    closes_at_min: int
+    timezone: str
+
+
 class StationOut(BaseModel):
     id: int
     code: str
@@ -92,6 +104,13 @@ class RejectIn(BaseModel):
 
 
 # ── Ochiq o'qish ──────────────────────────────────────────────────────────
+
+
+@router.get("", response_model=list[ClubOut])
+async def list_clubs(session: Annotated[AsyncSession, Depends(public_db)]) -> list[ClubOut]:
+    """Mijoz ilovasidagi klub katalogi — bitta umumiy bot, klub shu yerdan tanlanadi."""
+    rows = await service.list_active_clubs(session)
+    return [ClubOut(**r) for r in rows]
 
 
 @router.get("/{club_id}/stations", response_model=list[StationOut])

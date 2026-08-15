@@ -34,6 +34,34 @@ def _station_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
+async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
+    """Mijoz ilovasidagi klub katalogi — `clubs_read` (`0001`) status='active'ni
+    tokensiz ochadi, boshqa GUC kerak emas."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, address, phone, about, cover_url,"
+                "       opens_at_min, closes_at_min, timezone"
+                " FROM clubs WHERE status = 'active' ORDER BY name"
+            )
+        )
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "address": r.address,
+            "phone": r.phone,
+            "about": r.about,
+            "cover_url": r.cover_url,
+            "opens_at_min": r.opens_at_min,
+            "closes_at_min": r.closes_at_min,
+            "timezone": r.timezone,
+        }
+        for r in rows
+    ]
+
+
 async def list_stations(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
     rows = (
         await session.execute(

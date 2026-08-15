@@ -2,15 +2,8 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import {
-  ANY,
-  BASE,
-  EXTEND_STEP_MIN,
-  MENU,
-  SESSION_END,
-  type CustomerOrder,
-  type ScreenId,
-} from '../mock/data';
+import { BASE, EXTEND_STEP_MIN, MENU, SESSION_END, type CustomerOrder, type ScreenId } from '../mock/data';
+import { ANY } from '../lib/slots';
 
 /**
  * Mijoz ilovasining holati — prototipdagi `Component.state` ning o'zi
@@ -22,6 +15,8 @@ interface AppState {
   stack: ScreenId[];
   tick: number;
   sort: string;
+  /** Ko'rilayotgan/tanlangan klub — `clubs.tsx`da tanlanadi, `null` — hali yo'q. */
+  clubId: number | null;
   /** Slot filtri: xona turi va konsol (`ANY` — barchasi). */
   room: string;
   console: string;
@@ -31,7 +26,8 @@ interface AppState {
   day: number;
   /** Tanlangan boshlanish vaqti — yarim tundan daqiqada. */
   start: number;
-  station: string;
+  /** Tanlangan stansiya ID'si (`null` — hali yo'q). */
+  station: number | null;
   pay: string;
   cat: string;
   payFinal: string;
@@ -49,12 +45,13 @@ interface AppState {
   tab: (screen: ScreenId) => void;
   bump: (id: string, delta: number) => void;
   setSort: (sort: string) => void;
+  setClubId: (clubId: number) => void;
   setRoom: (room: string) => void;
   setConsole: (console: string) => void;
   setHours: (hours: number) => void;
   setDay: (day: number) => void;
   setStart: (start: number) => void;
-  setStation: (station: string) => void;
+  setStation: (station: number | null) => void;
   setPay: (pay: string) => void;
   setCat: (cat: string) => void;
   setPayFinal: (pay: string) => void;
@@ -71,12 +68,13 @@ export const useApp = create<AppState>()((set) => ({
   stack: [],
   tick: 0,
   sort: 'Yaqin',
+  clubId: null,
   room: ANY,
   console: ANY,
   hours: 2,
   day: 0,
   start: 21 * 60 + 30,
-  station: '2-xona',
+  station: null,
   pay: 'Payme',
   cat: 'Ichimliklar',
   payFinal: 'Naqd',
@@ -104,6 +102,7 @@ export const useApp = create<AppState>()((set) => ({
     }),
 
   setSort: (sort) => set({ sort }),
+  setClubId: (clubId) => set({ clubId, station: null }),
   setRoom: (room) => set({ room }),
   setConsole: (console) => set({ console }),
   setHours: (hours) => set({ hours }),
