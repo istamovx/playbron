@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
 from playbron.core.errors import NotFound
-from playbron.deps import current_claims, db
+from playbron.deps import current_claims, db, require_customer_token
 from playbron.models import Club, Membership, User
 from playbron.modules.auth.service import load_entitlements
+from playbron.modules.bookings import service as bookings_service
 
 router = APIRouter(tags=["me"])
 
@@ -43,6 +44,17 @@ class EntitlementsOut(BaseModel):
     plan: str | None
     limits: dict[str, Any]
     features: list[str]
+
+
+class MyBookingOut(BaseModel):
+    id: int
+    status: str
+    hours: int
+    rate_snapshot: int
+    starts_at: str
+    ends_at: str
+    station_code: str
+    club_name: str
 
 
 @router.get("/me", response_model=MeOut)
@@ -96,3 +108,12 @@ async def entitlements(
 
     data = await load_entitlements(session, org_id)
     return EntitlementsOut(**data)
+
+
+@router.get("/me/bookings", response_model=list[MyBookingOut])
+async def my_bookings(
+    session: Annotated[AsyncSession, Depends(db)],
+    _: Annotated[None, Depends(require_customer_token)],
+) -> list[MyBookingOut]:
+    rows = await bookings_service.list_customer_bookings(session, context.current().user_id)
+    return [MyBookingOut(**r) for r in rows]

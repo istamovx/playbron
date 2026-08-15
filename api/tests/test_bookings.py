@@ -1,0 +1,356 @@
+"""Bron oqimi — mijoz to'lovsiz bron qiladi, xodim tasdiqlaydi/rad etadi,
+xodim qo'lda ham bron ocha oladi.
+
+Manba: `api/migrations/versions/0009_bookings.py`, loyiha egasining
+so'rovi (2026-08-15).
+"""
+
+import os
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+
+import httpx
+import pytest
+import pytest_asyncio
+from conftest import rls_bypass
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from playbron.core import db as core_db
+from playbron.core.config import settings
+from playbron.core.passwords import hash_password
+from playbron.main import app
+
+pytestmark = pytest.mark.asyncio
+
+skip_no_db = pytest.mark.skipif(
+    os.environ.get("RUN_DB_TESTS") != "1",
+    reason="RUN_DB_TESTS=1 va ishlab turgan PostgreSQL/Redis kerak",
+)
+
+OWNER_LOGIN = "bkg.owner"
+PASSWORD = "juda mustahkam parol"
+CUSTOMER_TG = 960_000_111
+
+
+def _owner_engine():  # type: ignore[no-untyped-def]
+    return create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_limits() -> AsyncIterator[None]:
+    """Har test o'z login chelagini boshidan boshlasin.
+
+    Bir xil `OWNER_LOGIN` bir nechta test bo'ylab qayta ishlatiladi
+    (`world` fixture'i uni ON CONFLICT bilan qayta faollashtiradi) — usiz
+    `login:ip-acct` (5/5daq) chelaklari testlar orasida yig'ilib, keyingi
+    testning HAQIQIY 200 kirishi 429 RATE_LIMITED bo'lib qolardi.
+    """
+    from playbron.core.redis import redis_client
+
+    async def wipe() -> None:
+        redis = redis_client()
+        keys = [key async for key in redis.scan_iter(match="rl:*")]
+        if keys:
+            await redis.delete(*keys)
+
+    await wipe()
+    yield
+    await wipe()
+
+
+@pytest_asyncio.fixture
+async def world() -> AsyncIterator[dict[str, int]]:
+    """Klub, faol stansiya, egasi — bittasi ham tabiiy aktordan yaratilmagan."""
+    engine = _owner_engine()
+    ids: dict[str, int] = {}
+    password_hash = await hash_password(PASSWORD)
+
+    async with engine.begin() as conn:
+        async with rls_bypass(
+            conn, "users", "organizations", "clubs", "memberships", "stations", "staff_credentials"
+        ):
+            ids["owner"] = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Ega')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": OWNER_LOGIN},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = false"
+                ),
+                {"uid": ids["owner"], "h": password_hash},
+            )
+            ids["org"] = await conn.scalar(
+                text(
+                    "INSERT INTO organizations (owner_user_id, name, status, plan_code)"
+                    " VALUES (:u, 'Bkg Org', 'active', 'gold') RETURNING id"
+                ),
+                {"u": ids["owner"]},
+            )
+            ids["club"] = await conn.scalar(
+                text(
+                    "INSERT INTO clubs (org_id, name, status)"
+                    " VALUES (:o, 'Bkg Club', 'active') RETURNING id"
+                ),
+                {"o": ids["org"]},
+            )
+            await conn.execute(
+                text("INSERT INTO memberships (user_id, club_id, role) VALUES (:u, :c, 'OWNER')"),
+                {"u": ids["owner"], "c": ids["club"]},
+            )
+            ids["station"] = await conn.scalar(
+                text(
+                    "INSERT INTO stations (club_id, code, room_label, console_type, rate)"
+                    " VALUES (:c, 'BKG-1', 'Standart', 'ps5', 40000) RETURNING id"
+                ),
+                {"c": ids["club"]},
+            )
+
+    # `rls_bypass()` yuqorida `ALTER TABLE ... NO FORCE/FORCE ROW LEVEL
+    # SECURITY` bilan DDL bajardi. Ilovaning O'ZINING ulanish hovuzi
+    # (`app_engine`) bu paytda ochiq turishi mumkin va asyncpg'ning
+    # tayyorlangan bayonot keshi eski katalog holatiga ishora qilib
+    # qolishi mumkin — keyingi so'rov (masalan mijoz `/auth/dev/login`)
+    # "there is no unique or exclusion constraint matching the ON CONFLICT
+    # specification" kabi tushunarsiz xato berardi. Faqat SHU sinov
+    # muhitiga xos: prodda runtime'da FORCE RLS hech qachon almashtirilmaydi.
+    await core_db.dispose()
+
+    yield ids
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "organizations", "users", "bookings"):
+            await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})
+            await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+            await conn.execute(
+                text("DELETE FROM users WHERE login = :l AND kind = 'staff'"), {"l": OWNER_LOGIN}
+            )
+            await conn.execute(
+                text("DELETE FROM users WHERE telegram_id = :tg AND kind = 'customer'"),
+                {"tg": CUSTOMER_TG},
+            )
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client() -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def _staff_headers(client: httpx.AsyncClient, club_id: int) -> dict[str, str]:
+    r = await client.post(
+        "/api/v1/auth/staff/login", json={"login": OWNER_LOGIN, "password": PASSWORD}
+    )
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}", "X-Club-Id": str(club_id)}
+
+
+async def _customer_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    r = await client.post(
+        "/api/v1/auth/dev/login", json={"telegram_id": CUSTOMER_TG, "first_name": "Sinov"}
+    )
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def _starts(hours_from_now: int) -> str:
+    return (datetime.now(UTC) + timedelta(hours=hours_from_now)).isoformat()
+
+
+@skip_no_db
+async def test_customer_creates_pending_booking_staff_confirms(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+    staff_h = await _staff_headers(client, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(4), "hours": 2},
+        headers=customer_h,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["status"] == "PENDING"
+    assert body["prepaid_amount"] == 0, "to'lovsiz oqim — Bosqich 1"
+    booking_id = body["id"]
+
+    r = await client.get(f"/api/v1/clubs/{world['club']}/bookings/pending", headers=staff_h)
+    assert r.status_code == 200
+    assert any(b["id"] == booking_id for b in r.json())
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/confirm", headers=staff_h
+    )
+    assert r.status_code == 204
+
+    r = await client.get("/api/v1/me/bookings", headers=customer_h)
+    assert r.status_code == 200
+    mine = next(b for b in r.json() if b["id"] == booking_id)
+    assert mine["status"] == "CONFIRMED"
+
+
+@skip_no_db
+async def test_overlapping_slot_is_rejected(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+    starts = _starts(5)
+
+    first = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": starts, "hours": 2},
+        headers=customer_h,
+    )
+    assert first.status_code == 201
+
+    again = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": starts, "hours": 1},
+        headers=customer_h,
+    )
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "SLOT_TAKEN"
+
+
+@skip_no_db
+async def test_staff_creates_walkin_booking_confirmed_immediately(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Telefon/kelib bron qilgan mijoz — xodim ochadi, ikkinchi tasdiq shart emas."""
+    staff_h = await _staff_headers(client, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(6),
+            "hours": 1,
+            "guest_name": "Kelgan Mijoz",
+            "guest_phone": "+998907654321",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["status"] == "CONFIRMED"
+    assert body["guest_name"] == "Kelgan Mijoz"
+
+
+@skip_no_db
+async def test_customer_cannot_use_staff_endpoint(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(7),
+            "hours": 1,
+            "guest_name": "X",
+            "guest_phone": "+998900000000",
+        },
+        headers=customer_h,
+    )
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "STAFF_TOKEN_REQUIRED"
+
+
+@skip_no_db
+async def test_staff_cannot_use_customer_endpoint(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(8), "hours": 1},
+        headers=staff_h,
+    )
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "CUSTOMER_TOKEN_REQUIRED"
+
+
+@skip_no_db
+async def test_reject_marks_cancelled_and_confirm_afterwards_fails(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+    staff_h = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(9), "hours": 1},
+        headers=customer_h,
+    )
+    booking_id = created.json()["id"]
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/reject",
+        json={"reason": "xona ta'mirda"},
+        headers=staff_h,
+    )
+    assert r.status_code == 204
+
+    r = await client.get("/api/v1/me/bookings", headers=customer_h)
+    mine = next(b for b in r.json() if b["id"] == booking_id)
+    assert mine["status"] == "CANCELLED"
+
+    again = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/confirm", headers=staff_h
+    )
+    assert again.status_code == 403
+    assert again.json()["error"]["code"] == "BOOKING_NOT_PENDING"
+
+
+@skip_no_db
+async def test_stations_are_publicly_readable_for_active_club(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Token yo'q — klub `active` bo'lgani uchun ko'rinadi."""
+    r = await client.get(f"/api/v1/clubs/{world['club']}/stations")
+    assert r.status_code == 200
+    assert any(s["id"] == world["station"] for s in r.json())
+
+
+@skip_no_db
+async def test_hours_out_of_range_is_rejected(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(10), "hours": 20},
+        headers=customer_h,
+    )
+    # Pydantic `le=6` — 422 (schema darajasida), servis qatlamiga yetmaydi
+    assert r.status_code == 422
+
+
+@skip_no_db
+async def test_past_start_time_is_rejected(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    customer_h = await _customer_headers(client)
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(-3),
+            "hours": 1,
+        },
+        headers=customer_h,
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "STARTS_AT_PAST"

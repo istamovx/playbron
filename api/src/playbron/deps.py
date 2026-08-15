@@ -10,7 +10,7 @@ from playbron.core import context
 from playbron.core.db import session_scope
 from playbron.core.errors import Forbidden, Unauthorized
 from playbron.core.http import client_ip
-from playbron.core.security import AUDIENCE_STAFF, decode_access
+from playbron.core.security import AUDIENCE_CUSTOMER, AUDIENCE_STAFF, decode_access
 from playbron.models import CLUB_ROLES, ROLE_ADMIN, ROLE_OWNER, ROLE_STAFF
 
 
@@ -85,6 +85,15 @@ async def require_staff_token(
     """
     if claims.get("aud") != AUDIENCE_STAFF:
         raise Forbidden("Bu amal uchun ruxsat yo‘q", code="STAFF_TOKEN_REQUIRED")
+
+
+async def require_customer_token(
+    claims: Annotated[dict[str, Any], Depends(current_claims)],
+) -> None:
+    """Token mijoz dunyosiga tegishli bo'lishi shart — `require_staff_token`ning
+    oynasi. Bron yaratish mijoz tokeni bilan, xodim tokeni bilan EMAS."""
+    if claims.get("aud") != AUDIENCE_CUSTOMER:
+        raise Forbidden("Bu amal uchun ruxsat yo‘q", code="CUSTOMER_TOKEN_REQUIRED")
 
 
 def require_role(*allowed: str):
