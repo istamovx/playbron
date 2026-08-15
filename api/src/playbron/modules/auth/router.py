@@ -5,16 +5,17 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context
+from playbron.core import context, telegram_api
 from playbron.core.config import settings
 from playbron.core.errors import NotFound, Unauthorized
 from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_STAFF, constant_time_equal, now
-from playbron.deps import current_claims, db, public_db
+from playbron.deps import current_claims, db, public_db, require_staff_token
 from playbron.models import User
-from playbron.modules.auth import botlogin, service, signup, staff
+from playbron.modules.auth import botlogin, service, signup, staff, stafflink
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -375,9 +376,84 @@ async def poll_bot_login(
     return PollOut(status="ready", session=_to_session(payload))
 
 
+class LinkStartOut(BaseModel):
+    nonce: str
+    expires_in: int
+
+
+class LinkPollOut(BaseModel):
+    status: str  # pending | expired | ready
+
+
+@router.post(
+    "/telegram/link/start",
+    response_model=LinkStartOut,
+    dependencies=[Depends(require_staff_token)],
+)
+async def start_telegram_link() -> LinkStartOut:
+    """Kirgan xodim — bron bildirishnomasi uchun o'z Telegram'ini ulaydi.
+
+    Deep-link (`botlogin.py`dagi bilan bir xil naqsh) — OAuth oynasi yo'q.
+    """
+    nonce = await stafflink.start_link(context.current().user_id)
+    return LinkStartOut(nonce=nonce, expires_in=stafflink.START_TTL_SEC)
+
+
+@router.post(
+    "/telegram/link/{nonce}",
+    response_model=LinkPollOut,
+    dependencies=[Depends(require_staff_token)],
+)
+async def poll_telegram_link(nonce: str) -> LinkPollOut:
+    """Konsol poll'i. Yozuv webhook'da amalga oshadi — bu yerda faqat holat."""
+    status = await stafflink.poll_link(nonce)
+    return LinkPollOut(status=status)
+
+
+_LINK_OK_TEXT: dict[str, str] = {
+    "uz": "✅ Bildirishnoma ulandi — yangi bronlar endi shu yerga keladi.",
+    "ru": "✅ Уведомления подключены — новые брони будут приходить сюда.",
+    "en": "✅ Notifications connected — new bookings will arrive here.",
+}
+_LINK_EXPIRED_TEXT: dict[str, str] = {
+    "uz": "⏱ Havola eskirgan. Konsolda tugmani qaytadan bosing.",
+    "ru": "⏱ Ссылка устарела. Нажмите кнопку в консоли ещё раз.",
+    "en": "⏱ The link expired. Press the button in the console again.",
+}
+
+
+def _admin_token() -> str:
+    return settings.admin_bot_token.get_secret_value() or settings.bot_token.get_secret_value()
+
+
+async def _handle_link_start(
+    session: AsyncSession, nonce: str, sender: dict[str, Any]
+) -> None:
+    """`stafflink.PREFIX` bilan boshlangan nonce — kirish emas, bog'lash."""
+    telegram_id = int(sender["id"])
+    lang = str(sender.get("language_code") or "uz").split("-")[0].lower()
+    user_id = await stafflink.approve_link(nonce)
+
+    if user_id is None:
+        texts = _LINK_EXPIRED_TEXT
+        await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))
+        return
+
+    # Telegram xususiy suhbatda `chat.id == user.id` — backfill (`0005`) bilan
+    # bir xil taxmin.
+    await session.execute(
+        sql_text("SELECT staff_telegram_link_confirm(:u, :tg, :chat)"),
+        {"u": user_id, "tg": telegram_id, "chat": telegram_id},
+    )
+
+    texts = _LINK_OK_TEXT
+    await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))
+
+
 @router.post("/telegram/webhook/admin")
 async def admin_bot_webhook(
     request: Request,
+    session: Annotated[AsyncSession, Depends(public_db)],
     secret: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, bool]:
     """Admin bot webhook'i — faqat `/start <nonce>` xabarlarini qayta ishlaydi.
@@ -385,6 +461,9 @@ async def admin_bot_webhook(
     Sarlavhadagi sekret `setWebhook` da o'rnatilgan qiymat bilan solishtiriladi —
     boshqa hech kim bu endpointga yozolmaydi. Telegram'ga har doim 200 qaytadi,
     aks holda u update'ni qayta-qayta yuboraveradi.
+
+    Ikki nonce turi bitta webhook'da: kirish (`botlogin.start_login`) va
+    Telegram bog'lash (`stafflink.start_link`, `lnk_` prefiksi bilan).
     """
     if not settings.tg_webhook_secret.get_secret_value():
         raise Unauthorized("Webhook sekreti sozlanmagan", code="WEBHOOK_BAD_SECRET")
@@ -399,14 +478,18 @@ async def admin_bot_webhook(
     parsed = botlogin.extract_start(update if isinstance(update, dict) else {})
     if parsed:
         nonce, sender = parsed
-        # Muvaffaqiyatda javob tili — konsolda tanlangani; eskirgan nonce'da
-        # konsol tili noma'lum, shuning uchun Telegram ilova tiliga qaytamiz
-        console_lang = await botlogin.approve_login(nonce, sender)
-        await botlogin.notify(
-            int(sender["id"]),
-            console_lang or sender.get("language_code"),
-            approved=console_lang is not None,
-        )
+        if nonce.startswith(stafflink.PREFIX):
+            await _handle_link_start(session, nonce, sender)
+        else:
+            # Muvaffaqiyatda javob tili — konsolda tanlangani; eskirgan
+            # nonce'da konsol tili noma'lum, shuning uchun Telegram ilova
+            # tiliga qaytamiz
+            console_lang = await botlogin.approve_login(nonce, sender)
+            await botlogin.notify(
+                int(sender["id"]),
+                console_lang or sender.get("language_code"),
+                approved=console_lang is not None,
+            )
 
     return {"ok": True}
 
