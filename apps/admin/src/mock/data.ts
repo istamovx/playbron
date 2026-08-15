@@ -154,6 +154,7 @@ export type ScreenId =
   | 'live'
   | 'timeline'
   | 'orders'
+  | 'bookings'
   | 'pos'
   | 'shift'
   | 'blacklist'
@@ -177,6 +178,7 @@ export const NAV_STAFF: NavItem[] = [
   { id: 'live', icon: 'grid_view', label: 'Live board' },
   { id: 'timeline', icon: 'calendar_view_week', label: 'Timeline' },
   { id: 'orders', icon: 'receipt_long', label: 'Buyurtmalar', count: 5 },
+  { id: 'bookings', icon: 'event_available', label: 'Bronlar' },
   { id: 'pos', icon: 'point_of_sale', label: 'Kassa' },
   { id: 'shift', icon: 'savings', label: 'Smena' },
   { id: 'blacklist', icon: 'person_off', label: 'Qora ro‘yxat', count: 3 },
@@ -184,6 +186,7 @@ export const NAV_STAFF: NavItem[] = [
 
 export const NAV_ADMIN: NavItem[] = [
   { id: 'dashboard', icon: 'space_dashboard', label: 'Boshqaruv paneli' },
+  { id: 'bookings', icon: 'event_available', label: 'Bronlar' },
   { id: 'staff', icon: 'group', label: 'Xodimlar' },
   { id: 'club', icon: 'storefront', label: 'Klub ma’lumoti' },
   { id: 'products', icon: 'inventory_2', label: 'Mahsulotlar' },
@@ -196,6 +199,7 @@ export const TITLES: Record<ScreenId, [string, string[]]> = {
   live: ['Live board', ['Neon Arena', 'A-blok', '10 xona']],
   timeline: ['Kunlik timeline', ['Neon Arena', '10 xona', '10:00 – 02:00']],
   orders: ['Buyurtmalar', ['Bar', '5 aktiv', 'O‘rtacha 6 daqiqa']],
+  bookings: ['Bronlar', ['Mijoz va qo‘lda bron', 'Tasdiq — botda xabar']],
   pos: ['Kassa', ['Kechki smena', 'Kamola R.', '14 hisob']],
   shift: ['Smena', ['12-08-2026', '18:00 dan', 'Kamola R.']],
   blacklist: ['Qora ro‘yxat', ['Neon Arena', '3 bloklangan', '4 kuzatuvda']],

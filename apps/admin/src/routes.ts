@@ -13,6 +13,7 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   live: '/live',
   timeline: '/timeline',
   orders: '/orders',
+  bookings: '/bookings',
   pos: '/pos',
   shift: '/shift',
   blacklist: '/blacklist',

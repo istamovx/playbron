@@ -11,6 +11,7 @@ import { ReportsScreen } from './screens/admin/reports';
 import { SettingsScreen } from './screens/admin/settings';
 import { StaffScreen } from './screens/admin/staff';
 import { BlacklistScreen } from './screens/blacklist';
+import { BookingsScreen } from './screens/bookings';
 import { LiveBoardScreen } from './screens/live-board';
 import { OrdersScreen } from './screens/orders';
 import { PosScreen } from './screens/pos';
@@ -37,6 +38,8 @@ export function App(): ReactNode {
   const setScreen = useBoard((state) => state.setScreen);
   const drawerOpen = useBoard((state) => state.drawerOpen);
   const setDrawer = useBoard((state) => state.setDrawer);
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const setActiveClub = useBoard((state) => state.setActiveClub);
   const compact = useCompact();
   const location = useLocation();
   const navigate = useNavigate();
@@ -61,6 +64,15 @@ export function App(): ReactNode {
     const timer = setInterval(prune, 60_000);
     return () => clearInterval(timer);
   }, [prune]);
+
+  // `X-Club-Id` sarlavhasi shu yerdan o'qiladi (`lib/api.ts`) — hech qanday
+  // ekran o'zi tanlamagan, ko'p klublik almashtirgich hali yo'q, shuning
+  // uchun birinchi a'zolik sukut bo'ladi. Sessiya almashsa ham qayta sinxron.
+  useEffect(() => {
+    if (!session) return;
+    if (activeClubId !== null && session.clubs.some((c) => c.id === activeClubId)) return;
+    setActiveClub(session.clubs[0]?.id ?? null);
+  }, [session, activeClubId, setActiveClub]);
 
   // Super admin hozircha klub admini menyusini ko'radi; platforma paneli — Faza 7
   const items = session && session.role !== 'STAFF' ? NAV_ADMIN : NAV_STAFF;
@@ -251,6 +263,7 @@ export function App(): ReactNode {
             {active === 'live' ? <LiveBoardScreen /> : null}
             {active === 'timeline' ? <TimelineScreen /> : null}
             {active === 'orders' ? <OrdersScreen /> : null}
+            {active === 'bookings' ? <BookingsScreen /> : null}
             {active === 'pos' ? <PosScreen /> : null}
             {active === 'shift' ? <ShiftScreen /> : null}
             {active === 'blacklist' ? <BlacklistScreen /> : null}
