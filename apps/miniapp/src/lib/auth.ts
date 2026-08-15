@@ -1,25 +1,35 @@
 import { ApiError, signInWithInitData } from '@playbron/api-client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useProfile } from '../store/app';
 import { api } from './api';
 import { webApp } from './telegram';
 
-export type BootState = 'checking' | 'ready' | 'offline';
+/**
+ * `no_telegram`   — `initData` yo'q: bot tashqarisida ochilgan, hech qanday
+ *                    shaxsni tasdiqlash yo'li yo'q.
+ * `offline`       — `initData` bor, lekin serverga ulanish/kirish
+ *                    muvaffaqiyatsiz (tarmoq, server vaqtincha o'chgan).
+ * `authenticated` — kirish muvaffaqiyatli, profil serverdan keldi.
+ */
+export type BootState = 'checking' | 'authenticated' | 'no_telegram' | 'offline';
 
 /**
- * Telegram ichida jimgina kirish.
+ * Telegram ichida JIMGINA kirish — qo'lda forma YO'Q.
  *
- * `initData` bo'lsa — server bilan sessiya ochiladi va profil to'ldiriladi, ya'ni
- * ro'yxatdan o'tish ekrani umuman ko'rinmaydi. Brauzerda `initData` yo'q, shuning
- * uchun mavjud lokal oqim o'zgarishsiz ishlaydi (dizayn muzlatilgan).
- *
- * Telefon bu yerda so'ralmaydi — u bot orqali `requestContact` bilan olinadi
- * (`docs/design-change-requests.md`, DCR-002).
+ * Ism va telefon mijozdan BIR MARTA, botda so'raladi (`modules/bot/customer.py`,
+ * `requestContact` — DCR-002). Mini App shu ma'lumotni `initData` orqali oladi,
+ * qayta so'ramaydi: ikkinchi (mahalliy, serversiz) forma faqat chalkashlik va
+ * ishonchsiz nusxa yaratardi — mijoz haqiqatan kim ekanini FAQAT server biladi.
  */
-export function useTelegramAuth(): { state: BootState; error: string | null } {
+export function useTelegramAuth(): {
+  state: BootState;
+  error: string | null;
+  retry: () => void;
+} {
   const [state, setState] = useState<BootState>('checking');
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const register = useProfile((current) => current.register);
   const signIn = useProfile((current) => current.signIn);
@@ -27,13 +37,14 @@ export function useTelegramAuth(): { state: BootState; error: string | null } {
   useEffect(() => {
     const initData = webApp()?.initData;
 
-    // Telegram tashqarisida — lokal rejim, hech narsa qilinmaydi
     if (!initData) {
-      setState('ready');
+      setState('no_telegram');
       return;
     }
 
     let cancelled = false;
+    setState('checking');
+    setError(null);
 
     void (async () => {
       try {
@@ -47,10 +58,9 @@ export function useTelegramAuth(): { state: BootState; error: string | null } {
 
         register({ name: name || 'Mijoz', phone: session.user.phone ?? '' });
         signIn();
-        setState('ready');
+        setState('authenticated');
       } catch (cause) {
         if (cancelled) return;
-        // Serversiz ham ilova ko'rinishi kerak — mock ma'lumot bilan davom etadi
         setError(cause instanceof ApiError ? cause.message : 'Serverga ulanib bo‘lmadi');
         setState('offline');
       }
@@ -59,7 +69,9 @@ export function useTelegramAuth(): { state: BootState; error: string | null } {
     return () => {
       cancelled = true;
     };
-  }, [register, signIn]);
+  }, [register, signIn, attempt]);
 
-  return { state, error };
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  return { state, error, retry };
 }

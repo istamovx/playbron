@@ -6,11 +6,11 @@ import { freeStations, isoDateOf, startInstantIso } from './lib/slots';
 import { useTelegramAuth } from './lib/auth';
 import { BillScreen } from './screens/bill';
 import { BookingsScreen } from './screens/bookings';
+import { BootScreen } from './screens/boot';
 import { ClubScreen } from './screens/club';
 import { ClubsScreen } from './screens/clubs';
 import { ConfirmScreen } from './screens/confirm';
 import { ProfileScreen } from './screens/profile';
-import { RegisterScreen } from './screens/register';
 import { SentScreen } from './screens/sent';
 import { SessionScreen } from './screens/session';
 import { SlotsScreen } from './screens/slots';
@@ -24,8 +24,9 @@ export function App(): ReactNode {
   const state = useApp();
   const profile = useProfile((current) => current.profile);
   const signedIn = useProfile((current) => current.signedIn);
-  // Telegram ichida sessiya jimgina ochiladi; brauzerda darhol `ready` bo'ladi
+  // Telegram ichida sessiya jimgina ochiladi — qo'lda forma yo'q (§lib/auth.ts)
   const boot = useTelegramAuth();
+  const authenticated = boot.state === 'authenticated' && profile && signedIn;
   const bookingSubmitting = useBooking((s) => s.submitting);
 
   const main = mainButton(state, bookingSubmitting);
@@ -65,7 +66,7 @@ export function App(): ReactNode {
           >
             Yuklanmoqda…
           </main>
-        ) : profile && signedIn ? (
+        ) : authenticated ? (
           <>
             <header
               style={{
@@ -206,7 +207,7 @@ export function App(): ReactNode {
           </>
         ) : (
           <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--gutter)' }}>
-            <RegisterScreen />
+            <BootScreen state={boot.state} error={boot.error} onRetry={boot.retry} />
           </main>
         )}
       </div>
