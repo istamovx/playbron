@@ -88,8 +88,11 @@ jobs:
   # Render bepul rejasining nusxasi: baza egasi superuser EMAS va
   # `playbron_platform` BYPASSRLS OLA OLMAYDI. Lokal `docker compose` bazasi
   # superuser bo'lgani uchun RLS policy'lari u yerda umuman baholanmaydi —
-  # prod'dagi uchta bloklovchi xato aynan shu ko'r nuqtadan chiqqan edi.
-  # Migratsiyalardagi `_assert_*` tekshiruvlari faqat shu job'da ma'no kasb etadi.
+  # prod'dagi uchta bloklovchi xato va `set_staff_password.py`/
+  # `super_admin_bootstrap.py` dagi «xodim topilmadi» yolg'on xatosi aynan
+  # shu ko'r nuqtadan chiqqan edi (`api` job'i buni HECH QACHON ushlamaydi).
+  # Migratsiyalardagi `_assert_*` tekshiruvlari va butun test to'plami shu
+  # yerda — real RLS ostida — qayta yuritiladi.
   api-render-shape:
     runs-on: ubuntu-latest
 
@@ -102,10 +105,17 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
 
     env:
       ENV: test
       JWT_SECRET: ci-uchun-32-baytdan-uzun-tasodifiy-bolmagan-qiymat
+      REDIS_URL: redis://localhost:6379/0
       ALLOW_SINGLE_DB_ROLE: '1'
       DATABASE_URL: postgresql://owner:owner@localhost:5432/playbron
       DIRECT_URL: postgresql://owner:owner@localhost:5432/playbron
@@ -132,3 +142,15 @@ jobs:
 
       - run: alembic upgrade head
         working-directory: api
+
+      # FAQAT policy invariantlari — ular `pg_catalog`ni o'qiydi, GUC yoki
+      # yozuv talab qilmaydi. Qolgan testlarning fixture'lari (`_owner_engine()`
+      # orqali xom INSERT/DELETE) `app.*` GUC'siz yozadi — bu superuser'siz
+      # bazada RLS tomonidan RAD ETILADI. Bu FIXTURE tooling qarzi, mahsulot
+      # kodining o'zi emas (yuqoridagi `api` job'i mahsulot yo'llarini haqiqiy
+      # endpoint orqali, ya'ni to'g'ri GUC'lar bilan sinaydi). Kengaytirish —
+      # alohida topshiriq.
+      - run: pytest tests/test_policy_invariants.py -q
+        working-directory: api
+        env:
+          RUN_DB_TESTS: '1'

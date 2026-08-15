@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from playbron.core import context, db, errors, redis
 from playbron.core.config import settings
+from playbron.core.super_admin_bootstrap import sync_super_admin_password
 from playbron.modules.auth import botlogin
 from playbron.modules.auth.router import router as auth_router
 from playbron.modules.bot import router as bot_router_setup
@@ -34,6 +35,14 @@ API_PREFIX = "/api/v1"
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     log.info("PlayBron API ishga tushdi (env=%s)", settings.env)
+
+    # `SUPER_ADMIN_PASSWORD` bo'sh bo'lsa darhol qaytadi — sukut holatda
+    # no-op. Bitta noto'g'ri sozlangan o'zgaruvchi butun API'ni ishga
+    # tushirilmay qoldirmasin (`core/super_admin_bootstrap.py`).
+    try:
+        await sync_super_admin_password()
+    except Exception:
+        log.exception("SUPER_ADMIN_PASSWORD sinxronizatsiyasi muvaffaqiyatsiz")
 
     # Bot orqali kirish uchun webhook — bepul rejada Shell yo'q, shuning uchun
     # `setWebhook` qo'lda emas, har start'da shu yerda (idempotent, xato start'ni

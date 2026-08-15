@@ -644,6 +644,17 @@ qo'yiladi (argv yoki env emas — shell tarixiga va `ps` chiqishiga tushmasin).
 Skript deep-link chop etadi; super admin admin botni `/start` qiladi, shundan
 keyin OTP ishlaydi. Super adminda OTP **har kirishda** majburiy (§6.3).
 
+> **Chetlanish (2026-08-15, loyiha egasining aniq so'rovi bilan).** Yuqoridagi
+> "stdin'dan, hech qayerda saqlanmaydi" qoidasiga qo'shimcha, ixtiyoriy yo'l
+> qo'shildi: `SUPER_ADMIN_PASSWORD` muhit o'zgaruvchisi berilsa, ilova
+> `SUPER_ADMIN_LOGINS`dagi har bir login uchun parolni HAR START'da
+> tekshiradi va FARQ bo'lsagina yangilaydi (`core/super_admin_bootstrap.py`).
+> Sabab: Render bepul rejasida Shell yo'q, bazaga tashqi ulanish esa har
+> safar IP allowlist bilan qo'lda ishlashni talab qiladi — loyiha egasi bu
+> ishqalanishni parolni Dashboard'da saqlash xavfiga almashtirishni ANIQ
+> tanladi. Standart yo'l (stdin, skript) o'zgarmadi va TAVSIYA etiladi;
+> bu — uni istagan payt qo'llash mumkin bo'lgan qo'shimcha variant.
+
 ### 5.7 OTP dizayni
 
 | Element | Qiymat | Sabab |

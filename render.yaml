@@ -108,6 +108,17 @@ services:
         sync: false
       - key: ADMIN_BOT_TOKEN
         sync: false
+
+      # Loyiha egasining ANIQ so'rovi bilan — standart yo'l EMAS. Standart:
+      # `api/scripts/set_staff_password.py` (parol stdin'dan, hech qayerda
+      # saqlanmaydi). Bu yerdagi qiymat esa Dashboard'da DOIMIY turadi va
+      # uni ochgan har kim ko'radi. Faqat `SUPER_ADMIN_LOGINS`dagi loginlarga
+      # qo'llanadi, o'zgarmagan bo'lsa qayta yozilmaydi (sessiyalar bekor
+      # bo'lmaydi). To'liq izoh: `api/src/playbron/core/super_admin_bootstrap.py`.
+      # Kiritilgach: parolni tasdiqlab, shu qatorni Dashboard'dan o'chirish
+      # tavsiya etiladi (funksiyaning o'zi buni MAJBURLAMAYDI).
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
       # ──────────────────────────────────────────────────────────────────
 
       # Sir emas — oddiy Telegram ID. Qiymat shu yerda turgani uchun

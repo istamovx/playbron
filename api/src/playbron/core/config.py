@@ -96,8 +96,25 @@ class Settings(BaseSettings):
     # ── Super admin ───────────────────────────────────────────────────────
     # Seed uchun: vergul bilan ajratilgan telegram_id lar
     super_admin_telegram_ids: str = ""
+    # `0005` migratsiyasi shu loginlarni yuqoridagi ID'lar bilan pozitsiya
+    # bo'yicha juftlaydi (o'sha yerda `os.environ` dan to'g'ridan-to'g'ri
+    # o'qiladi — migratsiyalar `Settings` ob'ektidan foydalanmaydi). Bu yerda
+    # ikkinchi marta e'lon qilingani — `super_admin_bootstrap.py` runtime'da
+    # shu ro'yxatga qarab ishlaydi.
+    super_admin_logins: str = ""
     # /platform/* uchun IP allowlist (bo'sh — cheklovsiz, prod'da to'ldiriladi)
     platform_ip_allowlist: str = ""
+
+    # Loyiha egasining ANIQ so'rovi bilan qo'shilgan — standart yo'l EMAS.
+    # Standart: `scripts/set_staff_password.py`, parol stdin'dan, hech qayerda
+    # saqlanmaydi (`docs/05-auth-redesign.md` §5.6). Bu maydon esa parolni
+    # Render dashboard'ining "Environment" bo'limida DOIMIY saqlaydi — u yerni
+    # ochgan har kim ko'radi va konteyner inspeksiyasida ham chiqadi.
+    # Qabul qilingan chunki: (a) Render bepul rejasida Shell yo'q, bazaga
+    # tashqi ulanish esa har safar IP allowlist bilan o'ynashni talab qiladi;
+    # (b) loyiha egasi xavfni bilib turib tanladi (`super_admin_bootstrap.py`
+    # ga qarang). Bo'sh bo'lsa — funksiya butunlay o'chiq.
+    super_admin_password: SecretStr = SecretStr("")
 
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
@@ -107,6 +124,13 @@ class Settings(BaseSettings):
         if not raw:
             return []
         return [int(part) for part in raw.split(",") if part.strip()]
+
+    @property
+    def super_admin_login_list(self) -> list[str]:
+        raw = self.super_admin_logins.strip()
+        if not raw:
+            return []
+        return [part.strip().casefold() for part in raw.split(",") if part.strip()]
 
     @property
     def cors_origin_list(self) -> list[str]:

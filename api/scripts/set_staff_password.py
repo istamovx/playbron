@@ -10,6 +10,13 @@ Ulanish `DIRECT_URL` bilan (baza egasi roli): `staff_credentials` ilova roliga
 butunlay yopiq va faqat `SECURITY DEFINER` funksiyalari orqali ochiladi, bu
 skript esa ulardan tashqarida ishlaydi.
 
+BYPASSRLS'siz muhitda (Render bepul rejasi — `[[render-free-tier-no-bypassrls]]`)
+baza EGASI ham `FORCE ROW LEVEL SECURITY` ostida qoladi: `users` va
+`refresh_tokens`'dan o'qish/yozish uchun tegishli `app.*` GUC'lar shu skript
+ICHIDA o'rnatiladi (pastga qarang). Lokal superuser Postgres buni yashiradi —
+shuning uchun bu skript ham Render shaklidagi (superuser emas, BYPASSRLS yo'q)
+bazada sinaladi.
+
     python scripts/set_staff_password.py sa.xurshid
     python scripts/set_staff_password.py sa.xurshid --role SUPER_ADMIN
     python scripts/set_staff_password.py sa.xurshid --must-change
@@ -65,6 +72,17 @@ async def main() -> int:
     engine = create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
     try:
         async with engine.begin() as conn:
+            # `DIRECT_URL` — baza EGASI, lekin BYPASSRLS'siz muhitda (Render
+            # bepul rejasi) `FORCE ROW LEVEL SECURITY` egaga ham tegishli:
+            # GUC'siz oddiy `SELECT` policy'lar hech qanday qator ochmay,
+            # jimgina 0 qaytaradi — «xodim topilmadi» degan YOLG'ON xato
+            # (superuser bo'lgan lokal Postgres buni yashiradi). `app.login`
+            # `users_login_probe` (`0007`) policy'sini qanoatlantiradi — bu
+            # policy `staff_credentials` bilan JOIN talab qilmaydi, ya'ni
+            # hali paroli yo'q yangi hisob uchun ham ishlaydi.
+            await conn.execute(
+                text("SELECT set_config('app.login', :login, true)"), {"login": login}
+            )
             row = (
                 await conn.execute(
                     text(
@@ -81,6 +99,14 @@ async def main() -> int:
 
             user_id, status = row
             print(f"Xodim: id={user_id}, status={status}, rol={args.role}")
+
+            # `refresh_tokens_scope` policy'si `user_id = app_user_id()`
+            # talab qiladi — pastdagi bekor qilish shu GUC'siz jimgina 0
+            # qatorga tegardi (eski sessiya "bekor qilindi" deb chiqib,
+            # aslida ishlab qolardi).
+            await conn.execute(
+                text("SELECT set_config('app.user_id', :uid, true)"), {"uid": str(user_id)}
+            )
 
             password = _read_password("Yangi parol: ")
             if sys.stdin.isatty():
