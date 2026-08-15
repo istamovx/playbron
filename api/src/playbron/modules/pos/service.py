@@ -1,0 +1,460 @@
+"""POS — mahsulotlar, buyurtmalar, kassa (hisob yopish).
+
+Manba: `api/migrations/versions/0013_pos.py`. RLS defense-in-depth — bu
+yerdagi tekshiruvlar HAKAM emas, ikkinchi qatlam.
+"""
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from playbron.core.errors import AppError, NotFound
+from playbron.core.text import clean_name
+
+PRODUCT_CATEGORY_MAX = 32
+PRODUCT_NAME_MAX = 120
+
+
+def _product_row(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "category": row.category,
+        "name": row.name,
+        "price": int(row.price),
+        "status": row.status,
+    }
+
+
+async def list_products(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, category, name, price, status FROM products"
+                " WHERE club_id = :club_id ORDER BY category, name"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [_product_row(r) for r in rows]
+
+
+async def create_product(
+    session: AsyncSession, *, club_id: int, category: str, name: str, price: int
+) -> dict[str, Any]:
+    name = clean_name(name, limit=PRODUCT_NAME_MAX)
+    if len(name) < 1:
+        raise AppError("Mahsulot nomini kiriting", code="NAME_REQUIRED")
+    category = clean_name(category, limit=PRODUCT_CATEGORY_MAX) or "Boshqa"
+    if price <= 0:
+        raise AppError("Narx musbat bo'lsin", code="PRICE_INVALID")
+
+    try:
+        product_id = await session.scalar(
+            text(
+                "INSERT INTO products (club_id, category, name, price, status)"
+                " VALUES (:club_id, :category, :name, :price, 'active') RETURNING id"
+            ),
+            {"club_id": club_id, "category": category, "name": name, "price": price},
+        )
+    except Exception as exc:  # noqa: BLE001
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if sqlstate == "23505":
+            raise AppError("Bu nomli mahsulot allaqachon bor", code="PRODUCT_NAME_TAKEN") from exc
+        raise
+
+    return {
+        "id": product_id,
+        "category": category,
+        "name": name,
+        "price": price,
+        "status": "active",
+    }
+
+
+async def update_product(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    product_id: int,
+    category: str,
+    name: str,
+    price: int,
+    status: str,
+) -> dict[str, Any]:
+    name = clean_name(name, limit=PRODUCT_NAME_MAX)
+    if len(name) < 1:
+        raise AppError("Mahsulot nomini kiriting", code="NAME_REQUIRED")
+    category = clean_name(category, limit=PRODUCT_CATEGORY_MAX) or "Boshqa"
+    if price <= 0:
+        raise AppError("Narx musbat bo'lsin", code="PRICE_INVALID")
+    if status not in ("active", "archived"):
+        raise AppError("Noma'lum holat", code="STATUS_INVALID")
+
+    row = (
+        await session.execute(
+            text(
+                "UPDATE products SET category = :category, name = :name, price = :price,"
+                " status = :status WHERE id = :id AND club_id = :club_id"
+                " RETURNING id, category, name, price, status"
+            ),
+            {
+                "category": category,
+                "name": name,
+                "price": price,
+                "status": status,
+                "id": product_id,
+                "club_id": club_id,
+            },
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Mahsulot topilmadi")
+    return _product_row(row)
+
+
+# ── Buyurtmalar ──────────────────────────────────────────────────────────
+
+
+def _order_row(row: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "booking_id": row.booking_id,
+        "station_code": row.station_code,
+        "status": row.status,
+        "total": int(row.total),
+        "created_at": row.created_at.isoformat(),
+        "items": items,
+    }
+
+
+async def list_orders(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Faol buyurtmalar — `DELIVERED` bo'lmagan, shuningdek so'nggi soatda
+    yetkazilganlar (xodim darhol yo'qolib qolmasligini ko'rsin)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT o.id, o.booking_id, o.status, o.total, o.created_at,"
+                "       s.code AS station_code"
+                " FROM orders o"
+                " LEFT JOIN bookings b ON b.id = o.booking_id"
+                " LEFT JOIN stations s ON s.id = b.station_id"
+                " WHERE o.club_id = :club_id"
+                "   AND (o.status <> 'DELIVERED' OR o.created_at > now() - interval '1 hour')"
+                " ORDER BY o.created_at DESC"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    if not rows:
+        return []
+
+    order_ids = [r.id for r in rows]
+    item_rows = (
+        await session.execute(
+            text(
+                "SELECT order_id, product_name, qty, price_snapshot"
+                " FROM order_items WHERE order_id = ANY(:ids) ORDER BY id"
+            ),
+            {"ids": order_ids},
+        )
+    ).all()
+    items_by_order: dict[int, list[dict[str, Any]]] = {}
+    for item in item_rows:
+        items_by_order.setdefault(item.order_id, []).append(
+            {
+                "product_name": item.product_name,
+                "qty": item.qty,
+                "price_snapshot": int(item.price_snapshot),
+            }
+        )
+
+    return [_order_row(r, items_by_order.get(r.id, [])) for r in rows]
+
+
+async def create_order(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    created_by: int,
+    booking_id: int | None,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not items:
+        raise AppError("Kamida bitta mahsulot tanlang", code="ORDER_EMPTY")
+
+    if booking_id is not None:
+        booking = (
+            await session.execute(
+                text("SELECT id FROM bookings WHERE id = :id AND club_id = :club_id"),
+                {"id": booking_id, "club_id": club_id},
+            )
+        ).first()
+        if booking is None:
+            raise NotFound("Bron topilmadi")
+
+    product_ids = [int(item["product_id"]) for item in items]
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, price FROM products"
+                " WHERE club_id = :club_id AND id = ANY(:ids) AND status = 'active'"
+            ),
+            {"club_id": club_id, "ids": product_ids},
+        )
+    ).all()
+    by_id = {r.id: r for r in rows}
+
+    resolved: list[dict[str, Any]] = []
+    total = 0
+    for item in items:
+        product_id = int(item["product_id"])
+        qty = int(item["qty"])
+        if qty <= 0:
+            raise AppError("Miqdor musbat bo'lsin", code="QTY_INVALID")
+        product = by_id.get(product_id)
+        if product is None:
+            raise AppError("Mahsulot topilmadi yoki faol emas", code="PRODUCT_NOT_FOUND")
+        line_total = int(product.price) * qty
+        total += line_total
+        resolved.append(
+            {
+                "product_id": product_id,
+                "product_name": product.name,
+                "qty": qty,
+                "price_snapshot": int(product.price),
+            }
+        )
+
+    order_id = await session.scalar(
+        text(
+            "INSERT INTO orders (club_id, booking_id, status, created_by, total)"
+            " VALUES (:club_id, :booking_id, 'NEW', :created_by, :total) RETURNING id"
+        ),
+        {"club_id": club_id, "booking_id": booking_id, "created_by": created_by, "total": total},
+    )
+
+    for line in resolved:
+        await session.execute(
+            text(
+                "INSERT INTO order_items"
+                " (club_id, order_id, product_id, product_name, qty, price_snapshot)"
+                " VALUES (:club_id, :order_id, :product_id, :product_name, :qty, :price)"
+            ),
+            {
+                "club_id": club_id,
+                "order_id": order_id,
+                "product_id": line["product_id"],
+                "product_name": line["product_name"],
+                "qty": line["qty"],
+                "price": line["price_snapshot"],
+            },
+        )
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT o.id, o.booking_id, o.status, o.total, o.created_at,"
+                "       s.code AS station_code"
+                " FROM orders o"
+                " LEFT JOIN bookings b ON b.id = o.booking_id"
+                " LEFT JOIN stations s ON s.id = b.station_id"
+                " WHERE o.id = :id"
+            ),
+            {"id": order_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Buyurtma topilmadi")  # amalda yuz bermaydi — hozirgina yaratildi
+    return _order_row(row, resolved)
+
+
+_NEXT_STATUS = {"NEW": "ACCEPTED", "ACCEPTED": "PREPARING", "PREPARING": "DELIVERED"}
+
+
+async def advance_order(session: AsyncSession, *, club_id: int, order_id: int) -> str:
+    row = (
+        await session.execute(
+            text("SELECT status FROM orders WHERE id = :id AND club_id = :club_id"),
+            {"id": order_id, "club_id": club_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Buyurtma topilmadi")
+
+    nxt = _NEXT_STATUS.get(row.status)
+    if nxt is None:
+        raise AppError(
+            "Buyurtma allaqachon yetkazilgan", code="ORDER_ALREADY_DELIVERED", status_code=409
+        )
+
+    await session.execute(
+        text("UPDATE orders SET status = :status WHERE id = :id"), {"status": nxt, "id": order_id}
+    )
+    return nxt
+
+
+# ── Kassa (hisob yopish) ─────────────────────────────────────────────────
+
+
+async def list_open_bookings(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Hali yopilmagan tasdiqlangan bronlar — kassa ro'yxati."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT b.id, s.code AS station_code, b.hours, b.rate_snapshot,"
+                "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
+                "       COALESCE(u.display_name, u.first_name, b.guest_name) AS guest_label"
+                " FROM bookings b"
+                " JOIN stations s ON s.id = b.station_id"
+                " LEFT JOIN users u ON u.id = b.customer_id"
+                " WHERE b.club_id = :club_id AND b.status = 'CONFIRMED' AND b.closed_at IS NULL"
+                " ORDER BY lower(b.period)"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "station_code": r.station_code,
+            "hours": r.hours,
+            "rate_snapshot": int(r.rate_snapshot),
+            "starts_at": r.starts_at.isoformat(),
+            "ends_at": r.ends_at.isoformat(),
+            "guest_label": r.guest_label,
+        }
+        for r in rows
+    ]
+
+
+async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: int) -> Any:
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, hours, rate_snapshot, status, closed_at"
+                " FROM bookings WHERE id = :id AND club_id = :club_id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Bron topilmadi")
+    if row.status != "CONFIRMED":
+        raise AppError("Bron tasdiqlanmagan", code="BOOKING_NOT_CONFIRMED", status_code=409)
+    if row.closed_at is not None:
+        raise AppError("Hisob allaqachon yopilgan", code="BILL_ALREADY_CLOSED", status_code=409)
+    return row
+
+
+async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> dict[str, Any]:
+    booking = await _load_open_booking(session, club_id, booking_id)
+    play_amount = int(booking.rate_snapshot) * booking.hours
+
+    orders_total = (
+        await session.scalar(
+            text(
+                "SELECT COALESCE(SUM(total), 0) FROM orders"
+                " WHERE booking_id = :id AND club_id = :club_id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ) or 0
+
+    return {
+        "booking_id": booking_id,
+        "play_amount": play_amount,
+        "orders_amount": int(orders_total),
+        "total": play_amount + int(orders_total),
+    }
+
+
+async def close_bill(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    booking_id: int,
+    closed_by: int,
+    payment_method: str,
+    paid_amount: int,
+) -> dict[str, Any]:
+    if payment_method not in ("CASH", "TRANSFER"):
+        raise AppError("To'lov turi noto'g'ri", code="PAYMENT_METHOD_INVALID")
+    if paid_amount < 0:
+        raise AppError("Summani tekshiring", code="PAID_AMOUNT_INVALID")
+
+    booking = await _load_open_booking(session, club_id, booking_id)
+    play_amount = int(booking.rate_snapshot) * booking.hours
+
+    orders_total = (
+        await session.scalar(
+            text(
+                "SELECT COALESCE(SUM(total), 0) FROM orders"
+                " WHERE booking_id = :id AND club_id = :club_id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ) or 0
+
+    await session.execute(
+        text(
+            "UPDATE bookings SET closed_at = :now, payment_method = :method,"
+            " paid_amount = :amount, closed_by = :staff WHERE id = :id"
+        ),
+        {
+            "now": datetime.now(UTC),
+            "method": payment_method,
+            "amount": paid_amount,
+            "staff": closed_by,
+            "id": booking_id,
+        },
+    )
+
+    # `get_bill()` ISHLATILMAYDI — u `_load_open_booking()` orqali "hali
+    # ochiqmi" deb tekshiradi; biz esa HOZIRGINA yopdik, o'ziga qarshi
+    # BILL_ALREADY_CLOSED qaytarardi.
+    return {
+        "booking_id": booking_id,
+        "play_amount": play_amount,
+        "orders_amount": int(orders_total),
+        "total": play_amount + int(orders_total),
+    }
+
+
+# ── Live board ───────────────────────────────────────────────────────────
+
+
+async def list_live_stations(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Xonalar + shu lahzadagi bandlik — CONFIRMED bron `now()`ni o'z ichiga
+    olsa band, aks holda bo'sh (`stations.status='maintenance'` ustun turadi)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.id, s.code, s.room_label, s.console_type, s.rate, s.status,"
+                "       b.id AS booking_id, upper(b.period) AS ends_at,"
+                "       COALESCE(u.display_name, u.first_name, b.guest_name) AS guest_label"
+                " FROM stations s"
+                " LEFT JOIN bookings b ON b.station_id = s.id AND b.status = 'CONFIRMED'"
+                "   AND b.period @> now() AND b.closed_at IS NULL"
+                " LEFT JOIN users u ON u.id = b.customer_id"
+                " WHERE s.club_id = :club_id"
+                " ORDER BY s.code"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "code": r.code,
+            "room_label": r.room_label,
+            "console_type": r.console_type,
+            "rate": int(r.rate),
+            "status": r.status,
+            "booking_id": r.booking_id,
+            "ends_at": r.ends_at.isoformat() if r.ends_at else None,
+            "guest_label": r.guest_label,
+        }
+        for r in rows
+    ]

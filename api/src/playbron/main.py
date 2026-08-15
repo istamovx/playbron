@@ -17,6 +17,7 @@ from playbron.modules.auth.router import router as auth_router
 from playbron.modules.bookings.router import router as bookings_router
 from playbron.modules.bot import router as bot_router_setup
 from playbron.modules.bot.router import router as bot_router
+from playbron.modules.pos.router import router as pos_router
 from playbron.modules.staff.router import router as staff_router
 from playbron.modules.users.router import router as me_router
 
@@ -124,4 +125,5 @@ app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(bot_router, prefix=API_PREFIX)
 app.include_router(staff_router, prefix=API_PREFIX)
 app.include_router(bookings_router, prefix=API_PREFIX)
+app.include_router(pos_router, prefix=API_PREFIX)
 app.include_router(me_router, prefix=API_PREFIX)
