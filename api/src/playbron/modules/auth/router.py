@@ -1,5 +1,6 @@
 """Auth marshrutlari — `/api/v1/auth/*`."""
 
+import logging
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -20,6 +21,7 @@ from playbron.modules.auth import botlogin, botmenu, service, signup, staff, sta
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = logging.getLogger("playbron.auth.bot")
 
 
 # ── Sxemalar ──────────────────────────────────────────────────────────────
@@ -496,44 +498,56 @@ async def admin_bot_webhook(
     if not isinstance(update, dict):
         return {"ok": True}
 
-    callback_query = update.get("callback_query")
-    if isinstance(callback_query, dict):
-        await botmenu.handle_callback(session, callback_query)
+    # Butun tana himoyalangan — mijoz botidagi bilan bir xil naqsh
+    # (`bot/customer.py::handle_update()`, "HECH QACHON istisno
+    # chiqarmaydi"). Kutilmagan xato shu YERDA to'xtatilmasa, javob 500
+    # bilan qaytadi va bu docstring'dagi "Telegram'ga har doim 200
+    # qaytadi" va'dasini buzadi — Telegram esa 500'ni qayta-qayta urinish
+    # sifatida talqin qiladi, foydalanuvchiga esa bot "jim qolgan" bo'lib
+    # ko'rinadi.
+    try:
+        callback_query = update.get("callback_query")
+        if isinstance(callback_query, dict):
+            await botmenu.handle_callback(session, callback_query)
+            return {"ok": True}
+
+        parsed = botlogin.extract_start(update)
+        if parsed:
+            nonce, sender = parsed
+            if nonce.startswith(stafflink.PREFIX):
+                await _handle_link_start(session, nonce, sender)
+            else:
+                # Muvaffaqiyatda javob tili — konsolda tanlangani; eskirgan
+                # nonce'da konsol tili noma'lum, shuning uchun Telegram ilova
+                # tiliga qaytamiz
+                console_lang = await botlogin.approve_login(nonce, sender)
+                await botlogin.notify(
+                    int(sender["id"]),
+                    console_lang or sender.get("language_code"),
+                    approved=console_lang is not None,
+                )
+            return {"ok": True}
+
+        # `/start <nonce>` emas — oddiy xabar. Bog'langan OWNER/ADMIN bo'lsa
+        # hisobot menyusini ko'rsatamiz; boshqa hech kimga (bog'lanmagan,
+        # STAFF) javob YO'Q — bu ADMIN BOT, ommaviy suhbat emas.
+        message = update.get("message")
+        if isinstance(message, dict):
+            msg_from = message.get("from")
+            chat = message.get("chat")
+            if (
+                isinstance(msg_from, dict)
+                and isinstance(chat, dict)
+                and "id" in msg_from
+                and "id" in chat
+            ):
+                await botmenu.maybe_send_menu(session, int(msg_from["id"]), int(chat["id"]))
+
         return {"ok": True}
-
-    parsed = botlogin.extract_start(update)
-    if parsed:
-        nonce, sender = parsed
-        if nonce.startswith(stafflink.PREFIX):
-            await _handle_link_start(session, nonce, sender)
-        else:
-            # Muvaffaqiyatda javob tili — konsolda tanlangani; eskirgan
-            # nonce'da konsol tili noma'lum, shuning uchun Telegram ilova
-            # tiliga qaytamiz
-            console_lang = await botlogin.approve_login(nonce, sender)
-            await botlogin.notify(
-                int(sender["id"]),
-                console_lang or sender.get("language_code"),
-                approved=console_lang is not None,
-            )
+    except Exception:
+        # Telegram'ga baribir 200 qaytadi — aks holda navbat to'xtaydi
+        log.exception("admin bot update'i qayta ishlanmadi")
         return {"ok": True}
-
-    # `/start <nonce>` emas — oddiy xabar. Bog'langan OWNER/ADMIN bo'lsa
-    # hisobot menyusini ko'rsatamiz; boshqa hech kimga (bog'lanmagan,
-    # STAFF) javob YO'Q — bu ADMIN BOT, ommaviy suhbat emas.
-    message = update.get("message")
-    if isinstance(message, dict):
-        msg_from = message.get("from")
-        chat = message.get("chat")
-        if (
-            isinstance(msg_from, dict)
-            and isinstance(chat, dict)
-            and "id" in msg_from
-            and "id" in chat
-        ):
-            await botmenu.maybe_send_menu(session, int(msg_from["id"]), int(chat["id"]))
-
-    return {"ok": True}
 
 
 class DevLoginIn(BaseModel):
