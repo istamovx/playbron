@@ -23,13 +23,31 @@ const STATUS_LINE: Record<string, string> = {
   CANCELLED: 'var(--line-1)',
 };
 
-function formatWhen(startsAt: string, endsAt: string): string {
-  const from = new Date(startsAt);
-  const to = new Date(endsAt);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const date = `${pad(from.getDate())}-${pad(from.getMonth() + 1)}-${from.getFullYear()}`;
-  const hm = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `${date}  ${hm(from)} → ${hm(to)}`;
+/** Vaqt KLUB zonasida ko'rsatiladi (`clubs.timezone`), telefonnikida emas.
+ * Avval `Date.getHours()` ishlatilardi va boshqa zonadagi (yoki soati
+ * noto'g'ri) telefonda mijoz o'z bronini boshqa soatda ko'rardi — bron
+ * qilgan vaqti bilan ro'yxatdagi vaqt mos kelmasdi (audit topilmasi,
+ * 2026-08-16). CLAUDE.md qoidasi: "UI'da Asia/Tashkent". */
+function formatWhen(startsAt: string, endsAt: string, timezone: string): string {
+  const parts = (iso: string): Record<string, string> => {
+    const raw: Record<string, string> = {};
+    for (const part of new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(new Date(iso))) {
+      if (part.type !== 'literal') raw[part.type] = part.value;
+    }
+    return raw;
+  };
+
+  const from = parts(startsAt);
+  const to = parts(endsAt);
+  return `${from.day}-${from.month}-${from.year}  ${from.hour}:${from.minute} → ${to.hour}:${to.minute}`;
 }
 
 /** Bronlarim — real `GET /me/bookings`. */
@@ -107,7 +125,7 @@ function BookingCard({ booking }: { booking: MyBookingDto }): ReactNode {
       </div>
 
       <div style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)' }}>
-        {formatWhen(booking.startsAt, booking.endsAt)}
+        {formatWhen(booking.startsAt, booking.endsAt, booking.timezone)}
       </div>
 
       <div style={{ height: 1, background: 'var(--line-1)' }} />

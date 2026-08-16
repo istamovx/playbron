@@ -226,10 +226,29 @@ export const useProfile = create<ProfileState>()(
   ),
 );
 
-/** Prototipdagi `now()`. */
-export function useNow(): number {
+/**
+ * Hozirgi lahza — yarim tundan SONIYADA, KLUB vaqt zonasida.
+ *
+ * Avval `BASE + tick` edi, ya'ni soat DOIM 20:14:32 dan sanardi
+ * (prototip qoldig'i) va header'da HAR BIR ekranda noto'g'ri vaqt
+ * ko'rinardi — vaqt tanlaydigan ilovada bu bevosita chalg'ituvchi
+ * (audit topilmasi, 2026-08-16). `tick` faqat qayta render uchun
+ * o'qiladi; qiymat esa har chaqiruvda haqiqiy soatdan olinadi.
+ */
+export function useNow(timezone = 'Asia/Tashkent'): number {
   useApp((state) => state.tick);
-  return BASE + useApp.getState().tick;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date());
+  const raw: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') raw[part.type] = part.value;
+  }
+  return (Number(raw.hour) % 24) * 3600 + Number(raw.minute) * 60 + Number(raw.second);
 }
 
 /** Uzaytirishlarni hisobga olgan seans tugash lahzasi. */

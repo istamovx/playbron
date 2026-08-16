@@ -61,6 +61,8 @@ class MyBookingOut(BaseModel):
     ends_at: str
     station_code: str
     club_name: str
+    # Mijoz ilovasi vaqtni KLUB zonasida ko'rsatadi, telefonnikida emas
+    timezone: str
 
 
 @router.get("/me", response_model=MeOut)

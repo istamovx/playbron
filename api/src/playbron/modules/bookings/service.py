@@ -1013,9 +1013,13 @@ async def list_customer_bookings(session: AsyncSession, customer_id: int) -> lis
     rows = (
         await session.execute(
             text(
+                # `c.timezone` — mijoz ilovasi vaqtni KLUB zonasida
+                # ko'rsatishi uchun. Usiz telefon zonasida chiqardi va
+                # mijoz o'z bronini boshqa soatda ko'rardi (audit
+                # topilmasi, 2026-08-16; CLAUDE.md: "UI'da Asia/Tashkent").
                 "SELECT b.id, b.status, b.hours, b.rate_snapshot,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
-                "       s.code AS station_code, c.name AS club_name"
+                "       s.code AS station_code, c.name AS club_name, c.timezone"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
                 " JOIN clubs c ON c.id = b.club_id"
@@ -1035,6 +1039,7 @@ async def list_customer_bookings(session: AsyncSession, customer_id: int) -> lis
             "ends_at": r.ends_at.isoformat(),
             "station_code": r.station_code,
             "club_name": r.club_name,
+            "timezone": r.timezone,
         }
         for r in rows
     ]

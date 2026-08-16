@@ -442,6 +442,8 @@ export interface MyBookingDto {
   endsAt: string;
   stationCode: string;
   clubName: string;
+  /** Klub vaqt zonasi — vaqt SHUNDA ko'rsatiladi, telefonnikida emas. */
+  timezone: string;
 }
 
 export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> => {
@@ -455,6 +457,7 @@ export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> =>
       ends_at: string;
       station_code: string;
       club_name: string;
+      timezone: string;
     }>
   >('/me/bookings');
   return rows.map((row) => ({
@@ -466,6 +469,7 @@ export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> =>
     endsAt: row.ends_at,
     stationCode: row.station_code,
     clubName: row.club_name,
+    timezone: row.timezone,
   }));
 };
 
