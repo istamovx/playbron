@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
 from playbron.core.audit import log_action
-from playbron.core.errors import AppError, Conflict, Forbidden
+from playbron.core.errors import AppError, Conflict, Forbidden, NotFound
 from playbron.core.passwords import hash_password, validate
 from playbron.core.text import clean_name
 from playbron.deps import db, require_admin
@@ -254,6 +254,74 @@ async def create_staff(
     )
 
     return StaffCreateOut(user_id=int(user_id), login=login, role=body.role)
+
+
+class StaffUpdateIn(BaseModel):
+    first_name: str = Field(min_length=1, max_length=128)
+    role: str = Field(pattern="^(ADMIN|STAFF)$")
+
+
+@router.patch(
+    "/{club_id}/staff/{user_id}",
+    response_model=StaffMemberOut,
+    dependencies=[Depends(require_admin)],
+)
+async def update_staff(
+    body: StaffUpdateIn,
+    session: Annotated[AsyncSession, Depends(db)],
+    club_id: Annotated[int, Path()],
+    user_id: Annotated[int, Path()],
+) -> StaffMemberOut:
+    """Xodim ismi/rolini tahrirlaydi.
+
+    Rol shifti `auth_update_staff()` FUNKSIYASI ICHIDA (`0019_staff_
+    update.py`) — `create_staff`dagi bilan bir xil sabab: bu yerdagi
+    tekshiruv faqat erta va tushunarli xato, HAKAM emas. OWNER bu yo'l
+    orqali hech qachon o'zgartirilmaydi (nishon OWNER bo'lsa funksiya
+    `ROLE_NOT_ALLOWED` bilan rad etadi); ADMIN faqat o'z STAFF'ini STAFF
+    sifatida tahrirlay oladi.
+    """
+    _assert_path_matches_header(club_id)
+
+    name = clean_name(body.first_name)
+    if not name:
+        raise AppError("Ism bo‘sh bo‘lmasin", code="NAME_REQUIRED")
+
+    try:
+        ok = await session.scalar(
+            text("SELECT auth_update_staff(:target, :name, :role)"),
+            {"target": user_id, "name": name, "role": body.role},
+        )
+    except Exception as exc:  # noqa: BLE001
+        if "ROLE_NOT_ALLOWED" in str(exc):
+            raise Forbidden("Bu rolni berish huquqingiz yo‘q", code="ROLE_NOT_ALLOWED") from exc
+        raise
+
+    if not ok:
+        raise NotFound("Xodim topilmadi")
+
+    await log_action(
+        action="staff_updated",
+        target=str(user_id),
+        club_id=club_id,
+        after={"first_name": name, "role": body.role},
+    )
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT u.id, u.login, u.first_name, m.role, u.status"
+                " FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE m.club_id = :club_id AND m.user_id = :uid AND m.status = 'active'"
+            ),
+            {"club_id": club_id, "uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Xodim topilmadi")
+    return StaffMemberOut(
+        user_id=row.id, login=row.login, first_name=row.first_name, role=row.role, status=row.status
+    )
 
 
 async def _log_event(

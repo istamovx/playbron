@@ -506,6 +506,36 @@ export const createStaffMember = async (
   };
 };
 
+export interface StaffUpdateIn {
+  firstName: string;
+  role: 'ADMIN' | 'STAFF';
+}
+
+export const updateStaffMember = async (
+  api: ApiClient,
+  clubId: number,
+  userId: number,
+  body: StaffUpdateIn,
+): Promise<StaffMemberDto> => {
+  const row = await api.patch<{
+    user_id: number;
+    login: string;
+    first_name: string;
+    role: string;
+    status: string;
+  }>(`/clubs/${clubId}/staff/${userId}`, {
+    first_name: body.firstName,
+    role: body.role,
+  });
+  return {
+    userId: row.user_id,
+    login: row.login,
+    firstName: row.first_name,
+    role: row.role,
+    status: row.status,
+  };
+};
+
 // ── Klub faoliyat jurnali ────────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/staff/router.py::list_club_logs`.
 // `audit_log` (CRUD) + `auth_events` (kirish/chiqish) birlashtirilgan.

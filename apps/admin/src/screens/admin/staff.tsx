@@ -2,6 +2,7 @@ import {
   createStaffMember,
   errorText,
   listStaffMembers,
+  updateStaffMember,
   type StaffMemberDto,
 } from '@playbron/api-client';
 import {
@@ -45,6 +46,12 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { firstName: '', login: '', password: randomPassword(), role: 'STAFF' };
 
+interface EditDraft {
+  userId: number;
+  firstName: string;
+  role: 'ADMIN' | 'STAFF';
+}
+
 /** Xodimlar — hisob ochish va rol berish (`POST /clubs/{id}/staff`). */
 export function StaffScreen(): ReactNode {
   const session = useSession((state) => state.session);
@@ -63,6 +70,10 @@ export function StaffScreen(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<{ login: string; password: string } | null>(null);
+
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const reload = useCallback(async (): Promise<void> => {
     if (clubId === null) return;
@@ -117,6 +128,41 @@ export function StaffScreen(): ReactNode {
       toast.error(message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Server rol shiftini `auth_update_staff()` ICHIDA majburlaydi
+  // (`0019_staff_update.py`) — bu yerdagi tekshiruv faqat "Tahrirlash"
+  // tugmasini noto'g'ri qatorda umuman ko'rsatmaslik uchun, HAKAM emas.
+  const canEdit = (row: StaffMemberDto): boolean => {
+    if (row.role === 'OWNER') return false;
+    if (callerRole === 'ADMIN' && row.role !== 'STAFF') return false;
+    return true;
+  };
+
+  const submitEdit = async (): Promise<void> => {
+    if (!editDraft || clubId === null) return;
+    if (editDraft.firstName.trim().length < 2) {
+      setEditError('Ismni to‘liq kiriting');
+      return;
+    }
+
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      await updateStaffMember(api, clubId, editDraft.userId, {
+        firstName: editDraft.firstName.trim(),
+        role: editDraft.role,
+      });
+      setEditDraft(null);
+      toast.success('Xodim yangilandi');
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setEditError(message);
+      toast.error(message);
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -218,6 +264,63 @@ export function StaffScreen(): ReactNode {
         ) : null}
       </Modal>
 
+      <Modal
+        open={editDraft !== null}
+        onClose={() => {
+          setEditDraft(null);
+          setEditError(null);
+        }}
+        title="Xodimni tahrirlash"
+        variant="drawer"
+      >
+        {editDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+            <TextField
+              label="Ism"
+              value={editDraft.firstName}
+              onChange={(value) => setEditDraft({ ...editDraft, firstName: value })}
+              icon="person"
+              placeholder="Aziz Karimov"
+            />
+            <Labeled label="Rol">
+              <Select
+                value={ROLE_LABEL[editDraft.role] ?? editDraft.role}
+                items={roleOptions.map((r) => ROLE_LABEL[r] as string)}
+                onChange={(label) => {
+                  const role = roleOptions.find((r) => ROLE_LABEL[r] === label);
+                  if (role) setEditDraft({ ...editDraft, role });
+                }}
+                style={{ width: '100%' }}
+              />
+            </Labeled>
+
+            {editError ? <StatusLine tone="danger" icon="error" parts={editError} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={editSubmitting}
+                onClick={() => void submitEdit()}
+              >
+                {editSubmitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={editSubmitting}
+                onClick={() => {
+                  setEditDraft(null);
+                  setEditError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
       <Panel
         title={`Xodimlar (${staff.length})`}
         notch
@@ -266,6 +369,27 @@ export function StaffScreen(): ReactNode {
                   {ROLE_LABEL[row.role] ?? row.role}
                 </Tag>
               ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              align: 'right',
+              render: (row) =>
+                canEdit(row) ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="edit"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditDraft({
+                        userId: row.userId,
+                        firstName: row.firstName,
+                        role: row.role === 'ADMIN' ? 'ADMIN' : 'STAFF',
+                      });
+                    }}
+                  />
+                ) : null,
             },
           ]}
         />
