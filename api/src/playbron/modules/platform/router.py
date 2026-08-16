@@ -164,6 +164,9 @@ class OrgUpdateOut(BaseModel):
     org_id: int
     org_name: str
     org_status: str
+    # `suspended` qilinganda yopilgan ochiq sessiyalar soni (`0030`).
+    # Super admin amal HAQIQATAN kuchga kirganini ko'rsin.
+    revoked_sessions: int = 0
 
 
 @router.patch("/orgs/{org_id}", response_model=OrgUpdateOut)

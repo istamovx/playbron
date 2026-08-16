@@ -426,14 +426,32 @@ async def update_organization(
     if row is None:
         raise NotFound("Tashkilot topilmadi")
 
+    # To'xtatish DARHOL amal qilishi kerak. `0026` faqat YANGI kirishni
+    # bloklaydi — allaqachon kirgan xodim refresh rotatsiyasi bilan
+    # sessiyani cheksiz uzaytirardi (audit topilmasi, 2026-08-16), ya'ni
+    # UI'dagi "saqlangach darhol amal qiladi" va'dasi yolg'on edi.
+    revoked = 0
+    if status == "suspended":
+        revoked = int(
+            await session.scalar(
+                text("SELECT platform_revoke_org_sessions(:org)"), {"org": org_id}
+            )
+            or 0
+        )
+
     await log_action(
         action="platform_org_update",
         target=row.name,
         org_id=org_id,
-        after={"name": row.name, "status": row.status},
+        after={"name": row.name, "status": row.status, "revoked_sessions": revoked},
     )
 
-    return {"org_id": row.id, "org_name": row.name, "org_status": row.status}
+    return {
+        "org_id": row.id,
+        "org_name": row.name,
+        "org_status": row.status,
+        "revoked_sessions": revoked,
+    }
 
 
 def _bucket_key(value: datetime) -> str:

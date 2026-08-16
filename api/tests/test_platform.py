@@ -281,6 +281,37 @@ async def test_super_admin_opens_org_detail(
 
 
 @skip_no_db
+async def test_suspending_org_revokes_open_sessions(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Audit topilmasi (2026-08-16): `0026` faqat YANGI kirishni bloklardi,
+    allaqachon kirgan xodim refresh rotatsiyasi bilan ishlayverardi."""
+    owner_h = await _login(client, OWNER_A_LOGIN)
+    # Sessiya tirikligini tasdiqlaymiz
+    alive = await client.get("/api/v1/me", headers=owner_h)
+    assert alive.status_code == 200, alive.text
+
+    sa_h = await _login(client, SA_LOGIN)
+    suspended = await client.patch(
+        f"/api/v1/platform/orgs/{world['org_a']}",
+        json={"status": "suspended"},
+        headers=sa_h,
+    )
+    assert suspended.status_code == 200, suspended.text
+    assert suspended.json()["revoked_sessions"] >= 1, "ochiq sessiya yopilmadi"
+
+    # Boshqa tashkilotning egasi TEGILMAGAN bo'lishi kerak
+    other_h = await _login(client, OWNER_B_LOGIN)
+    other_alive = await client.get("/api/v1/me", headers=other_h)
+    assert other_alive.status_code == 200, other_alive.text
+
+    # Tozalash: fixture teardown'i kutgan holatga qaytaramiz
+    await client.patch(
+        f"/api/v1/platform/orgs/{world['org_a']}", json={"status": "active"}, headers=sa_h
+    )
+
+
+@skip_no_db
 async def test_regular_owner_cannot_open_org_detail(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

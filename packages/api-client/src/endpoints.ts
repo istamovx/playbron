@@ -1621,12 +1621,20 @@ export const updatePlatformOrg = async (
   api: ApiClient,
   orgId: number,
   body: PlatformOrgUpdateIn,
-): Promise<{ orgId: number; orgName: string; orgStatus: string }> => {
-  const row = await api.patch<{ org_id: number; org_name: string; org_status: string }>(
-    `/platform/orgs/${orgId}`,
-    { name: body.name ?? null, status: body.status ?? null },
-  );
-  return { orgId: row.org_id, orgName: row.org_name, orgStatus: row.org_status };
+): Promise<{ orgId: number; orgName: string; orgStatus: string; revokedSessions: number }> => {
+  const row = await api.patch<{
+    org_id: number;
+    org_name: string;
+    org_status: string;
+    revoked_sessions: number;
+  }>(`/platform/orgs/${orgId}`, { name: body.name ?? null, status: body.status ?? null });
+  return {
+    orgId: row.org_id,
+    orgName: row.org_name,
+    orgStatus: row.org_status,
+    // `suspended` qilinganda yopilgan ochiq sessiyalar soni (`0030`)
+    revokedSessions: row.revoked_sessions,
+  };
 };
 
 export interface PlatformOrgClubDto {

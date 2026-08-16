@@ -284,11 +284,17 @@ export function PlatformClubsScreen(): ReactNode {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      await updatePlatformOrg(api, editDraft.orgId, {
+      const updated = await updatePlatformOrg(api, editDraft.orgId, {
         name: editDraft.name.trim(),
         status: editDraft.status,
       });
-      toast.success('Tashkilot yangilandi');
+      // To'xtatish HAQIQATAN kuchga kirganini ko'rsatamiz — necha ochiq
+      // sessiya yopilgani (`0030_suspend_revokes_sessions.py`)
+      toast.success(
+        updated.revokedSessions > 0
+          ? `Tashkilot to‘xtatildi — ${updated.revokedSessions} ta sessiya yopildi`
+          : 'Tashkilot yangilandi',
+      );
       setEditDraft(null);
       await reload();
     } catch (cause) {
@@ -559,7 +565,10 @@ export function PlatformClubsScreen(): ReactNode {
               <StatusLine
                 tone="warn"
                 icon="block"
-                parts={['Tashkilotning barcha xodimlari kira olmaydi', 'Saqlangach darhol amal qiladi']}
+                parts={[
+                  'Tashkilotning barcha xodimlari kira olmaydi',
+                  'Ochiq sessiyalar ham darhol yopiladi',
+                ]}
               />
             ) : null}
 
