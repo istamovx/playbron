@@ -41,3 +41,21 @@ async def rls_bypass(conn: AsyncConnection, *tables: str) -> AsyncIterator[None]
     finally:
         for table in tables:
             await conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+
+
+async def purge_audit_actor(conn: AsyncConnection, *user_ids: int | None) -> None:
+    """Fixture teardown'da `DELETE FROM users` dan OLDIN chaqiriladi.
+
+    `audit_log_actor_user_id_fkey` — `NO ACTION` (`club_id`/`org_id`dan farqli,
+    ular `SET NULL`). Sinov davomida audit yozadigan amal (masalan
+    `club_updated`, `station_created`, `staff_created`) chaqirilgan bo'lsa,
+    o'sha aktyorni o'chirish FK buzilishi bilan yiqiladi — sinov muvaffaqiyatli
+    o'tgan bo'lsa ham, faqat TEARDOWN'da.
+    """
+    ids = [i for i in user_ids if i is not None]
+    if not ids:
+        return
+    async with rls_bypass(conn, "audit_log"):
+        await conn.execute(
+            text("DELETE FROM audit_log WHERE actor_user_id = ANY(:ids)"), {"ids": ids}
+        )

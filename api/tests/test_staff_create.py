@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -126,6 +126,17 @@ async def world() -> AsyncIterator[dict[str, int]]:
             # ishlatadi, ya'ni bitta muvaffaqiyatsiz tozalash keyingi HAR
             # BIR yurishni `organizations_owner_user_id_fkey` bilan abadiy
             # blokidan qoldirardi — o'z-o'zini davolaydigan tozalash kerak.
+            stale_ids = [
+                row[0]
+                for row in (
+                    await conn.execute(
+                        text(
+                            "SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'prov.%'"
+                        )
+                    )
+                ).all()
+            ]
+            await purge_audit_actor(conn, *stale_ids)
             await conn.execute(
                 text(
                     "DELETE FROM organizations WHERE owner_user_id IN"

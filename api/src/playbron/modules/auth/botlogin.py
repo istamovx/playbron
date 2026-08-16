@@ -41,6 +41,7 @@ def webhook_secret_token() -> str:
     """
     return hashlib.sha256(settings.tg_webhook_secret.get_secret_value().encode()).hexdigest()
 
+
 START_PREFIX = "auth:tgstart:"
 # Havola ochilib, Start bosilguncha yetarli muddat
 START_TTL_SEC = 300
@@ -154,6 +155,33 @@ def _admin_token() -> str:
     return settings.admin_bot_token.get_secret_value() or settings.bot_token.get_secret_value()
 
 
+_bot_username_cache: str | None = None
+
+
+async def admin_bot_username() -> str | None:
+    """Deep-link (`tg://resolve?domain=`) yasash uchun — frontend TOKENNI
+    hech qachon bilmaydi, faqat shu orqali olingan ommaviy `username`ni
+    (loyiha egasining so'rovi, 2026-08-16: "Telegram bog'lash" tugmasi).
+    Jarayon ichida keshlanadi — username token yashagan davrda o'zgarmaydi.
+    """
+    global _bot_username_cache
+    if _bot_username_cache is not None:
+        return _bot_username_cache
+
+    token = _admin_token()
+    if not token:
+        return None
+
+    from playbron.core import telegram_api
+
+    me = await telegram_api.get_me(token)
+    username = me.get("username") if me else None
+    if isinstance(username, str) and username:
+        _bot_username_cache = username
+        return username
+    return None
+
+
 async def notify(chat_id: int, language_code: str | None, *, approved: bool) -> None:
     """Foydalanuvchiga botda natijani aytadi. Xato oqimni to'xtatmaydi."""
     token = _admin_token()
@@ -195,10 +223,12 @@ async def register_webhook(public_url: str) -> None:
                 json={
                     "url": url,
                     "secret_token": webhook_secret_token(),
-                    # Faqat xabarlar kerak — /start shu turda keladi.
-                    # Uxlab qolgan xizmat uyg'onganda navbatdagi update'lar
-                    # yetkaziladi, shuning uchun pending'lar tashlanmaydi.
-                    "allowed_updates": ["message"],
+                    # `message` — /start shu turda keladi. `callback_query` —
+                    # inline tugma bosilganda (reja #29/klub admin bot
+                    # menyusi, 2026-08-16) — bu turni unutish tugmalarni
+                    # BUTUNLAY jim qilib qo'yardi (Telegram hech qanday xato
+                    # bermaydi, shunchaki webhook'ga yubormaydi).
+                    "allowed_updates": ["message", "callback_query"],
                 },
             )
             body = resp.json()

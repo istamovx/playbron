@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -127,6 +127,14 @@ async def world() -> AsyncIterator[dict[str, int]]:
 
     async with engine.begin() as conn:
         async with rls_bypass(conn, "organizations", "users", "bookings"):
+            customer_id = await conn.scalar(
+                text("SELECT id FROM users WHERE telegram_id = :tg AND kind = 'customer'"),
+                {"tg": CUSTOMER_TG},
+            )
+            # `audit_log_actor_user_id_fkey` NO ACTION — sinov davomida
+            # yozilgan amallar (masalan `station_updated`) aktyorni o'chirishdan
+            # OLDIN tozalanishi shart (`conftest.py::purge_audit_actor`).
+            await purge_audit_actor(conn, ids["owner"], customer_id)
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
             await conn.execute(
@@ -412,6 +420,7 @@ async def test_owner_publishes_draft_club_with_station(client: httpx.AsyncClient
     finally:
         async with engine.begin() as conn:
             async with rls_bypass(conn, "organizations", "users", "stations"):
+                await purge_audit_actor(conn, ids.get("owner"))
                 await conn.execute(
                     text("DELETE FROM stations WHERE club_id = :c"), {"c": ids["club"]}
                 )

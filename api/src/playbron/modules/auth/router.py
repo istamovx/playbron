@@ -16,7 +16,7 @@ from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_STAFF, constant_time_equal, now
 from playbron.deps import current_claims, db, public_db, require_staff_token
 from playbron.models import User
-from playbron.modules.auth import botlogin, service, signup, staff, stafflink
+from playbron.modules.auth import botlogin, botmenu, service, signup, staff, stafflink
 from playbron.modules.auth.telegram import TelegramIdentity, verify_init_data, verify_widget
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -392,6 +392,7 @@ async def poll_bot_login(
 class LinkStartOut(BaseModel):
     nonce: str
     expires_in: int
+    bot_username: str | None = None
 
 
 class LinkPollOut(BaseModel):
@@ -407,9 +408,12 @@ async def start_telegram_link() -> LinkStartOut:
     """Kirgan xodim — bron bildirishnomasi uchun o'z Telegram'ini ulaydi.
 
     Deep-link (`botlogin.py`dagi bilan bir xil naqsh) — OAuth oynasi yo'q.
+    `bot_username` — frontend `tg://resolve?domain=`ni o'zi yasashi uchun,
+    tokenni bilmasdan.
     """
     nonce = await stafflink.start_link(context.current().user_id)
-    return LinkStartOut(nonce=nonce, expires_in=stafflink.START_TTL_SEC)
+    bot_username = await botlogin.admin_bot_username()
+    return LinkStartOut(nonce=nonce, expires_in=stafflink.START_TTL_SEC, bot_username=bot_username)
 
 
 @router.post(
@@ -469,14 +473,16 @@ async def admin_bot_webhook(
     session: Annotated[AsyncSession, Depends(public_db)],
     secret: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, bool]:
-    """Admin bot webhook'i — faqat `/start <nonce>` xabarlarini qayta ishlaydi.
+    """Admin bot webhook'i.
 
     Sarlavhadagi sekret `setWebhook` da o'rnatilgan qiymat bilan solishtiriladi —
     boshqa hech kim bu endpointga yozolmaydi. Telegram'ga har doim 200 qaytadi,
     aks holda u update'ni qayta-qayta yuboraveradi.
 
-    Ikki nonce turi bitta webhook'da: kirish (`botlogin.start_login`) va
-    Telegram bog'lash (`stafflink.start_link`, `lnk_` prefiksi bilan).
+    To'rt turdagi update bitta webhook'da: kirish (`botlogin.start_login`),
+    Telegram bog'lash (`stafflink.start_link`, `lnk_` prefiksi bilan), oddiy
+    matn (bog'langan OWNER/ADMIN'ga hisobot menyusi — `botmenu.py`, reja
+    #29, 2026-08-16) va menyu tugmasi bosilishi (`callback_query`).
     """
     if not settings.tg_webhook_secret.get_secret_value():
         raise Unauthorized("Webhook sekreti sozlanmagan", code="WEBHOOK_BAD_SECRET")
@@ -487,8 +493,15 @@ async def admin_bot_webhook(
         update = await request.json()
     except ValueError:
         return {"ok": True}
+    if not isinstance(update, dict):
+        return {"ok": True}
 
-    parsed = botlogin.extract_start(update if isinstance(update, dict) else {})
+    callback_query = update.get("callback_query")
+    if isinstance(callback_query, dict):
+        await botmenu.handle_callback(session, callback_query)
+        return {"ok": True}
+
+    parsed = botlogin.extract_start(update)
     if parsed:
         nonce, sender = parsed
         if nonce.startswith(stafflink.PREFIX):
@@ -503,6 +516,22 @@ async def admin_bot_webhook(
                 console_lang or sender.get("language_code"),
                 approved=console_lang is not None,
             )
+        return {"ok": True}
+
+    # `/start <nonce>` emas — oddiy xabar. Bog'langan OWNER/ADMIN bo'lsa
+    # hisobot menyusini ko'rsatamiz; boshqa hech kimga (bog'lanmagan,
+    # STAFF) javob YO'Q — bu ADMIN BOT, ommaviy suhbat emas.
+    message = update.get("message")
+    if isinstance(message, dict):
+        msg_from = message.get("from")
+        chat = message.get("chat")
+        if (
+            isinstance(msg_from, dict)
+            and isinstance(chat, dict)
+            and "id" in msg_from
+            and "id" in chat
+        ):
+            await botmenu.maybe_send_menu(session, int(msg_from["id"]), int(chat["id"]))
 
     return {"ok": True}
 

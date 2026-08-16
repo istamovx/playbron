@@ -86,3 +86,32 @@ def name_keyboard(confirm: str, change: str) -> dict[str, Any]:
 
 def webapp_keyboard(label: str, url: str) -> dict[str, Any]:
     return {"inline_keyboard": [[{"text": label, "web_app": {"url": url}}]]}
+
+
+async def get_me(token: str) -> dict[str, Any] | None:
+    """Bot profilini oladi — `username`, deep-link (`tg://resolve?domain=`)
+    yasash uchun. Frontend tokenni HECH QACHON bilmaydi, faqat shu orqali
+    olingan username'ni (loyiha egasining so'rovi, 2026-08-16: "Telegram
+    bog'lash" tugmasi)."""
+    return await call(token, "getMe", {})
+
+
+def callback_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
+    """`rows` — har biri `(matn, callback_data)` juftliklari qatori."""
+    return {
+        "inline_keyboard": [
+            [{"text": text, "callback_data": data} for text, data in row] for row in rows
+        ]
+    }
+
+
+async def answer_callback_query(
+    token: str, callback_query_id: str, text: str | None = None
+) -> None:
+    """Telegram'ning "yuklanmoqda" soatchasi tugmani bosgandan keyin
+    UZOQ osilib qolmasin — har bir callback_query albatta javob olishi
+    shart (Bot API talabi)."""
+    payload: dict[str, Any] = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+    await call(token, "answerCallbackQuery", payload)

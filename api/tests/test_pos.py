@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -137,6 +137,7 @@ async def world() -> AsyncIterator[dict[str, int]]:
         async with rls_bypass(
             conn, "organizations", "users", "bookings", "stations", "products", "orders"
         ):
+            await purge_audit_actor(conn, ids["owner"])
             await conn.execute(text("DELETE FROM orders WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM products WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})

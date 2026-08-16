@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -170,6 +170,9 @@ async def world() -> AsyncIterator[dict[str, int]]:
 
     async with engine.begin() as conn:
         async with rls_bypass(conn, "organizations", "users", "super_admins", "bookings"):
+            await purge_audit_actor(
+                conn, ids["sa_user"], ids["owner_a"], ids["owner_b"]
+            )
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :a OR club_id = :b"),
                                 {"a": ids["club_a"], "b": ids["club_b"]})
             await conn.execute(text("DELETE FROM organizations WHERE id = :a OR id = :b"),
@@ -308,6 +311,10 @@ async def test_super_admin_creates_org_manually(
         engine = _owner_engine()
         async with engine.begin() as conn:
             async with rls_bypass(conn, "organizations", "users"):
+                new_owner_id = await conn.scalar(
+                    text("SELECT id FROM users WHERE login = :l"), {"l": login}
+                )
+                await purge_audit_actor(conn, new_owner_id)
                 await conn.execute(
                     text(
                         "DELETE FROM organizations WHERE owner_user_id IN"
