@@ -312,7 +312,7 @@ export function PlatformClubsScreen(): ReactNode {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-      <div className="pb-tiles-4">
+      <div className="pb-tiles-2">
         <StatTile label="Jami tashkilotlar" value={String(totalOrgs)} icon="corporate_fare" />
         <StatTile label="Faol tashkilotlar" value={String(activeOrgs)} icon="storefront" />
       </div>

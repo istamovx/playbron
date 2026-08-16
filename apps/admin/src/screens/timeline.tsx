@@ -5,13 +5,14 @@ import {
   type LiveStationDto,
   type TimelineBookingDto,
 } from '@playbron/api-client';
-import { Panel, SegmentedControl, StatusLine, useNarrow } from '@playbron/ui';
+import { Modal, Panel, SegmentedControl, StatusLine, useNarrow } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
 import { DAY_END, DAY_ITEMS, DAY_START, HM, consoleLabel, type DayId } from '../mock/data';
-import { useNow } from '../store/board';
+import { useBoard, useNow } from '../store/board';
 import { useSession } from '../store/session';
+import { BookingDetailPanel } from './live-board';
 
 /**
  * Kunlik gantt — `PlayBron Xodim.dc.html` TIMELINE bo'limi.
@@ -51,6 +52,8 @@ const wide = (from: number, to: number): string =>
 const visible = (from: number, to: number): boolean => to > DAY_START && from < DAY_END;
 
 interface Bar {
+  id: number;
+  status: string;
   left: string;
   width: string;
   bg: string;
@@ -82,6 +85,8 @@ function barsForStation(
     const label = (b.guestLabel ?? 'Mijoz').split(' ')[0] ?? 'Mijoz';
 
     bars.push({
+      id: b.id,
+      status: b.status,
       left: pos(from),
       width: wide(from, to),
       bg: overtime
@@ -120,7 +125,10 @@ function dateFor(day: DayId): { iso: string; startMs: number } {
 
 export function TimelineScreen(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
   const now = useNow();
   const nowMin = now / 60;
   const narrow = useNarrow();
@@ -130,6 +138,9 @@ export function TimelineScreen(): ReactNode {
   const [bookings, setBookings] = useState<TimelineBookingDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Bar tanlansa — hisob tafsiloti/bekor qilish (`live-board.tsx` bilan
+  // bir xil panel, loyiha egasining so'rovi, 2026-08-16).
+  const [detailBookingId, setDetailBookingId] = useState<number | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
     if (clubId === null) return;
@@ -171,6 +182,22 @@ export function TimelineScreen(): ReactNode {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+      <Modal
+        open={detailBookingId !== null}
+        onClose={() => setDetailBookingId(null)}
+        title="Hisob tafsiloti"
+        variant="drawer"
+      >
+        {clubId !== null && detailBookingId !== null ? (
+          <BookingDetailPanel
+            clubId={clubId}
+            bookingId={detailBookingId}
+            onChanged={() => void reload()}
+            onClose={() => setDetailBookingId(null)}
+          />
+        ) : null}
+      </Modal>
+
       <div
         style={{
           display: 'flex',
@@ -233,9 +260,24 @@ export function TimelineScreen(): ReactNode {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  // 10 qatordan keyin ichki scroll (loyiha egasining
+                  // topilmasi, 2026-08-16) — qator balandligi kontentga
+                  // qarab o'zgaruvchan (`minHeight`) bo'lgani uchun aniq
+                  // piksel emas, taxminiy o'rtacha bilan hisoblangan.
+                  maxHeight: 'calc(10 * (var(--control-h-lg) + 12px))',
+                  overflowY: 'auto',
+                }}
+              >
                 {stations.map((station) => (
-                  <div key={station.id} style={{ display: 'flex', alignItems: 'center', height: 34 }}>
+                  <div
+                    key={station.id}
+                    style={{ display: 'flex', alignItems: 'center', minHeight: 'var(--control-h-lg)' }}
+                  >
                     <div
                       style={{
                         width: 78,
@@ -277,10 +319,16 @@ export function TimelineScreen(): ReactNode {
                       ))}
 
                       {barsForStation(bookings, station.id, dayStartMs, nowMin, day === 'Bugun').map(
-                        (bar, index) => (
+                        (bar) => (
                           <div
-                            key={`${bar.name}-${index}`}
+                            key={bar.id}
+                            role="button"
+                            tabIndex={0}
                             title={`${bar.name} · ${bar.time}`}
+                            onClick={() => setDetailBookingId(bar.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') setDetailBookingId(bar.id);
+                            }}
                             style={{
                               position: 'absolute',
                               top: 4,

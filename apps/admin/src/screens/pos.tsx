@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
 import { S } from '../mock/data';
+import { useBoard } from '../store/board';
 import { useSession } from '../store/session';
 
 function formatClock(iso: string): string {
@@ -25,7 +26,10 @@ function formatClock(iso: string): string {
  */
 export function PosScreen(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
 
   const [open, setOpen] = useState<OpenBookingDto[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);

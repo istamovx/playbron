@@ -202,6 +202,43 @@
   }
 }
 
+/* Ikkita ko'rsatkich plitasi: keng ekranda yonma-yon, torda ustma-ust.
+   Ustun soni ko'rsatkich soniga TENG bo'lishi shart (`pb-tiles-4`ni 2-3
+   ta elementga ishlatish keraksiz bo'sh ustun qoldirardi — loyiha
+   egasining topilmasi, 2026-08-16). */
+.pb-tiles-2 {
+  display: grid;
+  min-width: 0;
+  gap: var(--gap-panel);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 420px) {
+  .pb-tiles-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Uchta ko'rsatkich plitasi: keng ekranda bitta qator, torda 1 ustun. */
+.pb-tiles-3 {
+  display: grid;
+  min-width: 0;
+  gap: var(--gap-panel);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .pb-tiles-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .pb-tiles-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* To'rtta ko'rsatkich plitasi: keng ekranda bitta qator, tor ekranda 2×2.
    `auto-fit` 3+1 kabi nomutanosib qatorlar berardi, shuning uchun ustun soni qat'iy. */
 .pb-tiles-4 {

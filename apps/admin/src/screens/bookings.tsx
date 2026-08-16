@@ -12,6 +12,7 @@ import { Button, DatePicker, Modal, Panel, Select, StatusLine, TextField, TimeSe
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
+import { useBoard } from '../store/board';
 import { useSession } from '../store/session';
 
 /** `stations.console_type` — CHECK ro'yxati bilan bir xil (`0009_bookings.py`). */
@@ -83,6 +84,10 @@ function formatClock(iso: string): string {
   });
 }
 
+function stationLabelOf(s: StationDto): string {
+  return `${s.code} · ${s.roomLabel} · ${CONSOLE_LABEL[s.consoleType] ?? s.consoleType}`;
+}
+
 /**
  * Xodim uchun bron boshqaruvi — ikki qism:
  *   1. Mijoz yuborgan `PENDING` navbat — tasdiq/rad
@@ -93,7 +98,10 @@ export function BookingsScreen(): ReactNode {
   const session = useSession((state) => state.session);
   // Ko'p klublik almashtirgich hali yo'q (`store/board.ts::activeClubId`
   // birinchi klubga `App()`da sinxronlanadi) — birinchi a'zolik yetarli.
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
 
   const [pending, setPending] = useState<PendingBookingDto[]>([]);
   const [stations, setStations] = useState<StationDto[]>([]);
@@ -255,21 +263,43 @@ function PendingCard({
   );
 }
 
-function ManualBookingPanel({
+/**
+ * Qo'lda bron formasi — `bookings.tsx`dan (kutilayotgan navbat ekrani) va
+ * `live-board.tsx`dan (bo'sh/band xonaga to'g'ridan hisob ochish) bir xil
+ * shaklda ishlatiladi.
+ *
+ * `initialStation` berilsa (Live Board'dan kelgan chaqiruv):
+ *   - xona OLDINDAN tanlangan, boshlanish "hozir" (`nowStart()`).
+ *   - shu xona ro'yxatda HAR DOIM bor — hatto tizim uni "band"/nofaol deb
+ *     bilsa ham (loyiha egasining so'rovi, 2026-08-16: "qaysi xona
+ *     bo'shligini xodim tizimdan ko'proq biladi, erkinlik unga
+ *     topshirilsin"). Haqiqiy to'qnashuv baribir backend'dagi
+ *     `bookings_no_overlap` orqali tekshiriladi — frontend faqat oldindan
+ *     TAKLIF qiladi, TAQIQLAMAYDI.
+ */
+export function ManualBookingPanel({
   clubId,
   stations,
+  initialStation,
   onCreated,
 }: {
   clubId: number | null;
   stations: StationDto[];
+  initialStation?: StationDto;
   onCreated: () => void;
 }): ReactNode {
-  const activeStations = useMemo(() => stations.filter((s) => s.status === 'active'), [stations]);
-  const labelOf = (s: StationDto): string =>
-    `${s.code} · ${s.roomLabel} · ${CONSOLE_LABEL[s.consoleType] ?? s.consoleType}`;
+  const activeStations = useMemo(() => {
+    const active = stations.filter((s) => s.status === 'active');
+    if (initialStation && !active.some((s) => s.id === initialStation.id)) {
+      return [initialStation, ...active];
+    }
+    return active;
+  }, [stations, initialStation]);
 
-  const [stationLabel, setStationLabel] = useState('');
-  const [start, setStart] = useState<StartValue>(defaultStart());
+  const [stationLabel, setStationLabel] = useState(() =>
+    initialStation ? stationLabelOf(initialStation) : '',
+  );
+  const [start, setStart] = useState<StartValue>(() => (initialStation ? nowStart() : defaultStart()));
   const [hours, setHours] = useState('1');
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState(PHONE_PREFIX);
@@ -279,14 +309,14 @@ function ManualBookingPanel({
 
   useEffect(() => {
     if (!stationLabel && activeStations.length > 0) {
-      setStationLabel(labelOf(activeStations[0] as StationDto));
+      setStationLabel(stationLabelOf(activeStations[0] as StationDto));
     }
   }, [activeStations, stationLabel]);
 
   const hoursNum = Number(hours);
   const ready =
     clubId !== null &&
-    activeStations.some((s) => labelOf(s) === stationLabel) &&
+    activeStations.some((s) => stationLabelOf(s) === stationLabel) &&
     start.date.length > 0 &&
     start.time.length > 0 &&
     hoursNum >= 1 &&
@@ -297,7 +327,7 @@ function ManualBookingPanel({
 
   const submit = async (): Promise<void> => {
     if (!ready || clubId === null) return;
-    const station = activeStations.find((s) => labelOf(s) === stationLabel);
+    const station = activeStations.find((s) => stationLabelOf(s) === stationLabel);
     if (!station) return;
 
     setSubmitting(true);
@@ -353,7 +383,7 @@ function ManualBookingPanel({
           </span>
           <Select
             value={stationLabel}
-            items={activeStations.map(labelOf)}
+            items={activeStations.map(stationLabelOf)}
             onChange={setStationLabel}
             size="lg"
             notch

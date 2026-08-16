@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
+import { useBoard } from '../../store/board';
 import { useSession } from '../../store/session';
 import { Labeled } from './parts';
 
@@ -56,7 +57,10 @@ interface EditDraft {
 /** Xodimlar — hisob ochish va rol berish (`POST /clubs/{id}/staff`). */
 export function StaffScreen(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
   // Faol klubdagi CHAQIRUVCHI roli — ADMIN o'ziga teng (ADMIN) rol bera
   // olmaydi, server ham shuni majburlaydi (`ROLE_NOT_ALLOWED`)
   const callerRole = session?.clubs.find((c) => c.id === clubId)?.role ?? 'STAFF';
@@ -201,7 +205,7 @@ export function StaffScreen(): ReactNode {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-      <div className="pb-tiles-4">
+      <div className="pb-tiles-2">
         <StatTile label="Xodimlar" value={String(staff.length)} unit="ta" icon="group" />
         <StatTile label="Faol" value={String(activeCount)} unit="ta" icon="badge" />
       </div>

@@ -490,27 +490,194 @@ export function DatePicker({
   );
 }
 
-/** Vaqt tanlagich — `Select`ning o'zi, faqat `HH:MM` ro'yxati bilan
- * oldindan to'ldirilgan (sukut 30 daqiqalik qadam). */
+function timeParts(value: string): { h: number; m: number } {
+  const [rawH, rawM] = value.split(':');
+  const h = Number.parseInt(rawH ?? '', 10);
+  const m = Number.parseInt(rawM ?? '', 10);
+  return {
+    h: Number.isFinite(h) ? Math.min(23, Math.max(0, h)) : 0,
+    m: Number.isFinite(m) ? Math.min(59, Math.max(0, m)) : 0,
+  };
+}
+
+const timeColStyle: CSSProperties = {
+  flex: 1,
+  maxHeight: 216,
+  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+};
+
+/** Vaqt tanlagich — `DatePicker` bilan bir xil popover naqshi, lekin
+ * soat va daqiqa IKKITA alohida ro'yxatdan tanlanadi (loyiha egasining
+ * topilmasi, 2026-08-16: bitta "HH:MM" ro'yxati aniq daqiqani tanlashni
+ * qiyinlashtirardi — 30 daqiqalik qadam bilan cheklangan edi). */
 export function TimeSelect({
   value,
   onChange,
+  label,
   size = 'lg',
   notch,
-  stepMinutes = 30,
+  minuteStep = 5,
   style,
 }: {
   /** `HH:MM`. */
   value: string;
   onChange: (value: string) => void;
+  label?: string;
   size?: ControlSize;
   notch?: boolean;
-  stepMinutes?: number;
+  minuteStep?: number;
   style?: CSSProperties;
 }): ReactNode {
-  const items: string[] = [];
-  for (let m = 0; m < 24 * 60; m += stepMinutes) {
-    items.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
-  }
-  return <Select value={value} items={items} onChange={onChange} size={size} notch={notch} style={style} />;
+  const { h, m } = timeParts(value);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const hourRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const minuteRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    const off = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', off);
+    return () => document.removeEventListener('mousedown', off);
+  }, [open]);
+
+  // Ochilganda joriy soat/daqiqa ko'rinishga scroll qilinadi — ro'yxatni
+  // qo'lda pastga surish shart bo'lmasin.
+  useEffect(() => {
+    if (!open) return;
+    hourRefs.current[h]?.scrollIntoView({ block: 'nearest' });
+    minuteRefs.current[m - (m % minuteStep)]?.scrollIntoView({ block: 'nearest' });
+    // `h`/`m` ATAYLAB bog'liqlik ro'yxatida emas — `DatePicker`dagi bilan
+    // bir xil sabab: faqat OCHILGANDA scroll qilinsin, foydalanuvchi
+    // ro'yxat ichida tanlov qilayotganda popover o'z-o'zidan qayta
+    // sirpanmasin.
+  }, [open]);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const set = (nh: number, nm: number) => onChange(`${pad(nh)}:${pad(nm)}`);
+
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const minutes = Array.from({ length: Math.ceil(60 / minuteStep) }, (_, i) => i * minuteStep);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', ...style }}>
+      {label ? (
+        <span
+          style={{
+            display: 'block',
+            marginBottom: 6,
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--ls-label)',
+            textTransform: 'uppercase',
+            color: 'var(--text-label)',
+          }}
+        >
+          {label}
+        </span>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          height: controlHeight(size),
+          padding: '0 10px',
+          font: 'var(--type-data)',
+          color: 'var(--fg-1)',
+          background: 'var(--surface-field)',
+          border: `1px solid ${open ? 'var(--border-accent)' : 'var(--line-2)'}`,
+          borderRadius: 'var(--r-1)',
+          clipPath: notch ? 'var(--clip-tr)' : undefined,
+          cursor: 'pointer',
+          boxShadow: open ? 'var(--glow-violet-sm)' : 'none',
+          transition: 'var(--t-control)',
+        }}
+      >
+        <Icon name="schedule" size={14} color="var(--fg-4)" />
+        <span style={{ flex: 1, textAlign: 'left' }}>{`${pad(h)}:${pad(m)}`}</span>
+      </button>
+
+      {open ? (
+        <div
+          style={{
+            position: 'absolute',
+            zIndex: 40,
+            top: 'calc(100% + 4px)',
+            left: 0,
+            width: 160,
+            padding: 8,
+            display: 'flex',
+            gap: 6,
+            background: 'var(--surface-pop)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-1)',
+            boxShadow: 'var(--shadow-pop)',
+          }}
+        >
+          <div style={timeColStyle}>
+            {hours.map((hh) => (
+              <button
+                key={hh}
+                type="button"
+                ref={(el) => {
+                  hourRefs.current[hh] = el;
+                }}
+                onClick={() => set(hh, m)}
+                style={{
+                  height: 26,
+                  flexShrink: 0,
+                  textAlign: 'center',
+                  font: 'var(--type-data)',
+                  color: hh === h ? 'var(--bg-app)' : 'var(--fg-2)',
+                  background: hh === h ? 'var(--primary-100)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 'var(--r-1)',
+                  cursor: 'pointer',
+                }}
+              >
+                {pad(hh)}
+              </button>
+            ))}
+          </div>
+          <div style={timeColStyle}>
+            {minutes.map((mm) => (
+              <button
+                key={mm}
+                type="button"
+                ref={(el) => {
+                  minuteRefs.current[mm] = el;
+                }}
+                onClick={() => {
+                  set(h, mm);
+                  setOpen(false);
+                }}
+                style={{
+                  height: 26,
+                  flexShrink: 0,
+                  textAlign: 'center',
+                  font: 'var(--type-data)',
+                  color: mm === m - (m % minuteStep) ? 'var(--bg-app)' : 'var(--fg-2)',
+                  background: mm === m - (m % minuteStep) ? 'var(--primary-100)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 'var(--r-1)',
+                  cursor: 'pointer',
+                }}
+              >
+                {pad(mm)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }

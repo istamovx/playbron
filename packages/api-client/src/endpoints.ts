@@ -467,6 +467,100 @@ export const rejectBooking = (
   reason?: string,
 ): Promise<void> => api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/reject`, { reason });
 
+export const cancelBooking = (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+  reason?: string,
+): Promise<void> => api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/cancel`, { reason });
+
+export interface OrderItemDto {
+  productName: string;
+  qty: number;
+  priceSnapshot: number;
+}
+
+export interface BookingDetailDto {
+  id: number;
+  stationId: number;
+  stationCode: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+  rateSnapshot: number;
+  guestLabel: string | null;
+  closed: boolean;
+  items: OrderItemDto[];
+  playAmount: number;
+  ordersAmount: number;
+  total: number;
+}
+
+interface BookingDetailApi {
+  id: number;
+  station_id: number;
+  station_code: string;
+  status: string;
+  starts_at: string;
+  ends_at: string;
+  hours: number;
+  rate_snapshot: number;
+  guest_label: string | null;
+  closed: boolean;
+  items: { product_name: string; qty: number; price_snapshot: number }[];
+  play_amount: number;
+  orders_amount: number;
+  total: number;
+}
+
+export const getBookingDetail = async (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+): Promise<BookingDetailDto> => {
+  const row = await api.get<BookingDetailApi>(`/clubs/${clubId}/bookings/${bookingId}/detail`);
+  return {
+    id: row.id,
+    stationId: row.station_id,
+    stationCode: row.station_code,
+    status: row.status,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    hours: row.hours,
+    rateSnapshot: row.rate_snapshot,
+    guestLabel: row.guest_label,
+    closed: row.closed,
+    items: row.items.map((item) => ({
+      productName: item.product_name,
+      qty: item.qty,
+      priceSnapshot: item.price_snapshot,
+    })),
+    playAmount: row.play_amount,
+    ordersAmount: row.orders_amount,
+    total: row.total,
+  };
+};
+
+interface ExtendBookingApi {
+  id: number;
+  hours: number;
+  starts_at: string;
+  ends_at: string;
+}
+
+export const extendBooking = async (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+  extraHours: number,
+): Promise<{ id: number; hours: number; startsAt: string; endsAt: string }> => {
+  const row = await api.post<ExtendBookingApi>(`/clubs/${clubId}/bookings/${bookingId}/extend`, {
+    extra_hours: extraHours,
+  });
+  return { id: row.id, hours: row.hours, startsAt: row.starts_at, endsAt: row.ends_at };
+};
+
 export interface StaffBookingIn {
   stationId: number;
   startsAt: string;

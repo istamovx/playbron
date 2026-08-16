@@ -727,6 +727,184 @@ async def reject_booking(
         )
 
 
+# ── Live Board detali — buyurtma, uzaytirish, bekor qilish ─────────────────
+# Reja #36 (loyiha egasi, 2026-08-16): "Live boardda karta tanlansa hisob
+# ma'lumotini ko'rish mumkin bo'lsin — buyurtma, ochilgan vaqt, countdown,
+# vaqtni uzaytirish"; "mijoz kelmasa xodim bekor qilishi mumkin bo'lsin —
+# Live board va Timeline'da".
+
+
+async def _load_booking_for_staff(session: AsyncSession, club_id: int, booking_id: int) -> Any:
+    """`_load_pending_booking()`dan farqli — status cheklovisiz, xodim
+    ko'radigan HAR QANDAY bron uchun (detail/uzaytirish/bekor qilish)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT b.id, b.station_id, s.code AS station_code, b.status, b.hours,"
+                "       b.rate_snapshot, b.closed_at, b.customer_id,"
+                "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
+                "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label,"
+                "       c.name AS club_name, c.timezone AS club_tz"
+                " FROM bookings b"
+                " JOIN stations s ON s.id = b.station_id"
+                " JOIN clubs c ON c.id = b.club_id"
+                " LEFT JOIN users u ON u.id = b.customer_id"
+                " WHERE b.id = :id AND b.club_id = :club_id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Bron topilmadi")
+    return row
+
+
+async def get_booking_detail(
+    session: AsyncSession, *, club_id: int, booking_id: int
+) -> dict[str, Any]:
+    """Karta bosilganda: mijoz nima buyurtma qilgani, hisob qachon ochilgani,
+    hozirgi holati — `pos/service.py::get_bill()`dan FARQI: status cheklovisiz
+    (yopilgan/bekor qilingan bron uchun ham ishlaydi) va buyurtma satrlari bilan."""
+    booking = await _load_booking_for_staff(session, club_id, booking_id)
+
+    item_rows = (
+        await session.execute(
+            text(
+                "SELECT oi.product_name, oi.qty, oi.price_snapshot"
+                " FROM order_items oi JOIN orders o ON o.id = oi.order_id"
+                " WHERE o.booking_id = :id AND o.club_id = :club_id"
+                " ORDER BY oi.id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ).all()
+    items = [
+        {"product_name": r.product_name, "qty": r.qty, "price_snapshot": int(r.price_snapshot)}
+        for r in item_rows
+    ]
+    orders_amount = sum(i["price_snapshot"] * i["qty"] for i in items)
+    play_amount = int(booking.rate_snapshot) * booking.hours
+
+    return {
+        "id": booking.id,
+        "station_id": booking.station_id,
+        "station_code": booking.station_code,
+        "status": booking.status,
+        "starts_at": booking.starts_at.isoformat(),
+        "ends_at": booking.ends_at.isoformat(),
+        "hours": booking.hours,
+        "rate_snapshot": int(booking.rate_snapshot),
+        "guest_label": booking.guest_label,
+        "closed": booking.closed_at is not None,
+        "items": items,
+        "play_amount": play_amount,
+        "orders_amount": orders_amount,
+        "total": play_amount + orders_amount,
+    }
+
+
+# Bitta amalda uzaytirish chegarasi — cheksiz uzaytirishni oldini oladi
+EXTEND_MAX_HOURS = 3
+
+
+async def extend_booking(
+    session: AsyncSession, *, club_id: int, booking_id: int, staff_id: int, extra_hours: int
+) -> dict[str, Any]:
+    """Mijoz iltimosiga ko'ra vaqtni uzaytirish.
+
+    Bandlik to'qnashuvi maxsus tekshirilmaydi — `bookings_no_overlap` EXCLUDE
+    konstreyni `period` YANGILANGANDA ham ishlaydi (faqat INSERT'da emas),
+    to'qnashsa `23P01` → global handler `409 SLOT_TAKEN`ga aylantiradi
+    (`core/errors.py`).
+    """
+    if not (1 <= extra_hours <= EXTEND_MAX_HOURS):
+        raise AppError(
+            f"1 dan {EXTEND_MAX_HOURS} soatgacha uzaytirish mumkin", code="EXTEND_RANGE_INVALID"
+        )
+
+    booking = await _load_booking_for_staff(session, club_id, booking_id)
+    if booking.status != "CONFIRMED":
+        raise AppError(
+            "Faqat tasdiqlangan bron uzaytiriladi", code="BOOKING_NOT_CONFIRMED", status_code=409
+        )
+    if booking.closed_at is not None:
+        raise AppError("Hisob allaqachon yopilgan", code="BILL_ALREADY_CLOSED", status_code=409)
+
+    new_hours = booking.hours + extra_hours
+    row = (
+        await session.execute(
+            text(
+                "UPDATE bookings SET hours = :hours,"
+                " period = tstzrange(lower(period), upper(period) + make_interval(hours => :extra))"
+                " WHERE id = :id"
+                " RETURNING lower(period) AS starts_at, upper(period) AS ends_at"
+            ),
+            {"id": booking_id, "hours": new_hours, "extra": extra_hours},
+        )
+    ).first()
+    if row is None:  # amalda yuz bermaydi — yuqorida topilgani tasdiqlangan
+        raise NotFound("Bron topilmadi")
+
+    await log_action(
+        action="booking_extended",
+        target=booking.station_code,
+        club_id=club_id,
+        after={"extra_hours": extra_hours, "new_hours": new_hours},
+    )
+
+    return {
+        "id": booking_id,
+        "hours": new_hours,
+        "starts_at": row.starts_at.isoformat(),
+        "ends_at": row.ends_at.isoformat(),
+    }
+
+
+async def cancel_confirmed_booking(
+    session: AsyncSession, *, club_id: int, booking_id: int, staff_id: int, reason: str | None
+) -> None:
+    """Mijoz kelmagan holatda xodim CONFIRMED bronni bekor qiladi.
+
+    `reject_booking()`dan FARQI: u faqat mijoz yuborgan `PENDING` navbat
+    uchun (hali tasdiqlanmagan); bu funksiya allaqachon tasdiqlangan, Live
+    Board/Timeline'da "band" ko'rinayotgan bronni bekor qiladi.
+    """
+    booking = await _load_booking_for_staff(session, club_id, booking_id)
+    if booking.status != "CONFIRMED":
+        raise AppError(
+            "Faqat tasdiqlangan bron bekor qilinadi", code="BOOKING_NOT_CONFIRMED", status_code=409
+        )
+    if booking.closed_at is not None:
+        raise AppError(
+            "Hisob allaqachon yopilgan — bekor qilib bo'lmaydi",
+            code="BILL_ALREADY_CLOSED",
+            status_code=409,
+        )
+
+    clean_reason = clean_name(reason, limit=300) if reason else None
+    await session.execute(
+        text(
+            "UPDATE bookings SET status = 'CANCELLED', cancelled_by = :staff_id,"
+            " cancelled_at = now(), cancel_reason = :reason WHERE id = :id"
+        ),
+        {"id": booking_id, "staff_id": staff_id, "reason": clean_reason},
+    )
+
+    await log_action(
+        action="booking_cancelled",
+        target=booking.station_code,
+        club_id=club_id,
+        after={"reason": clean_reason},
+    )
+
+    if booking.customer_id is not None:
+        await notify.notify_customer_rejected(
+            session,
+            customer_id=booking.customer_id,
+            club_name=booking.club_name,
+            reason=clean_reason,
+        )
+
 async def list_customer_bookings(session: AsyncSession, customer_id: int) -> list[dict[str, Any]]:
     rows = (
         await session.execute(

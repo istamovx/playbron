@@ -367,10 +367,10 @@ export function StatusLine({
     >
       {icon ? <Icon name={icon} size={13} color={color} /> : null}
       {list.map((part, index) => (
-        <span key={index} style={{ display: 'inline-flex', gap: 6 }}>
-          {index ? <span style={{ opacity: 0.5 }}>·</span> : null}
-          <span>{part}</span>
-        </span>
+        // Ajratuvchi "·" belgisi olib tashlandi — uzun matn ikki qatorga
+        // tushganda qatordagi birinchi so'z bilan qo'shilib chiroyli
+        // ko'rinmasdi (loyiha egasining topilmasi, 2026-08-16).
+        <span key={index}>{part}</span>
       ))}
     </div>
   );

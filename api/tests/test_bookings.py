@@ -559,3 +559,153 @@ async def test_past_start_time_is_rejected(
     )
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "STARTS_AT_PAST"
+
+
+# ── Live Board detali — buyurtma, uzaytirish, bekor qilish (reja #36) ──────
+
+
+async def _walkin_booking(
+    client: httpx.AsyncClient, staff_h: dict[str, str], club_id: int, station_id: int
+) -> int:
+    r = await client.post(
+        f"/api/v1/clubs/{club_id}/bookings/staff",
+        json={
+            "station_id": station_id,
+            "starts_at": _starts(0),
+            "hours": 1,
+            "guest_name": "Mehmon",
+            "guest_phone": "+998901234567",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 201, r.text
+    return int(r.json()["id"])
+
+
+@skip_no_db
+async def test_booking_detail_includes_orders(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    product = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Ichimlik", "name": "Detail Sinov Kola", "price": 15000},
+        headers=staff_h,
+    )
+    assert product.status_code == 201, product.text
+    product_id = product.json()["id"]
+
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": booking_id, "items": [{"product_id": product_id, "qty": 2}]},
+        headers=staff_h,
+    )
+    assert order.status_code == 201, order.text
+
+    r = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "CONFIRMED"
+    assert body["hours"] == 1
+    assert body["orders_amount"] == 30000
+    assert body["play_amount"] == body["rate_snapshot"]
+    assert body["total"] == body["play_amount"] + 30000
+    assert any(
+        item["product_name"] == "Detail Sinov Kola" and item["qty"] == 2 for item in body["items"]
+    )
+
+
+@skip_no_db
+async def test_staff_extends_confirmed_booking(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    before = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    ends_before = before.json()["ends_at"]
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 2},
+        headers=staff_h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["hours"] == 3
+    assert body["ends_at"] > ends_before
+
+    detail = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert detail.json()["hours"] == 3
+
+
+@skip_no_db
+async def test_extend_out_of_range_is_rejected(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 10},
+        headers=staff_h,
+    )
+    assert r.status_code == 422, r.text  # Pydantic `le=EXTEND_MAX_HOURS`
+
+
+@skip_no_db
+async def test_staff_cancels_confirmed_booking_customer_not_arrived(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/cancel",
+        json={"reason": "Mijoz kelmadi"},
+        headers=staff_h,
+    )
+    assert r.status_code == 204, r.text
+
+    detail = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert detail.json()["status"] == "CANCELLED"
+
+    # Bo'shagan xona — endi Live Board'da bo'sh ko'rinishi kerak
+    live = await client.get(f"/api/v1/clubs/{world['club']}/live", headers=staff_h)
+    assert live.status_code == 200, live.text
+    station = next(s for s in live.json() if s["id"] == world["station"])
+    assert station["booking_id"] is None
+
+
+@skip_no_db
+async def test_cancel_already_closed_booking_is_rejected(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    closed = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/close",
+        json={"payment_method": "CASH", "paid_amount": 0},
+        headers=staff_h,
+    )
+    assert closed.status_code == 200, closed.text
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/cancel",
+        json={},
+        headers=staff_h,
+    )
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "BILL_ALREADY_CLOSED"

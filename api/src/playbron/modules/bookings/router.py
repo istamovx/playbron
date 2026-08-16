@@ -437,3 +437,99 @@ async def reject(
         staff_id=context.current().user_id,
         reason=body.reason,
     )
+
+
+class OrderItemOut(BaseModel):
+    product_name: str
+    qty: int
+    price_snapshot: int
+
+
+class BookingDetailOut(BaseModel):
+    id: int
+    station_id: int
+    station_code: str
+    status: str
+    starts_at: str
+    ends_at: str
+    hours: int
+    rate_snapshot: int
+    guest_label: str | None
+    closed: bool
+    items: list[OrderItemOut]
+    play_amount: int
+    orders_amount: int
+    total: int
+
+
+@router.get(
+    "/{club_id}/bookings/{booking_id}/detail",
+    response_model=BookingDetailOut,
+    dependencies=[Depends(require_staff)],
+)
+async def booking_detail(
+    club_id: Annotated[int, Path()],
+    booking_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> BookingDetailOut:
+    """Live Board/Timeline — karta tanlanganda hisob detali (reja #36)."""
+    _assert_path_matches_header(club_id)
+    row = await service.get_booking_detail(session, club_id=club_id, booking_id=booking_id)
+    return BookingDetailOut(**row)
+
+
+class ExtendIn(BaseModel):
+    extra_hours: int = Field(ge=1, le=service.EXTEND_MAX_HOURS)
+
+
+class ExtendOut(BaseModel):
+    id: int
+    hours: int
+    starts_at: str
+    ends_at: str
+
+
+@router.post(
+    "/{club_id}/bookings/{booking_id}/extend",
+    response_model=ExtendOut,
+    dependencies=[Depends(require_staff)],
+)
+async def extend(
+    body: ExtendIn,
+    club_id: Annotated[int, Path()],
+    booking_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> ExtendOut:
+    """Mijoz iltimosiga ko'ra vaqtni uzaytirish (reja #36)."""
+    _assert_path_matches_header(club_id)
+    row = await service.extend_booking(
+        session,
+        club_id=club_id,
+        booking_id=booking_id,
+        staff_id=context.current().user_id,
+        extra_hours=body.extra_hours,
+    )
+    return ExtendOut(**row)
+
+
+@router.post(
+    "/{club_id}/bookings/{booking_id}/cancel",
+    status_code=204,
+    dependencies=[Depends(require_staff)],
+)
+async def cancel(
+    body: RejectIn,
+    club_id: Annotated[int, Path()],
+    booking_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> None:
+    """Mijoz kelmagan — tasdiqlangan bronni Live Board/Timeline'dan bekor
+    qilish (reja #36). `reject`dan farqli, PENDING emas, CONFIRMED uchun."""
+    _assert_path_matches_header(club_id)
+    await service.cancel_confirmed_booking(
+        session,
+        club_id=club_id,
+        booking_id=booking_id,
+        staff_id=context.current().user_id,
+        reason=body.reason,
+    )

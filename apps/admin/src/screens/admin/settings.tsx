@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { api } from '../../lib/api';
 import { S } from '../../mock/data';
 import { useClub } from '../../store/club';
+import { useBoard } from '../../store/board';
 import { ROLE_LABEL, remainingText, useSession } from '../../store/session';
 import { FormGrid, Labeled, parseHm } from './parts';
 
@@ -267,7 +268,10 @@ interface ClubDraft {
  */
 function ClubGeneralTab(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
 
   const [view, setView] = useState<ClubDraft | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -581,7 +585,10 @@ const EMPTY_STATION_DRAFT: StationDraft = {
 
 function StationsTab(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
 
   const [stations, setStations] = useState<StationDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -903,7 +910,10 @@ function logDetailSummary(row: ActivityLogDto): string {
  */
 function LogTab(): ReactNode {
   const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
+  // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
+  // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
+  const activeClubId = useBoard((state) => state.activeClubId);
+  const clubId = activeClubId ?? session?.clubs[0]?.id ?? null;
 
   const [rows, setRows] = useState<ActivityLogDto[]>([]);
   const [loading, setLoading] = useState(true);
