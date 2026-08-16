@@ -535,8 +535,23 @@ export function LineChart({
           preserveAspectRatio="none"
           style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}
         >
+          {/* `viewBox` 100×100 bo'lsa-da, konteyner deyarli hech qachon kvadrat
+              emas — X/Y masshtabi teng emas. `vectorEffect` bo'lmasa
+              gorizontal chiziqlar balandlik oshgani sayin ekranda tobora
+              qalinlashib ketardi (loyiha egasining topilmasi, 2026-08-16):
+              `strokeWidth` shu bilan ekran piksellarida QOTIRILADI, viewBox
+              cho'zilishidan qat'i nazar. */}
           {[0, 50, 100].map((y) => (
-            <line key={y} x1={0} y1={y} x2={100} y2={y} stroke="var(--chart-grid)" strokeWidth={1} />
+            <line
+              key={y}
+              x1={0}
+              y1={y}
+              x2={100}
+              y2={y}
+              stroke="var(--chart-grid)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
           ))}
 
           {hover !== null ? (
@@ -547,6 +562,7 @@ export function LineChart({
               y2={100}
               stroke="var(--chart-guide)"
               strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
             />
           ) : null}
 
@@ -560,6 +576,7 @@ export function LineChart({
             strokeWidth={2}
             strokeLinejoin="round"
             strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
             pathLength={1}
           />
         </svg>
