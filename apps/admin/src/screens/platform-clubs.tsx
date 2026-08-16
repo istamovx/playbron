@@ -1,9 +1,11 @@
 import {
   createPlatformOrg,
   errorText,
+  getPlatformOrg,
   listPlatformOrgs,
   recordPlatformPayment,
   updatePlatformOrg,
+  type PlatformOrgDetailDto,
   type PlatformOrgDto,
   type PlatformOrgStatus,
 } from '@playbron/api-client';
@@ -133,6 +135,32 @@ export function PlatformClubsScreen(): ReactNode {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const [previewOrgId, setPreviewOrgId] = useState<number | null>(null);
+  const [previewData, setPreviewData] = useState<PlatformOrgDetailDto | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (previewOrgId === null) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    getPlatformOrg(api, previewOrgId)
+      .then((data) => {
+        if (!cancelled) setPreviewData(data);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setPreviewError(errorText(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewOrgId]);
 
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -556,6 +584,142 @@ export function PlatformClubsScreen(): ReactNode {
         ) : null}
       </Modal>
 
+      <Modal
+        open={previewOrgId !== null}
+        onClose={() => setPreviewOrgId(null)}
+        title="Tashkilot — ko‘rish"
+        variant="drawer"
+      >
+        {previewLoading ? <StatusLine tone="neutral" icon="hourglass_empty" parts={['Yuklanmoqda…']} /> : null}
+        {previewError ? <StatusLine tone="danger" icon="error" parts={[previewError]} /> : null}
+        {previewData ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
+              <StatusLine
+                tone="neutral"
+                icon="corporate_fare"
+                parts={[previewData.orgName, `Ega: ${previewData.ownerName} (${previewData.ownerLogin ?? '—'})`]}
+              />
+              <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+                <Tag tone={orgStatusTone(previewData.orgStatus)}>
+                  {ORG_STATUS_LABELS[previewData.orgStatus as PlatformOrgStatus] ?? previewData.orgStatus}
+                </Tag>
+                <Tag tone="neutral">
+                  {previewData.planCode ? (PLAN_DISPLAY[previewData.planCode] ?? previewData.planCode) : 'Tarifsiz'}
+                </Tag>
+                <Tag tone="neutral">Ro‘yxatdan o‘tgan: {formatExpiry(previewData.createdAt)}</Tag>
+              </div>
+            </div>
+
+            <Panel title={`Klublar (${previewData.clubs.length})`} notch>
+              <EntityTable
+                rows={previewData.clubs}
+                rowKey={(row) => String(row.clubId)}
+                empty="Klub topilmadi"
+                columns={[
+                  {
+                    key: 'name',
+                    header: 'Klub',
+                    render: (row) => (
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                        <span style={{ color: 'var(--text-title)' }}>{row.clubName}</span>
+                        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                          {row.address}
+                        </span>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'status',
+                    header: 'Holat',
+                    render: (row) => (
+                      <Tag tone={row.clubStatus === 'active' ? 'success' : 'amber'}>
+                        {row.clubStatus === 'active' ? 'Faol' : 'Qoralama'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    key: 'stations',
+                    header: 'Stansiya',
+                    align: 'right',
+                    render: (row) => <span>{row.stationsCount}</span>,
+                  },
+                  {
+                    key: 'bookings',
+                    header: '30 kun bron',
+                    align: 'right',
+                    render: (row) => <span>{row.bookings30d}</span>,
+                  },
+                ]}
+              />
+            </Panel>
+
+            <Panel title={`To‘lov tarixi (${previewData.payments.length})`} notch>
+              <EntityTable
+                rows={previewData.payments}
+                rowKey={(row) => String(row.id)}
+                empty="To‘lov topilmadi"
+                columns={[
+                  {
+                    key: 'amount',
+                    header: 'Summa',
+                    render: (row) => (
+                      <span style={{ color: 'var(--text-title)' }}>{S(row.amount)} so‘m</span>
+                    ),
+                  },
+                  {
+                    key: 'plan',
+                    header: 'Tarif',
+                    render: (row) => (
+                      <span>{row.planCode ? (PLAN_DISPLAY[row.planCode] ?? row.planCode) : '—'}</span>
+                    ),
+                  },
+                  {
+                    key: 'period',
+                    header: 'Muddat',
+                    render: (row) => <span>{row.periodMonths ? `${row.periodMonths} oy` : '—'}</span>,
+                  },
+                  {
+                    key: 'paidAt',
+                    header: 'Sana',
+                    render: (row) => <span>{formatExpiry(row.paidAt)}</span>,
+                  },
+                  {
+                    key: 'enteredBy',
+                    header: 'Kim kiritdi',
+                    render: (row) => <span>{row.enteredByName ?? '—'}</span>,
+                  },
+                ]}
+              />
+            </Panel>
+
+            <Panel title={`Xodimlar (${previewData.staff.length})`} notch>
+              <EntityTable
+                rows={previewData.staff}
+                rowKey={(row) => `${row.clubId}:${row.userId}`}
+                empty="Xodim topilmadi"
+                columns={[
+                  {
+                    key: 'name',
+                    header: 'Ism',
+                    render: (row) => (
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                        <span style={{ color: 'var(--text-title)' }}>{row.firstName}</span>
+                        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                          {row.login ?? '—'}
+                        </span>
+                      </span>
+                    ),
+                  },
+                  { key: 'role', header: 'Rol', render: (row) => <Tag tone="neutral">{row.role}</Tag> },
+                  { key: 'club', header: 'Klub', render: (row) => <span>{row.clubName}</span> },
+                ]}
+              />
+            </Panel>
+          </div>
+        ) : null}
+      </Modal>
+
       <Panel
         title={`Klublar (${orgs.length})`}
         notch
@@ -683,6 +847,12 @@ export function PlatformClubsScreen(): ReactNode {
               align: 'right',
               render: (row) => (
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="visibility"
+                    onClick={() => setPreviewOrgId(row.orgId)}
+                  />
                   <Button
                     variant="ghost"
                     size="sm"

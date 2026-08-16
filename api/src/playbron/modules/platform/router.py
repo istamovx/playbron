@@ -70,6 +70,59 @@ async def list_orgs(session: Annotated[AsyncSession, Depends(platform_db)]) -> l
     return [OrgOut(**row) for row in rows]
 
 
+class OrgClubOut(BaseModel):
+    club_id: int
+    club_name: str
+    club_status: str
+    address: str
+    phone: str | None
+    stations_count: int
+    bookings_30d: int
+
+
+class OrgPaymentOut(BaseModel):
+    id: int
+    amount: int
+    plan_code: str | None
+    period_months: int | None
+    paid_at: str
+    note: str | None
+    entered_by_name: str | None
+
+
+class OrgStaffOut(BaseModel):
+    user_id: int
+    first_name: str
+    login: str | None
+    role: str
+    club_id: int
+    club_name: str
+
+
+class OrgDetailOut(BaseModel):
+    org_id: int
+    org_name: str
+    org_status: str
+    plan_code: str | None
+    created_at: str
+    owner_name: str
+    owner_login: str | None
+    clubs: list[OrgClubOut]
+    payments: list[OrgPaymentOut]
+    staff: list[OrgStaffOut]
+
+
+@router.get("/orgs/{org_id}", response_model=OrgDetailOut)
+async def org_detail(
+    org_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(platform_db)],
+) -> OrgDetailOut:
+    """"Ko'rish" (Preview) — klublar, TO'LIQ to'lov tarixi, xodimlar.
+    `list_orgs` faqat oxirgi to'lovni ko'rsatadi, bu yerda hammasi (reja #17)."""
+    row = await service.get_organization_detail(session, org_id=org_id)
+    return OrgDetailOut(**row)
+
+
 class OrgCreateIn(BaseModel):
     """`auth/router.py::OwnerSignupIn` bilan ATAYLAB bir xil maydonlar —
     `signup.owner_signup()`ning o'zi ishlatiladi (`service.py`)."""

@@ -184,6 +184,116 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
+async def get_organization_detail(session: AsyncSession, *, org_id: int) -> dict[str, Any]:
+    """Bitta tashkilot — "Ko'rish" (Preview): klublar ro'yxati (bittadan
+    ko'p bo'lishi mumkin), TO'LIQ to'lov tarixi (`list_organizations`dagi
+    kabi faqat so'nggisi emas) va xodimlar ro'yxati (`memberships`,
+    barcha klublari bo'yicha birlashtirilgan).
+
+    `users.phone`/`telegram_id` `playbron_platform`ga REVOKE qilingan
+    (`0016_platform_org_admin.py`) — ega/xodim uchun faqat ism/login
+    qaytariladi, telefon YO'Q.
+    """
+    org = (
+        await session.execute(
+            text(
+                "SELECT o.id, o.name, o.status, o.plan_code, o.created_at,"
+                "       u.first_name AS owner_name, u.login AS owner_login"
+                " FROM organizations o JOIN users u ON u.id = o.owner_user_id"
+                " WHERE o.id = :org"
+            ),
+            {"org": org_id},
+        )
+    ).first()
+    if org is None:
+        raise NotFound("Tashkilot topilmadi")
+
+    clubs = (
+        await session.execute(
+            text(
+                "SELECT c.id, c.name, c.status, c.address, c.phone,"
+                "       (SELECT count(*) FROM stations s WHERE s.club_id = c.id) AS stations_count,"
+                "       (SELECT count(*) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d"
+                " FROM clubs c WHERE c.org_id = :org ORDER BY c.created_at"
+            ),
+            {"org": org_id},
+        )
+    ).all()
+
+    payments = (
+        await session.execute(
+            text(
+                "SELECT pp.id, pp.amount, pp.plan_code, pp.period_months, pp.paid_at, pp.note,"
+                "       u.first_name AS entered_by_name"
+                " FROM platform_payments pp LEFT JOIN users u ON u.id = pp.entered_by"
+                " WHERE pp.org_id = :org ORDER BY pp.paid_at DESC"
+            ),
+            {"org": org_id},
+        )
+    ).all()
+
+    staff = (
+        await session.execute(
+            text(
+                "SELECT m.user_id, u.first_name, u.login, m.role, m.club_id, c.name AS club_name"
+                " FROM memberships m"
+                " JOIN users u ON u.id = m.user_id"
+                " JOIN clubs c ON c.id = m.club_id"
+                " WHERE c.org_id = :org AND m.status = 'active'"
+                " ORDER BY c.name, m.role, u.first_name"
+            ),
+            {"org": org_id},
+        )
+    ).all()
+
+    return {
+        "org_id": org.id,
+        "org_name": org.name,
+        "org_status": org.status,
+        "plan_code": org.plan_code,
+        "created_at": org.created_at.isoformat(),
+        "owner_name": org.owner_name,
+        "owner_login": org.owner_login,
+        "clubs": [
+            {
+                "club_id": row.id,
+                "club_name": row.name,
+                "club_status": row.status,
+                "address": row.address,
+                "phone": row.phone,
+                "stations_count": int(row.stations_count or 0),
+                "bookings_30d": int(row.bookings_30d or 0),
+            }
+            for row in clubs
+        ],
+        "payments": [
+            {
+                "id": row.id,
+                "amount": row.amount,
+                "plan_code": row.plan_code,
+                "period_months": row.period_months,
+                "paid_at": row.paid_at.isoformat(),
+                "note": row.note,
+                "entered_by_name": row.entered_by_name,
+            }
+            for row in payments
+        ],
+        "staff": [
+            {
+                "user_id": row.user_id,
+                "first_name": row.first_name,
+                "login": row.login,
+                "role": row.role,
+                "club_id": row.club_id,
+                "club_name": row.club_name,
+            }
+            for row in staff
+        ],
+    }
+
+
 async def create_manual_org(
     session: AsyncSession, *, body: dict[str, Any], request: Request, actor_user_id: int
 ) -> str:

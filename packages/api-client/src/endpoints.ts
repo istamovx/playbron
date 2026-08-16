@@ -1029,6 +1029,124 @@ export const updatePlatformOrg = async (
   return { orgId: row.org_id, orgName: row.org_name, orgStatus: row.org_status };
 };
 
+export interface PlatformOrgClubDto {
+  clubId: number;
+  clubName: string;
+  clubStatus: string;
+  address: string;
+  phone: string | null;
+  stationsCount: number;
+  bookings30d: number;
+}
+
+export interface PlatformOrgPaymentDto {
+  id: number;
+  amount: number;
+  planCode: string | null;
+  periodMonths: number | null;
+  paidAt: string;
+  note: string | null;
+  enteredByName: string | null;
+}
+
+export interface PlatformOrgStaffDto {
+  userId: number;
+  firstName: string;
+  login: string | null;
+  role: string;
+  clubId: number;
+  clubName: string;
+}
+
+export interface PlatformOrgDetailDto {
+  orgId: number;
+  orgName: string;
+  orgStatus: string;
+  planCode: string | null;
+  createdAt: string;
+  ownerName: string;
+  ownerLogin: string | null;
+  clubs: PlatformOrgClubDto[];
+  payments: PlatformOrgPaymentDto[];
+  staff: PlatformOrgStaffDto[];
+}
+
+interface PlatformOrgDetailApi {
+  org_id: number;
+  org_name: string;
+  org_status: string;
+  plan_code: string | null;
+  created_at: string;
+  owner_name: string;
+  owner_login: string | null;
+  clubs: Array<{
+    club_id: number;
+    club_name: string;
+    club_status: string;
+    address: string;
+    phone: string | null;
+    stations_count: number;
+    bookings_30d: number;
+  }>;
+  payments: Array<{
+    id: number;
+    amount: number;
+    plan_code: string | null;
+    period_months: number | null;
+    paid_at: string;
+    note: string | null;
+    entered_by_name: string | null;
+  }>;
+  staff: Array<{
+    user_id: number;
+    first_name: string;
+    login: string | null;
+    role: string;
+    club_id: number;
+    club_name: string;
+  }>;
+}
+
+/** "Ko'rish" (Preview) — klublar, TO'LIQ to'lov tarixi, xodimlar (reja #17). */
+export const getPlatformOrg = async (api: ApiClient, orgId: number): Promise<PlatformOrgDetailDto> => {
+  const row = await api.get<PlatformOrgDetailApi>(`/platform/orgs/${orgId}`);
+  return {
+    orgId: row.org_id,
+    orgName: row.org_name,
+    orgStatus: row.org_status,
+    planCode: row.plan_code,
+    createdAt: row.created_at,
+    ownerName: row.owner_name,
+    ownerLogin: row.owner_login,
+    clubs: row.clubs.map((c) => ({
+      clubId: c.club_id,
+      clubName: c.club_name,
+      clubStatus: c.club_status,
+      address: c.address,
+      phone: c.phone,
+      stationsCount: c.stations_count,
+      bookings30d: c.bookings_30d,
+    })),
+    payments: row.payments.map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      planCode: p.plan_code,
+      periodMonths: p.period_months,
+      paidAt: p.paid_at,
+      note: p.note,
+      enteredByName: p.entered_by_name,
+    })),
+    staff: row.staff.map((s) => ({
+      userId: s.user_id,
+      firstName: s.first_name,
+      login: s.login,
+      role: s.role,
+      clubId: s.club_id,
+      clubName: s.club_name,
+    })),
+  };
+};
+
 // ── Platforma: Hisobot ───────────────────────────────────────────────────
 
 export type PlatformReportPeriod = 'day' | 'week' | 'month' | 'year';
