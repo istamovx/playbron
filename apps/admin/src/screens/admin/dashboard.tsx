@@ -1,10 +1,47 @@
+import { errorText, getClub } from '@playbron/api-client';
 import { ActivityBars, Grid, Panel, ProgressMeter, StatTile, StatusLine } from '@playbron/ui';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
+import { api } from '../../lib/api';
 import { EXPENSE_SHARE, consoleLabel, seriesFor, stockRow, totalsFor } from '../../mock/club';
 import { S } from '../../mock/data';
 import { useClub } from '../../store/club';
+import { useSession } from '../../store/session';
 import { CARD, LABEL, VALUE, hourSlot } from './parts';
+
+/**
+ * Ish vaqti (`opensAt`/`closesAt`) — bu yerda YAGONA real backendga
+ * ulangan qism (`GET /clubs/{id}`, `settings.tsx::ClubGeneralTab`dagi bilan
+ * bir xil manba). Qolgan barcha ko'rsatkich (tushum/foyda/bandlik/seans/
+ * xarajat/xodim smenasi) hali `useClub()` mock do'konidan — buning uchun
+ * klub darajasidagi agregatsiya endpointi yo'q (loyiha egasining so'rovi
+ * bilan boshlangan audit, 2026-08-16; qadam-baqadam reja task #10-22).
+ */
+function useRealClubHours(): { opensAt: number; closesAt: number } | null {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
+  const [hours, setHours] = useState<{ opensAt: number; closesAt: number } | null>(null);
+
+  useEffect(() => {
+    if (clubId === null) return;
+    let cancelled = false;
+    void getClub(api, clubId)
+      .then((club) => {
+        if (!cancelled) setHours({ opensAt: club.opensAtMin, closesAt: club.closesAtMin });
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setHours(null);
+        // Fon ma'lumoti — xato bo'lsa jimgina mock qiymatga tushadi, butun
+        // panelni buzmaydi (pastda `?? club.opensAt`).
+        void errorText(cause);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId]);
+
+  return hours;
+}
 
 /** Boshqaruv paneli — klub admini ochganda ko'radigan birinchi ekran. */
 export function DashboardScreen(): ReactNode {
@@ -13,6 +50,9 @@ export function DashboardScreen(): ReactNode {
   const products = useClub((state) => state.products);
   const expenses = useClub((state) => state.expenses);
   const staff = useClub((state) => state.staff);
+  const realHours = useRealClubHours();
+  const opensAt = realHours?.opensAt ?? club.opensAt;
+  const closesAt = realHours?.closesAt ?? club.closesAt;
 
   const monthExpenses = expenses.reduce((sum, row) => sum + row.amount, 0);
   const totals = totalsFor('day', Math.round(monthExpenses * EXPENSE_SHARE.day));
@@ -59,7 +99,7 @@ export function DashboardScreen(): ReactNode {
               tone="neutral"
               icon="schedule"
               parts={[
-                `Ish vaqti ${Math.floor(club.opensAt / 60)}:00 – ${Math.floor(club.closesAt / 60) % 24}:00`,
+                `Ish vaqti ${Math.floor(opensAt / 60)}:00 – ${Math.floor(closesAt / 60) % 24}:00`,
                 `${busy} / ${rooms.length} xona band`,
               ]}
             />
