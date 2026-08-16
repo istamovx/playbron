@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 const ACTION_LABEL: Record<string, string> = {
   platform_manual_org_create: 'Klub qo‘lda qo‘shildi',
   platform_payment_record: 'To‘lov yozildi',
+  platform_org_update: 'Tashkilot tahrirlandi',
 };
 
 function actionLabel(action: string): string {

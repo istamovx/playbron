@@ -857,11 +857,20 @@ function StationsTab(): ReactNode {
 
 const LOG_LABEL: Record<string, string> = {
   staff_created: 'Xodim qo‘shildi',
+  staff_updated: 'Xodim ma’lumoti o‘zgartirildi',
+  staff_deactivated: 'Xodim chiqarildi',
   product_created: 'Mahsulot qo‘shildi',
   product_updated: 'Mahsulot o‘zgartirildi',
   station_created: 'Xona qo‘shildi',
   station_updated: 'Xona o‘zgartirildi',
   club_updated: 'Klub ma’lumoti o‘zgartirildi',
+  expense_created: 'Xarajat qo‘shildi',
+  expense_updated: 'Xarajat o‘zgartirildi',
+  expense_archived: 'Xarajat arxivlandi',
+  shift_opened: 'Smena ochildi',
+  shift_cash_in: 'Kassaga kirim',
+  shift_cash_out: 'Kassadan chiqim',
+  shift_closed: 'Smena yopildi',
   staff_login: 'Kirdi',
   logout: 'Chiqdi',
 };
