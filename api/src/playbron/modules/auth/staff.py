@@ -184,6 +184,17 @@ async def staff_login(
 
     super_admin = await service.is_super_admin(session, user_id)
     memberships = await service.load_memberships(session, user_id)
+
+    # Tashkilot to'xtatilgan bo'lsa — kirish rad etiladi (super admin va
+    # a'zoligi yo'q hisoblar bundan mustasno). Mavjud qadamlar TARTIBI
+    # o'zgartirilmadi — bu YANGI qadam, faqat oxiriga qo'shildi.
+    if not super_admin and memberships and not await service.org_active_for_user(session, user_id):
+        raise AppError(
+            "Tashkilot faoliyati to'xtatilgan",
+            code="ORG_SUSPENDED",
+            status_code=403,
+        )
+
     org_id = memberships[0]["org_id"] if memberships else None
     entitlements = await service.load_entitlements(session, org_id)
 

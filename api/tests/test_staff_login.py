@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -26,6 +27,7 @@ skip_no_db = pytest.mark.skipif(
 )
 
 LOGIN = "sinov.kassa"
+SUSPENDED_LOGIN = "sinov.suspended"
 PASSWORD = "juda mustahkam parol"
 
 
@@ -70,30 +72,99 @@ async def staff_user() -> AsyncIterator[int]:
     password_hash = await hash_password(PASSWORD)
 
     async with engine.begin() as conn:
-        user_id = await conn.scalar(
-            text(
-                "INSERT INTO users (kind, login, status, first_name)"
-                " VALUES ('staff', :login, 'active', 'Sinov')"
-                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
-                " DO UPDATE SET status = 'active' RETURNING id"
-            ),
-            {"login": LOGIN},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
-                " VALUES (:uid, :h, false)"
-                " ON CONFLICT (user_id) DO UPDATE"
-                " SET password_hash = EXCLUDED.password_hash, must_change = false,"
-                "     failed_count = 0"
-            ),
-            {"uid": user_id, "h": password_hash},
-        )
+        # `staff_user` butun grafni nol'dan quradi — hali tabiiy aktor yo'q,
+        # shuning uchun `rls_bypass` (`conftest.py`).
+        async with rls_bypass(conn, "users", "staff_credentials"):
+            user_id = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Sinov')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": LOGIN},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, false)"
+                    " ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = false,"
+                    "     failed_count = 0"
+                ),
+                {"uid": user_id, "h": password_hash},
+            )
 
     yield int(user_id)
 
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
+        async with rls_bypass(conn, "users"):
+            await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def suspended_org_staff() -> AsyncIterator[int]:
+    """OWNER — yagona a'zoligi `status='suspended'` tashkilotga bog'langan.
+
+    Reja #43 (2026-08-16): `org_active_for_user()` (`0026`) shu holatni
+    bloklashi kerak.
+    """
+    engine = _owner_engine()
+    password_hash = await hash_password(PASSWORD)
+    ids: dict[str, int] = {}
+
+    async with engine.begin() as conn:
+        async with rls_bypass(
+            conn, "users", "staff_credentials", "organizations", "clubs", "memberships"
+        ):
+            ids["user"] = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Sinov')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": SUSPENDED_LOGIN},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = false,"
+                    "     failed_count = 0"
+                ),
+                {"uid": ids["user"], "h": password_hash},
+            )
+            ids["org"] = await conn.scalar(
+                text(
+                    "INSERT INTO organizations (owner_user_id, name, status)"
+                    " VALUES (:u, 'Suspended Org', 'suspended') RETURNING id"
+                ),
+                {"u": ids["user"]},
+            )
+            ids["club"] = await conn.scalar(
+                text(
+                    "INSERT INTO clubs (org_id, name, status)"
+                    " VALUES (:o, 'Suspended Org Club', 'active') RETURNING id"
+                ),
+                {"o": ids["org"]},
+            )
+            await conn.execute(
+                text("INSERT INTO memberships (user_id, club_id, role) VALUES (:u, :c, 'OWNER')"),
+                {"u": ids["user"], "c": ids["club"]},
+            )
+
+    yield ids["user"]
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "organizations", "users", "clubs", "memberships"):
+            await conn.execute(
+                text("DELETE FROM memberships WHERE club_id = :c"), {"c": ids["club"]}
+            )
+            await conn.execute(text("DELETE FROM clubs WHERE id = :c"), {"c": ids["club"]})
+            await conn.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": ids["org"]})
+            await conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": ids["user"]})
     await engine.dispose()
 
 
@@ -114,9 +185,7 @@ async def test_normalize_rejects_bad_shape() -> None:
 
 @skip_no_db
 async def test_login_succeeds(client: httpx.AsyncClient, staff_user: int) -> None:
-    r = await client.post(
-        "/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD}
-    )
+    r = await client.post("/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD})
     assert r.status_code == 200, r.text
     body = r.json()
 
@@ -162,14 +231,13 @@ async def test_disabled_account_gets_the_same_answer(
     """`status != 'active'` ham AYNAN o'sha 401 — «hisob bor» degan signal bermaydi."""
     engine = _owner_engine()
     async with engine.begin() as conn:
-        await conn.execute(
-            text("UPDATE users SET status = 'disabled' WHERE id = :i"), {"i": staff_user}
-        )
+        async with rls_bypass(conn, "users"):
+            await conn.execute(
+                text("UPDATE users SET status = 'disabled' WHERE id = :i"), {"i": staff_user}
+            )
     await engine.dispose()
 
-    r = await client.post(
-        "/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD}
-    )
+    r = await client.post("/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD})
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "LOGIN_INVALID"
 
@@ -200,15 +268,11 @@ async def test_case_variants_share_one_rate_limit_bucket(
 
 
 @skip_no_db
-async def test_access_token_is_staff_audience(
-    client: httpx.AsyncClient, staff_user: int
-) -> None:
+async def test_access_token_is_staff_audience(client: httpx.AsyncClient, staff_user: int) -> None:
     """Token `aud='staff'` bo'lishi shart — mijoz tokeni bilan aralashmasin."""
     import jwt
 
-    r = await client.post(
-        "/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD}
-    )
+    r = await client.post("/api/v1/auth/staff/login", json={"login": LOGIN, "password": PASSWORD})
     claims = jwt.decode(
         r.json()["access_token"],
         settings.jwt_secret.get_secret_value(),
@@ -216,3 +280,15 @@ async def test_access_token_is_staff_audience(
         audience="staff",
     )
     assert claims["aud"] == "staff"
+
+
+@skip_no_db
+async def test_suspended_org_blocks_login(
+    client: httpx.AsyncClient, suspended_org_staff: int
+) -> None:
+    """Yagona a'zoligi to'xtatilgan tashkilotga bog'liq OWNER — 403 ORG_SUSPENDED."""
+    r = await client.post(
+        "/api/v1/auth/staff/login", json={"login": SUSPENDED_LOGIN, "password": PASSWORD}
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "ORG_SUSPENDED"

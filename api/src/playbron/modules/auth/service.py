@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,6 +108,19 @@ async def load_memberships(session: AsyncSession, user_id: int) -> list[dict[str
         {"club_id": club_id, "role": role, "club_name": club_name, "org_id": org_id}
         for club_id, role, club_name, org_id in rows.all()
     ]
+
+
+async def org_active_for_user(session: AsyncSession, user_id: int) -> bool:
+    """Foydalanuvchi a'zo bo'lgan tashkilotlardan kamida bittasi faolmi.
+
+    A'zolik umuman yo'q bo'lsa ham `True` — bu funksiya faqat "barcha
+    tashkilotlar to'xtatilgan" holatini bloklash uchun (`0026`dagi
+    `org_active_for_user()` SECURITY DEFINER funksiyasi).
+    """
+    result = await session.execute(
+        text("SELECT org_active_for_user(:uid)"), {"uid": user_id}
+    )
+    return bool(result.scalar_one())
 
 
 async def load_entitlements(session: AsyncSession, org_id: int | None) -> dict[str, Any]:

@@ -401,12 +401,13 @@ async def update_organization(
     ustunga xos EMAS — `app_platform()` bo'lsa istalgan ustunni yangilashga
     ruxsat beradi, shuning uchun bu yerga yangi migratsiya kerak emas.
 
-    `status` hozircha faqat KO'RSATISH uchun (`docs/06-super-admin.md`
-    §4.1dagi `pending`/`active`/`suspended` lug'ati bilan bir xil) — login/
-    bron yo'lida hali TEKSHIRILMAYDI, xuddi `plan_code` limitlari kabi
+    `status='suspended'` — real ta'sirga ega (reja #43, 2026-08-16):
+    `auth/staff.py::staff_login()` `org_active_for_user()` (`0026`) orqali
+    tekshiradi — foydalanuvchining BARCHA tashkilotlari to'xtatilgan bo'lsa
+    kirish `403 ORG_SUSPENDED` bilan rad etiladi (super admin va a'zoligi
+    yo'q hisoblar bundan mustasno). `plan_code` limitlari hali cheklanmaydi
     (spec §4.3dagi to'liq TOTP+`subscriptions`+`glass_sessions` oqimi hali
-    qurilmagan). Noto'g'ri xavfsizlik taassurotini oldini olish uchun shu
-    izoh qoldiriladi.
+    qurilmagan).
     """
     if name is None and status is None:
         raise AppError("Kamida bitta maydon kiritilsin", code="NO_FIELDS")
