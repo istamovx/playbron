@@ -44,6 +44,10 @@ export interface ClubBrief {
 export interface Me extends MeUser {
   is_super_admin: boolean;
   clubs: ClubBrief[];
+  /** Xodim Telegram boti ulanganmi — sessiya bilan keladi, shuning uchun
+   * logout/login'dan keyin ham saqlanadi (loyiha egasining topilmasi,
+   * 2026-08-16). Manba: `users/router.py::me()` → `staff_telegram`. */
+  telegram_linked: boolean;
 }
 
 export interface Entitlements {

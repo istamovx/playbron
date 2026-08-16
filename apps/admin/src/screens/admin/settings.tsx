@@ -2,6 +2,7 @@ import {
   createStation,
   errorText,
   getClub,
+  getMe,
   listClubLogs,
   listStationsForManagement,
   pollTelegramLink,
@@ -160,9 +161,13 @@ type LinkState = 'idle' | 'waiting' | 'ready' | 'expired' | 'error';
  * bot yangi bo'shliqda ochiladi (`t.me/...?start=<nonce>`), foydalanuvchi
  * botda **Start** bosgach konsol pollab natijani biladi. OAuth oynasi yo'q.
  *
- * Holat sahifa yangilanganda saqlanmaydi — server "ulanganmi" so'rovini
- * hozircha bermaydi (`GET /me` kengaymagan). Har safar qayta bosish
- * xavfsiz: bog'lash `ON CONFLICT (user_id) DO UPDATE`.
+ * Holat SERVERDAN o'qiladi (`GET /me` → `telegram_linked`, `staff_telegram`
+ * jadvalidan) — loyiha egasining topilmasi (2026-08-16): "Telegram
+ * ulanganda 'ulandi' ko'rsatadi, log out qilib qayta kirganda status
+ * yo'q". Avval holat FAQAT shu komponentning lokal state'ida yashardi,
+ * shuning uchun sahifa yangilansa yoki qayta kirilsa yo'qolardi. Bot
+ * BIR MARTA ulanadi va shu holda qoladi; qayta bosish ham xavfsiz —
+ * bog'lash `ON CONFLICT (user_id) DO UPDATE`.
  */
 /** `app.tsx`da ham (header'dan) qayta ishlatiladi — xodim (`NAV_STAFF`)
  * menyusida "Sozlamalar" bandi UMUMAN yo'q (loyiha egasining topilmasi,
@@ -171,6 +176,8 @@ type LinkState = 'idle' | 'waiting' | 'ready' | 'expired' | 'error';
  * ko'chirildi; bu yerdagi nusxa klub admin/egasi uchun saqlanib qoladi. */
 export function TelegramLinkPanel(): ReactNode {
   const [state, setState] = useState<LinkState>('idle');
+  // Serverdagi haqiqiy holat (`GET /me`). `null` — hali yuklanmoqda.
+  const [linked, setLinked] = useState<boolean | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = (): void => {
@@ -181,6 +188,21 @@ export function TelegramLinkPanel(): ReactNode {
   };
 
   useEffect(() => stopPolling, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMe(api)
+      .then((me) => {
+        if (!cancelled) setLinked(me.telegram_linked);
+      })
+      .catch(() => {
+        // Tarmoq xatosi — holat noma'lum qoladi, tugma baribir ishlaydi
+        if (!cancelled) setLinked(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const POLL_INTERVAL_MS = 2000;
 
@@ -208,6 +230,7 @@ export function TelegramLinkPanel(): ReactNode {
             if (status === 'pending') return;
             stopPolling();
             setState(status);
+            if (status === 'ready') setLinked(true);
           })
           .catch(() => {
             stopPolling();
@@ -228,12 +251,14 @@ export function TelegramLinkPanel(): ReactNode {
           parts={['Yangi bron kelganda Telegram botda xabar beriladi']}
         />
 
-        {state === 'ready' ? (
-          <StatusLine tone="ok" icon="check_circle" parts={['Ulandi']} />
-        ) : state === 'expired' ? (
+        {state === 'expired' ? (
           <StatusLine tone="warn" icon="schedule" parts={['Havola eskirdi — qaytadan urining']} />
         ) : state === 'error' ? (
           <StatusLine tone="danger" icon="error" parts={['Ulanmadi — qaytadan urining']} />
+        ) : linked ? (
+          <StatusLine tone="ok" icon="check_circle" parts={['Ulangan']} />
+        ) : linked === false ? (
+          <StatusLine tone="neutral" icon="link_off" parts={['Hali ulanmagan']} />
         ) : null}
 
         <Button
@@ -242,7 +267,11 @@ export function TelegramLinkPanel(): ReactNode {
           disabled={state === 'waiting'}
           onClick={() => void start()}
         >
-          {state === 'waiting' ? 'Botda Start bosing…' : 'Telegram botga ulash'}
+          {state === 'waiting'
+            ? 'Botda Start bosing…'
+            : linked
+              ? 'Boshqa hisobga ulash'
+              : 'Telegram botga ulash'}
         </Button>
       </div>
     </Panel>

@@ -35,12 +35,16 @@ class ProductOut(BaseModel):
     name: str
     price: int
     status: str
+    stock_qty: int
 
 
 class ProductCreateIn(BaseModel):
     category: str = Field(default="Boshqa", max_length=32)
     name: str = Field(min_length=1, max_length=120)
     price: int = Field(gt=0)
+    # Loyiha egasi (2026-08-16): "biror mahsulot qo'shganda sonini ham
+    # kiritishi kerak". 0 — hali keltirilmagan mahsulot uchun to'g'ri.
+    stock_qty: int = Field(default=0, ge=0)
 
 
 class ProductUpdateIn(BaseModel):
@@ -48,6 +52,8 @@ class ProductUpdateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     price: int = Field(gt=0)
     status: str = Field(pattern="^(active|archived)$")
+    # `None` — qoldiqqa TEGILMAYDI (eski klientlar buzilmasin).
+    stock_qty: int | None = Field(default=None, ge=0)
 
 
 class OrderItemOut(BaseModel):
@@ -144,7 +150,12 @@ async def create_product(
 ) -> ProductOut:
     _assert_path_matches_header(club_id)
     row = await service.create_product(
-        session, club_id=club_id, category=body.category, name=body.name, price=body.price
+        session,
+        club_id=club_id,
+        category=body.category,
+        name=body.name,
+        price=body.price,
+        stock_qty=body.stock_qty,
     )
     return ProductOut(**row)
 
@@ -169,6 +180,7 @@ async def update_product(
         name=body.name,
         price=body.price,
         status=body.status,
+        stock_qty=body.stock_qty,
     )
     return ProductOut(**row)
 
@@ -222,6 +234,23 @@ async def advance_order(
     _assert_path_matches_header(club_id)
     status = await service.advance_order(session, club_id=club_id, order_id=order_id)
     return {"status": status}
+
+
+@router.post(
+    "/{club_id}/orders/{order_id}/cancel",
+    status_code=200,
+    dependencies=[Depends(require_staff)],
+)
+async def cancel_order(
+    club_id: Annotated[int, Path()],
+    order_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> dict[str, str]:
+    """Faqat `NEW` holatidagi buyurtma bekor qilinadi (loyiha egasi,
+    2026-08-16). Qoldiq qaytariladi — `service.cancel_order()`."""
+    _assert_path_matches_header(club_id)
+    await service.cancel_order(session, club_id=club_id, order_id=order_id)
+    return {"status": "CANCELLED"}
 
 
 # ── Kassa ─────────────────────────────────────────────────────────────────

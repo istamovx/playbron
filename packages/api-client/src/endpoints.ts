@@ -752,40 +752,82 @@ export interface ProductDto {
   name: string;
   price: number;
   status: string;
+  /** Ombordagi qoldiq (dona). Manfiy bo'lishi mumkin — hisobga olinmagan
+   * sotuv belgisi (`0028_stock_and_order_cancel.py` izohi). */
+  stockQty: number;
 }
 
-export const listProducts = (api: ApiClient, clubId: number): Promise<ProductDto[]> =>
-  api.get<ProductDto[]>(`/clubs/${clubId}/products`);
+interface ProductApi {
+  id: number;
+  category: string;
+  name: string;
+  price: number;
+  status: string;
+  stock_qty: number;
+}
+
+const fromProductApi = (row: ProductApi): ProductDto => ({
+  id: row.id,
+  category: row.category,
+  name: row.name,
+  price: row.price,
+  status: row.status,
+  stockQty: row.stock_qty,
+});
+
+export const listProducts = async (api: ApiClient, clubId: number): Promise<ProductDto[]> => {
+  const rows = await api.get<ProductApi[]>(`/clubs/${clubId}/products`);
+  return rows.map(fromProductApi);
+};
 
 export interface ProductCreateIn {
   category: string;
   name: string;
   price: number;
+  stockQty: number;
 }
 
-export const createProduct = (
+export const createProduct = async (
   api: ApiClient,
   clubId: number,
   body: ProductCreateIn,
-): Promise<ProductDto> => api.post<ProductDto>(`/clubs/${clubId}/products`, body);
+): Promise<ProductDto> =>
+  fromProductApi(
+    await api.post<ProductApi>(`/clubs/${clubId}/products`, {
+      category: body.category,
+      name: body.name,
+      price: body.price,
+      stock_qty: body.stockQty,
+    }),
+  );
 
 export interface ProductUpdateIn {
   category: string;
   name: string;
   price: number;
   status: 'active' | 'archived';
+  /** `null`/`undefined` — qoldiqqa TEGILMAYDI. */
+  stockQty?: number | null;
 }
 
-export const updateProduct = (
+export const updateProduct = async (
   api: ApiClient,
   clubId: number,
   productId: number,
   body: ProductUpdateIn,
 ): Promise<ProductDto> =>
-  api.request<ProductDto>(`/clubs/${clubId}/products/${productId}`, {
-    method: 'PATCH',
-    body,
-  });
+  fromProductApi(
+    await api.request<ProductApi>(`/clubs/${clubId}/products/${productId}`, {
+      method: 'PATCH',
+      body: {
+        category: body.category,
+        name: body.name,
+        price: body.price,
+        status: body.status,
+        stock_qty: body.stockQty ?? null,
+      },
+    }),
+  );
 
 export interface OrderItemDto {
   productName: string;
@@ -853,6 +895,15 @@ export const advanceOrder = (
   orderId: number,
 ): Promise<{ status: string }> =>
   api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/advance`);
+
+/** Buyurtmani bekor qiladi — server FAQAT `NEW` holatida ruxsat beradi
+ * (409 `ORDER_NOT_CANCELLABLE`). Qoldiq qaytariladi. */
+export const cancelOrder = (
+  api: ApiClient,
+  clubId: number,
+  orderId: number,
+): Promise<{ status: string }> =>
+  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/cancel`);
 
 export interface OpenBookingDto {
   id: number;

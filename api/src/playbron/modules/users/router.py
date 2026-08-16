@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
@@ -38,6 +38,12 @@ class MeOut(BaseModel):
     phone_verified: bool
     is_super_admin: bool
     clubs: list[ClubBrief]
+    # Xodim Telegram boti ulanganmi (`staff_telegram` yozuvi bor va
+    # bloklanmagan). Loyiha egasining topilmasi (2026-08-16): "Telegram
+    # ulanganda 'ulandi' ko'rsatadi, log out qilib qayta kirganda status
+    # yo'q" — holat FAQAT `TelegramLinkPanel`ning lokal state'ida edi,
+    # server hech qachon so'ralmasdi. Endi sessiya bilan birga keladi.
+    telegram_linked: bool = False
 
 
 class EntitlementsOut(BaseModel):
@@ -74,6 +80,17 @@ async def me(
         .order_by(Club.name)
     )
 
+    # `staff_telegram_self` policy (`0010_staff_telegram_link.py`) aynan
+    # shu qatorni ochadi (`user_id = app_user_id()`) — qo'shimcha GUC
+    # yoki migratsiya kerak emas.
+    linked = await session.scalar(
+        text(
+            "SELECT 1 FROM staff_telegram"
+            " WHERE user_id = :uid AND blocked_at IS NULL"
+        ),
+        {"uid": user.id},
+    )
+
     return MeOut(
         id=user.id,
         telegram_id=user.telegram_id,
@@ -88,6 +105,7 @@ async def me(
             ClubBrief(id=cid, name=name, org_id=org_id, status=status, role=role)
             for cid, name, org_id, status, role in rows.all()
         ],
+        telegram_linked=linked is not None,
     )
 
 

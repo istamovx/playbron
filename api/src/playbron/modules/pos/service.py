@@ -25,6 +25,7 @@ def _product_row(row: Any) -> dict[str, Any]:
         "name": row.name,
         "price": int(row.price),
         "status": row.status,
+        "stock_qty": int(row.stock_qty),
     }
 
 
@@ -32,7 +33,7 @@ async def list_products(session: AsyncSession, club_id: int) -> list[dict[str, A
     rows = (
         await session.execute(
             text(
-                "SELECT id, category, name, price, status FROM products"
+                "SELECT id, category, name, price, status, stock_qty FROM products"
                 " WHERE club_id = :club_id ORDER BY category, name"
             ),
             {"club_id": club_id},
@@ -42,7 +43,13 @@ async def list_products(session: AsyncSession, club_id: int) -> list[dict[str, A
 
 
 async def create_product(
-    session: AsyncSession, *, club_id: int, category: str, name: str, price: int
+    session: AsyncSession,
+    *,
+    club_id: int,
+    category: str,
+    name: str,
+    price: int,
+    stock_qty: int = 0,
 ) -> dict[str, Any]:
     name = clean_name(name, limit=PRODUCT_NAME_MAX)
     if len(name) < 1:
@@ -50,14 +57,25 @@ async def create_product(
     category = clean_name(category, limit=PRODUCT_CATEGORY_MAX) or "Boshqa"
     if price <= 0:
         raise AppError("Narx musbat bo'lsin", code="PRICE_INVALID")
+    # Qoldiq 0 bo'lishi MUMKIN (hali keltirilmagan mahsulot), lekin manfiy
+    # kiritish — kirish xatosi. Sotuv paytida manfiyga tushishi mumkin
+    # (`0028` izohi), bu boshqa holat.
+    if stock_qty < 0:
+        raise AppError("Miqdor manfiy bo'lmasin", code="STOCK_INVALID")
 
     try:
         product_id = await session.scalar(
             text(
-                "INSERT INTO products (club_id, category, name, price, status)"
-                " VALUES (:club_id, :category, :name, :price, 'active') RETURNING id"
+                "INSERT INTO products (club_id, category, name, price, status, stock_qty)"
+                " VALUES (:club_id, :category, :name, :price, 'active', :stock_qty) RETURNING id"
             ),
-            {"club_id": club_id, "category": category, "name": name, "price": price},
+            {
+                "club_id": club_id,
+                "category": category,
+                "name": name,
+                "price": price,
+                "stock_qty": stock_qty,
+            },
         )
     except Exception as exc:  # noqa: BLE001
         sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
@@ -69,7 +87,7 @@ async def create_product(
         action="product_created",
         target=name,
         club_id=club_id,
-        after={"category": category, "name": name, "price": price},
+        after={"category": category, "name": name, "price": price, "stock_qty": stock_qty},
     )
 
     return {
@@ -78,6 +96,7 @@ async def create_product(
         "name": name,
         "price": price,
         "status": "active",
+        "stock_qty": stock_qty,
     }
 
 
@@ -90,6 +109,7 @@ async def update_product(
     name: str,
     price: int,
     status: str,
+    stock_qty: int | None = None,
 ) -> dict[str, Any]:
     name = clean_name(name, limit=PRODUCT_NAME_MAX)
     if len(name) < 1:
@@ -99,19 +119,23 @@ async def update_product(
         raise AppError("Narx musbat bo'lsin", code="PRICE_INVALID")
     if status not in ("active", "archived"):
         raise AppError("Noma'lum holat", code="STATUS_INVALID")
+    if stock_qty is not None and stock_qty < 0:
+        raise AppError("Miqdor manfiy bo'lmasin", code="STOCK_INVALID")
 
     row = (
         await session.execute(
             text(
                 "UPDATE products SET category = :category, name = :name, price = :price,"
-                " status = :status WHERE id = :id AND club_id = :club_id"
-                " RETURNING id, category, name, price, status"
+                " status = :status, stock_qty = COALESCE(:stock_qty, stock_qty)"
+                " WHERE id = :id AND club_id = :club_id"
+                " RETURNING id, category, name, price, status, stock_qty"
             ),
             {
                 "category": category,
                 "name": name,
                 "price": price,
                 "status": status,
+                "stock_qty": stock_qty,
                 "id": product_id,
                 "club_id": club_id,
             },
@@ -124,7 +148,13 @@ async def update_product(
         action="product_updated",
         target=name,
         club_id=club_id,
-        after={"category": category, "name": name, "price": price, "status": status},
+        after={
+            "category": category,
+            "name": name,
+            "price": price,
+            "status": status,
+            "stock_qty": int(row.stock_qty),
+        },
     )
 
     return _product_row(row)
@@ -267,6 +297,13 @@ async def create_order(
                 "price": line["price_snapshot"],
             },
         )
+        # Qoldiq kamayadi. Yetmasa ham sotuv TO'XTAMAYDI (`0028` izohi:
+        # klub qoldiqni yuritmayotgan bo'lishi mumkin) — manfiy qiymat
+        # "hisobga olinmagan" degan rost belgi bo'lib qoladi.
+        await session.execute(
+            text("UPDATE products SET stock_qty = stock_qty - :qty WHERE id = :id"),
+            {"qty": line["qty"], "id": line["product_id"]},
+        )
 
     row = (
         await session.execute(
@@ -309,6 +346,48 @@ async def advance_order(session: AsyncSession, *, club_id: int, order_id: int) -
         text("UPDATE orders SET status = :status WHERE id = :id"), {"status": nxt, "id": order_id}
     )
     return nxt
+
+
+async def cancel_order(session: AsyncSession, *, club_id: int, order_id: int) -> None:
+    """Buyurtmani bekor qiladi — FAQAT `NEW` holatida.
+
+    Loyiha egasi (2026-08-16): "xodim buyurtma kiritganda uni bekor
+    qilishi ham mumkin, bu yangi bo'lgan qiymatida mumkin faqat". Bar
+    allaqachon qabul qilgan (`ACCEPTED`+) buyurtma bekor qilinmaydi —
+    mahsulot tayyorlana boshlagan bo'lishi mumkin.
+
+    Qoldiq QAYTARILADI (`create_order()` uni kamaytirgan edi) — aks holda
+    har bekor qilingan buyurtma omborni jimgina yeb ketardi.
+    """
+    row = (
+        await session.execute(
+            text("SELECT status FROM orders WHERE id = :id AND club_id = :club_id"),
+            {"id": order_id, "club_id": club_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Buyurtma topilmadi")
+
+    if row.status != "NEW":
+        raise AppError(
+            "Faqat yangi buyurtmani bekor qilish mumkin",
+            code="ORDER_NOT_CANCELLABLE",
+            status_code=409,
+        )
+
+    await session.execute(
+        text(
+            "UPDATE products p SET stock_qty = p.stock_qty + i.qty"
+            " FROM order_items i"
+            " WHERE i.order_id = :id AND i.product_id = p.id"
+        ),
+        {"id": order_id},
+    )
+    await session.execute(
+        text("UPDATE orders SET status = 'CANCELLED' WHERE id = :id"), {"id": order_id}
+    )
+
+    await log_action(action="order_cancelled", target=str(order_id), club_id=club_id)
 
 
 # ── Kassa (hisob yopish) ─────────────────────────────────────────────────

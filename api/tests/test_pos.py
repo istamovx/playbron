@@ -183,6 +183,76 @@ async def test_owner_creates_and_lists_products(
 
 
 @skip_no_db
+async def test_product_stock_is_tracked_and_returned_on_cancel(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Reja #48/#53 (loyiha egasi, 2026-08-16): mahsulot qo'shganda son
+    kiritiladi, sotuvda kamayadi, buyurtma bekor qilinsa QAYTADI."""
+    headers = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Snack", "name": "Sanoq Snack", "price": 9000, "stock_qty": 10},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["stock_qty"] == 10
+    product_id = created.json()["id"]
+
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": world["booking"], "items": [{"product_id": product_id, "qty": 3}]},
+        headers=headers,
+    )
+    assert order.status_code == 201, order.text
+    order_id = order.json()["id"]
+
+    listed = await client.get(f"/api/v1/clubs/{world['club']}/products", headers=headers)
+    after_sale = next(p for p in listed.json() if p["id"] == product_id)
+    assert after_sale["stock_qty"] == 7, "sotuvdan keyin qoldiq kamaymadi"
+
+    cancelled = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders/{order_id}/cancel", headers=headers
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    listed = await client.get(f"/api/v1/clubs/{world['club']}/products", headers=headers)
+    after_cancel = next(p for p in listed.json() if p["id"] == product_id)
+    assert after_cancel["stock_qty"] == 10, "bekor qilingandan keyin qoldiq qaytmadi"
+
+
+@skip_no_db
+async def test_cancel_is_rejected_once_order_left_new(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """"Faqat yangi bo'lgan qiymatida mumkin" — `ACCEPTED` bo'lgach yo'q."""
+    headers = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Snack", "name": "Kech Snack", "price": 8000, "stock_qty": 5},
+        headers=headers,
+    )
+    product_id = created.json()["id"]
+
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": world["booking"], "items": [{"product_id": product_id, "qty": 1}]},
+        headers=headers,
+    )
+    order_id = order.json()["id"]
+
+    await client.post(f"/api/v1/clubs/{world['club']}/orders/{order_id}/advance", headers=headers)
+
+    rejected = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders/{order_id}/cancel", headers=headers
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["error"]["code"] == "ORDER_NOT_CANCELLABLE"
+
+
+@skip_no_db
 async def test_order_created_advanced_and_billed(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

@@ -1,5 +1,6 @@
 import {
   advanceOrder,
+  cancelOrder,
   createOrder,
   errorText,
   listLiveStations,
@@ -87,6 +88,23 @@ export function OrdersScreen(): ReactNode {
     }
   };
 
+  /** Faqat `NEW` — server ham shuni majburlaydi (409 `ORDER_NOT_CANCELLABLE`),
+   * bu yerdagi tekshiruv faqat tugmani ko'rsatish uchun. Loyiha egasi
+   * (2026-08-16): "bu yangi bo'lgan qiymatida mumkin faqat". */
+  const cancel = async (order: OrderDto): Promise<void> => {
+    if (clubId === null) return;
+    setBusy(order.id);
+    try {
+      await cancelOrder(api, clubId, order.id);
+      toast.success('Buyurtma bekor qilindi');
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
       <NewOrderModal
@@ -123,6 +141,7 @@ export function OrdersScreen(): ReactNode {
                     nextLabel={NEXT_LABEL[status]}
                     busy={busy === order.id}
                     onAdvance={() => void advance(order)}
+                    onCancel={status === 'NEW' ? () => void cancel(order) : undefined}
                   />
                 ))}
                 {items.length === 0 ? (
@@ -153,12 +172,15 @@ function OrderCard({
   nextLabel,
   busy,
   onAdvance,
+  onCancel,
 }: {
   order: OrderDto;
   line: string;
   nextLabel?: string;
   busy: boolean;
   onAdvance: () => void;
+  /** Faqat `NEW` ustunida beriladi — boshqa holatda bekor qilib bo'lmaydi. */
+  onCancel?: () => void;
 }): ReactNode {
   return (
     <div
@@ -204,10 +226,19 @@ function OrderCard({
 
       <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>{`${S(order.total)} so‘m`}</span>
 
-      {nextLabel ? (
-        <Button variant="secondary" size="sm" block disabled={busy} onClick={onAdvance}>
-          {nextLabel}
-        </Button>
+      {nextLabel || onCancel ? (
+        <div style={{ display: 'flex', gap: 6 }}>
+          {nextLabel ? (
+            <Button variant="secondary" size="sm" block disabled={busy} onClick={onAdvance}>
+              {nextLabel}
+            </Button>
+          ) : null}
+          {onCancel ? (
+            <Button variant="ghost" size="sm" icon="close" disabled={busy} onClick={onCancel}>
+              Bekor
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

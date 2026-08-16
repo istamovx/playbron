@@ -26,12 +26,17 @@ import { useSession } from '../../store/session';
 import { FormGrid, Labeled } from './parts';
 
 /**
- * Mahsulotlar — bar/menyu katalogi.
+ * Mahsulotlar — bar/menyu katalogi + qoldiq.
  *
- * Prototipda tannarx, kirim/qoldiq va avtomatik sotuv hisobi bor edi —
- * backend'da inventar kuzatuvi yo'q (bu alohida, ancha katta loyiha:
- * omborxona harakati, inventarizatsiya). Shu bosqichda faqat KATALOG:
- * nomi, kategoriya, narx, faol/arxiv. Qoldiq keyingi bosqichda qo'shiladi.
+ * Qoldiq (`stockQty`, `0028_stock_and_order_cancel.py`) loyiha egasining
+ * so'rovi bilan qo'shildi (2026-08-16): "biror mahsulot qo'shganda sonini
+ * ham kiritishi kerak". Sotuvda avtomatik kamayadi, buyurtma bekor
+ * qilinsa qaytadi.
+ *
+ * TANNARX va omborxona harakati (kirim hujjati, inventarizatsiya) hali
+ * YO'Q — bu alohida, ancha kattaroq ish (reja #21). Shuning uchun bu
+ * yerda foyda/marja ko'rsatilmaydi: soxta raqam chiqarishdan ko'ra
+ * ko'rsatmaslik.
  */
 
 interface Draft {
@@ -39,10 +44,18 @@ interface Draft {
   category: string;
   name: string;
   price: string;
+  stockQty: string;
   status: 'active' | 'archived';
 }
 
-const EMPTY_DRAFT: Draft = { id: null, category: 'Ichimliklar', name: '', price: '', status: 'active' };
+const EMPTY_DRAFT: Draft = {
+  id: null,
+  category: 'Ichimliklar',
+  name: '',
+  price: '',
+  stockQty: '0',
+  status: 'active',
+};
 
 export function ProductsScreen(): ReactNode {
   const session = useSession((state) => state.session);
@@ -83,6 +96,7 @@ export function ProductsScreen(): ReactNode {
   const submit = async (): Promise<void> => {
     if (!draft || clubId === null) return;
     const price = Number(draft.price);
+    const stockQty = Number(draft.stockQty);
     if (draft.name.trim().length < 1) {
       setError('Mahsulot nomini kiriting');
       return;
@@ -91,12 +105,21 @@ export function ProductsScreen(): ReactNode {
       setError('Narx musbat bo‘lsin');
       return;
     }
+    if (!Number.isInteger(stockQty) || stockQty < 0) {
+      setError('Miqdor butun va manfiy bo‘lmagan son bo‘lsin');
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     try {
       if (draft.id === null) {
-        await createProduct(api, clubId, { category: draft.category, name: draft.name.trim(), price });
+        await createProduct(api, clubId, {
+          category: draft.category,
+          name: draft.name.trim(),
+          price,
+          stockQty,
+        });
         toast.success(`Mahsulot qo‘shildi — ${draft.name.trim()}`);
       } else {
         await updateProduct(api, clubId, draft.id, {
@@ -104,6 +127,7 @@ export function ProductsScreen(): ReactNode {
           name: draft.name.trim(),
           price,
           status: draft.status,
+          stockQty,
         });
         toast.success('Mahsulot yangilandi');
       }
@@ -126,6 +150,8 @@ export function ProductsScreen(): ReactNode {
         name: product.name,
         price: product.price,
         status: product.status === 'active' ? 'archived' : 'active',
+        // Arxivlash qoldiqqa TEGMAYDI — `null` yuborilsa server saqlab qoladi
+        stockQty: null,
       });
       toast.success(product.status === 'active' ? 'Arxivlandi' : 'Qayta faollashtirildi');
       await reload();
@@ -175,6 +201,14 @@ export function ProductsScreen(): ReactNode {
                 icon="sell"
                 inputMode="numeric"
                 placeholder="15000"
+              />
+              <TextField
+                label="Miqdor (dona)"
+                value={draft.stockQty}
+                onChange={(value) => setDraft({ ...draft, stockQty: value })}
+                icon="inventory_2"
+                inputMode="numeric"
+                placeholder="0"
               />
             </FormGrid>
 
@@ -247,6 +281,18 @@ export function ProductsScreen(): ReactNode {
               ),
             },
             {
+              key: 'stock',
+              header: 'Qoldiq',
+              align: 'right',
+              render: (row) => (
+                // Manfiy — hisobga olinmagan sotuv belgisi (`0028` izohi),
+                // shuning uchun ogohlantirish rangida ko'rsatiladi.
+                <Tag tone={row.stockQty < 0 ? 'danger' : row.stockQty === 0 ? 'amber' : 'neutral'}>
+                  {row.stockQty} dona
+                </Tag>
+              ),
+            },
+            {
               key: 'status',
               header: 'Holat',
               render: (row) => (
@@ -272,6 +318,7 @@ export function ProductsScreen(): ReactNode {
                         category: row.category,
                         name: row.name,
                         price: String(row.price),
+                        stockQty: String(row.stockQty),
                         status: row.status === 'active' ? 'active' : 'archived',
                       });
                     }}
