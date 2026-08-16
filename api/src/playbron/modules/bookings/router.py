@@ -54,7 +54,10 @@ class StationOut(BaseModel):
     id: int
     code: str
     room_label: str
-    console_type: str
+    # Eski (0023'dan oldingi) xonalarda hali bor — orqaga moslik uchun
+    # ko'rsatiladi, lekin YANGI xonalarda `None` (reja #38): konsol turi
+    # endi bron/hisob ochilganda tanlanadi, xonaga biriktirilmaydi.
+    console_type: str | None
     rate: int
     status: str
 
@@ -66,10 +69,19 @@ class DayBookingOut(BaseModel):
     status: str
 
 
+# `0009_bookings.py::CONSOLE_TYPES` bilan bir xil ro'yxat. Ixtiyoriy —
+# `service.py::_resolve_console_type()` xonaning eski (0023'dan oldingi)
+# konsolidan foydalanadi berilmasa; konsolsiz (yangi) xonada esa MAJBURIY
+# bo'lib qoladi (reja #38, loyiha egasi, 2026-08-16: "xonaga konsol
+# biriktirmaslik kerak — mijoz/xodim bron/hisob ochishda tanlaydi").
+_CONSOLE_TYPE_PATTERN = "^(ps3|ps4|ps4pro|ps5|ps5pro)$"
+
+
 class CustomerBookingIn(BaseModel):
     station_id: int
     starts_at: datetime
     hours: int = Field(ge=1, le=6)
+    console_type: str | None = Field(default=None, pattern=_CONSOLE_TYPE_PATTERN)
 
 
 class StaffBookingIn(BaseModel):
@@ -78,6 +90,7 @@ class StaffBookingIn(BaseModel):
     hours: int = Field(ge=1, le=6)
     guest_name: str = Field(min_length=1, max_length=128)
     guest_phone: str = Field(min_length=1, max_length=32)
+    console_type: str | None = Field(default=None, pattern=_CONSOLE_TYPE_PATTERN)
 
 
 class BookingOut(BaseModel):
@@ -88,6 +101,7 @@ class BookingOut(BaseModel):
     ends_at: str
     hours: int
     rate_snapshot: int
+    console_type: str
     prepaid_amount: int = 0
     guest_name: str | None = None
     guest_phone: str | None = None
@@ -125,13 +139,11 @@ class ClubUpdateIn(BaseModel):
 class StationCreateIn(BaseModel):
     code: str = Field(min_length=1, max_length=16)
     room_label: str = Field(default="Standart", max_length=32)
-    console_type: str = Field(pattern="^(ps3|ps4|ps4pro|ps5|ps5pro)$")
     rate: int = Field(gt=0)
 
 
 class StationUpdateIn(BaseModel):
     room_label: str = Field(default="Standart", max_length=32)
-    console_type: str = Field(pattern="^(ps3|ps4|ps4pro|ps5|ps5pro)$")
     rate: int = Field(gt=0)
     status: str = Field(pattern="^(active|maintenance)$")
 
@@ -245,7 +257,6 @@ async def create_station(
         club_id=club_id,
         code=body.code,
         room_label=body.room_label,
-        console_type=body.console_type,
         rate=body.rate,
     )
     return StationOut(**row)
@@ -268,7 +279,6 @@ async def update_station(
         club_id=club_id,
         station_id=station_id,
         room_label=body.room_label,
-        console_type=body.console_type,
         rate=body.rate,
         status=body.status,
     )
@@ -352,6 +362,7 @@ async def create_booking(
         station_id=body.station_id,
         starts_at=body.starts_at,
         hours=body.hours,
+        console_type=body.console_type,
     )
     return BookingOut(**result)
 
@@ -384,6 +395,7 @@ async def create_staff_booking(
         hours=body.hours,
         guest_name=body.guest_name,
         guest_phone=body.guest_phone,
+        console_type=body.console_type,
     )
     return BookingOut(**result)
 

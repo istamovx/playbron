@@ -44,7 +44,13 @@ export function ClubScreen(): ReactNode {
 
     return [...byRoom.entries()].map(([name, group]) => {
       const rates = [...new Set(group.map((s) => s.rate))].sort((a, b) => a - b);
-      const consoles = [...new Set(group.map((s) => CONSOLE_LABEL[s.consoleType] ?? s.consoleType))];
+      const consoles = [
+        ...new Set(
+          group
+            .map((s) => (s.consoleType ? (CONSOLE_LABEL[s.consoleType] ?? s.consoleType) : null))
+            .filter((label): label is string => label !== null),
+        ),
+      ];
       const busy = group.filter((s) =>
         todayBookings.some((b) => {
           if (b.stationId !== s.id) return false;

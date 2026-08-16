@@ -85,7 +85,10 @@ function formatClock(iso: string): string {
 }
 
 function stationLabelOf(s: StationDto): string {
-  return `${s.code} · ${s.roomLabel} · ${CONSOLE_LABEL[s.consoleType] ?? s.consoleType}`;
+  // Yangi (0023'dan keyingi) xonalarda konsol yo'q — bron paytida
+  // ALOHIDA tanlanadi (reja #38), shu yerda ko'rsatilmaydi.
+  const console = s.consoleType ? (CONSOLE_LABEL[s.consoleType] ?? s.consoleType) : null;
+  return console ? `${s.code} · ${s.roomLabel} · ${console}` : `${s.code} · ${s.roomLabel}`;
 }
 
 /**
@@ -303,6 +306,9 @@ export function ManualBookingPanel({
   const [hours, setHours] = useState('1');
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState(PHONE_PREFIX);
+  // Yangi (konsolsiz) xonada MAJBURIY — reja #38, loyiha egasi, 2026-08-16:
+  // "xonaga konsol biriktirmaslik kerak, xodim bron/hisob ochganda tanlasin".
+  const [consoleType, setConsoleType] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -313,10 +319,19 @@ export function ManualBookingPanel({
     }
   }, [activeStations, stationLabel]);
 
+  const selectedStation = activeStations.find((s) => stationLabelOf(s) === stationLabel);
+  const needsConsoleType = selectedStation !== undefined && selectedStation.consoleType === null;
+
+  // Xona almashtirilganda eski tanlov qolib ketmasin
+  useEffect(() => {
+    setConsoleType('');
+  }, [stationLabel]);
+
   const hoursNum = Number(hours);
   const ready =
     clubId !== null &&
-    activeStations.some((s) => stationLabelOf(s) === stationLabel) &&
+    selectedStation !== undefined &&
+    (!needsConsoleType || consoleType.length > 0) &&
     start.date.length > 0 &&
     start.time.length > 0 &&
     hoursNum >= 1 &&
@@ -326,16 +341,14 @@ export function ManualBookingPanel({
     !submitting;
 
   const submit = async (): Promise<void> => {
-    if (!ready || clubId === null) return;
-    const station = activeStations.find((s) => stationLabelOf(s) === stationLabel);
-    if (!station) return;
+    if (!ready || clubId === null || !selectedStation) return;
 
     setSubmitting(true);
     setError(null);
     setDone(false);
     try {
       await createStaffBooking(api, clubId, {
-        stationId: station.id,
+        stationId: selectedStation.id,
         // `DatePicker`/`TimeSelect` — mahalliy vaqt, `Z` yo'q; `Date` shuni
         // brauzer zonasida talqin qiladi, ISO'ga aylantirilganda UTC'ga
         // to'g'ri o'giradi.
@@ -343,10 +356,12 @@ export function ManualBookingPanel({
         hours: hoursNum,
         guestName: guestName.trim(),
         guestPhone,
+        consoleType: consoleType || undefined,
       });
       setGuestName('');
       setGuestPhone(PHONE_PREFIX);
       setStart(defaultStart());
+      setConsoleType('');
       setDone(true);
       toast.success('Bron ochildi');
       onCreated();
@@ -390,6 +405,31 @@ export function ManualBookingPanel({
           />
         </label>
       )}
+
+      {needsConsoleType ? (
+        <label style={{ display: 'grid', gap: 6 }}>
+          <span
+            style={{
+              font: 'var(--type-label)',
+              letterSpacing: 'var(--ls-label)',
+              textTransform: 'uppercase',
+              color: 'var(--text-label)',
+            }}
+          >
+            Konsol
+          </span>
+          <Select
+            value={CONSOLE_LABEL[consoleType] ?? ''}
+            items={Object.values(CONSOLE_LABEL)}
+            onChange={(label) => {
+              const id = Object.keys(CONSOLE_LABEL).find((c) => CONSOLE_LABEL[c] === label);
+              if (id) setConsoleType(id);
+            }}
+            size="lg"
+            notch
+          />
+        </label>
+      ) : null}
 
       <DatePicker label="Sana" value={start.date} onChange={(date) => setStart({ ...start, date })} />
 

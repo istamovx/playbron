@@ -688,6 +688,91 @@ async def test_staff_cancels_confirmed_booking_customer_not_arrived(
     assert station["booking_id"] is None
 
 
+# ── Konsol turi — xonadan bron darajasiga (reja #38) ────────────────────
+
+
+@skip_no_db
+async def test_new_station_has_no_console_type(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Yangi xona endi konsolsiz yaratiladi — foydalanuvchining so'rovi
+    (2026-08-16): "xonaga konsol biriktirmaslik kerak"."""
+    staff_h = await _staff_headers(client, world["club"])
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/stations",
+        json={"code": "BKG-NOCON", "room_label": "Standart", "rate": 35000},
+        headers=staff_h,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["console_type"] is None
+
+
+@skip_no_db
+async def test_booking_on_new_station_requires_console_type(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    staff_h = await _staff_headers(client, world["club"])
+    station = await client.post(
+        f"/api/v1/clubs/{world['club']}/stations",
+        json={"code": "BKG-NOCON2", "room_label": "Standart", "rate": 35000},
+        headers=staff_h,
+    )
+    assert station.status_code == 201, station.text
+    station_id = station.json()["id"]
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": station_id,
+            "starts_at": _starts(0),
+            "hours": 1,
+            "guest_name": "Mehmon",
+            "guest_phone": "+998901234567",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "CONSOLE_TYPE_REQUIRED"
+
+    ok = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": station_id,
+            "starts_at": _starts(0),
+            "hours": 1,
+            "guest_name": "Mehmon",
+            "guest_phone": "+998901234567",
+            "console_type": "ps5pro",
+        },
+        headers=staff_h,
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["console_type"] == "ps5pro"
+
+
+@skip_no_db
+async def test_booking_on_legacy_station_defaults_console_type(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Eski (0023'dan oldingi) xona — orqaga moslik: `console_type`
+    berilmasa xonaning o'zinikidan foydalaniladi (mini-app hali
+    yangilanmagan yo'llar buzilmasin)."""
+    staff_h = await _staff_headers(client, world["club"])
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(0),
+            "hours": 1,
+            "guest_name": "Mehmon",
+            "guest_phone": "+998901234567",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["console_type"] == "ps5"
+
+
 @skip_no_db
 async def test_cancel_already_closed_booking_is_rejected(
     client: httpx.AsyncClient, world: dict[str, int]

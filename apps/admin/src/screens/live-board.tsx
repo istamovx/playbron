@@ -213,7 +213,13 @@ function StationCard({
       </div>
 
       <div style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-        {`${station.roomLabel} · ${CONSOLE_LABEL[station.consoleType] ?? station.consoleType} · ${S(station.rate)} / soat`}
+        {[
+          station.roomLabel,
+          station.consoleType ? (CONSOLE_LABEL[station.consoleType] ?? station.consoleType) : null,
+          `${S(station.rate)} / soat`,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
       </div>
 
       <div style={{ height: 1, background: 'var(--line-1)' }} />

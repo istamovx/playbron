@@ -144,7 +144,7 @@ export function DashboardScreen(): ReactNode {
                         {station.code} · {station.roomLabel}
                       </span>
                       <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                        {station.consoleType.toUpperCase()}
+                        {station.consoleType?.toUpperCase() ?? '—'}
                       </span>
                     </span>
                     <Tag tone={station.occupied ? 'amber' : 'success'}>{station.occupied ? 'Band' : 'Bo‘sh'}</Tag>

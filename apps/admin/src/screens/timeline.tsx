@@ -290,9 +290,11 @@ export function TimelineScreen(): ReactNode {
                       <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
                         {station.code}
                       </span>
-                      <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                        {consoleLabel(station.consoleType)}
-                      </span>
+                      {station.consoleType ? (
+                        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                          {consoleLabel(station.consoleType)}
+                        </span>
+                      ) : null}
                     </div>
 
                     <div

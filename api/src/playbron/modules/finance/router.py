@@ -270,7 +270,9 @@ class StationLiveOut(BaseModel):
     id: int
     code: str
     room_label: str
-    console_type: str
+    # Band bo'lsa bronning konsoli, bo'sh yangi (konsolsiz) xonada `None`
+    # (reja #38, `finance/reports.py::get_dashboard()`).
+    console_type: str | None
     status: str
     occupied: bool
 

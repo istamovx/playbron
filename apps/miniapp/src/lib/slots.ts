@@ -129,17 +129,25 @@ export const CONSOLE_LABEL: Record<string, string> = {
   ps5pro: 'PS5 Pro',
 };
 
-/** Klubdagi mavjud konsollar — mavjudlik tartibida, katalogdan. */
+/** Klubdagi mavjud konsollar — mavjudlik tartibida, katalogdan.
+ *
+ * Yangi (0023'dan keyingi, konsolsiz) xonalar bu ro'yxatga kirmaydi — ular
+ * uchun konsol endi bron paytida tanlanadi, filtr sifatida emas (reja #38).
+ */
 export function consoleTypes(stations: StationDto[]): { id: string; label: string }[] {
   const order = Object.keys(CONSOLE_LABEL);
-  return [...new Set(stations.map((station) => station.consoleType))]
+  const ids = [...new Set(stations.map((station) => station.consoleType))].filter(
+    (id): id is string => id !== null,
+  );
+  return ids
     .sort((a, b) => order.indexOf(a) - order.indexOf(b))
     .map((id) => ({ id, label: CONSOLE_LABEL[id] ?? id }));
 }
 
-/** Kartadagi texnik satr — TV/pad hozircha backend'da yo'q, faqat konsol turi. */
+/** Kartadagi texnik satr — TV/pad hozircha backend'da yo'q, faqat konsol turi.
+ * Konsolsiz (yangi) xonada bo'sh — bron paytida tanlanadi. */
 export const stationSpec = (station: StationDto): string =>
-  CONSOLE_LABEL[station.consoleType] ?? station.consoleType;
+  station.consoleType ? (CONSOLE_LABEL[station.consoleType] ?? station.consoleType) : '';
 
 /** Hozirgi lahza — yarim tundan daqiqada, BRAUZER (haqiqiy) vaqti. */
 export function nowMinutesOfDay(): number {

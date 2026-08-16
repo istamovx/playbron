@@ -125,7 +125,10 @@ export interface StationDto {
   id: number;
   code: string;
   roomLabel: string;
-  consoleType: string;
+  /** Eski (0023'dan oldingi) xonalarda bor, yangi xonalarda `null` — reja
+   * #38 (loyiha egasi, 2026-08-16): konsol turi endi bron/hisob ochilganda
+   * tanlanadi, xonaga biriktirilmaydi. */
+  consoleType: string | null;
   rate: number;
   status: string;
 }
@@ -134,7 +137,7 @@ interface StationApi {
   id: number;
   code: string;
   room_label: string;
-  console_type: string;
+  console_type: string | null;
   rate: number;
   status: string;
 }
@@ -165,7 +168,6 @@ export const listStationsForManagement = async (
 export interface StationCreateIn {
   code: string;
   roomLabel: string;
-  consoleType: string;
   rate: number;
 }
 
@@ -177,7 +179,6 @@ export const createStation = async (
   const row = await api.post<StationApi>(`/clubs/${clubId}/stations`, {
     code: body.code,
     room_label: body.roomLabel,
-    console_type: body.consoleType,
     rate: body.rate,
   });
   return fromStationApi(row);
@@ -185,7 +186,6 @@ export const createStation = async (
 
 export interface StationUpdateIn {
   roomLabel: string;
-  consoleType: string;
   rate: number;
   status: 'active' | 'maintenance';
 }
@@ -200,7 +200,6 @@ export const updateStation = async (
     method: 'PATCH',
     body: {
       room_label: body.roomLabel,
-      console_type: body.consoleType,
       rate: body.rate,
       status: body.status,
     },
@@ -380,6 +379,9 @@ export interface CustomerBookingIn {
   stationId: number;
   startsAt: string;
   hours: number;
+  /** Eski (0023'dan oldingi) xonada ixtiyoriy — xonaning o'zinikidan
+   * foydalaniladi. Yangi (konsolsiz) xonada MAJBURIY. */
+  consoleType?: string;
 }
 
 export interface BookingDto {
@@ -390,6 +392,7 @@ export interface BookingDto {
   endsAt: string;
   hours: number;
   rateSnapshot: number;
+  consoleType: string;
 }
 
 export const createCustomerBooking = async (
@@ -405,10 +408,12 @@ export const createCustomerBooking = async (
     ends_at: string;
     hours: number;
     rate_snapshot: number;
+    console_type: string;
   }>(`/clubs/${clubId}/bookings`, {
     station_id: body.stationId,
     starts_at: body.startsAt,
     hours: body.hours,
+    console_type: body.consoleType,
   });
   return {
     id: row.id,
@@ -418,6 +423,7 @@ export const createCustomerBooking = async (
     endsAt: row.ends_at,
     hours: row.hours,
     rateSnapshot: row.rate_snapshot,
+    consoleType: row.console_type,
   };
 };
 
@@ -567,6 +573,9 @@ export interface StaffBookingIn {
   hours: number;
   guestName: string;
   guestPhone: string;
+  /** Eski xonada ixtiyoriy (xonaning o'zinikidan foydalaniladi), yangi
+   * (konsolsiz) xonada MAJBURIY — reja #38. */
+  consoleType?: string;
 }
 
 export const createStaffBooking = async (
@@ -580,6 +589,7 @@ export const createStaffBooking = async (
     hours: body.hours,
     guest_name: body.guestName,
     guest_phone: body.guestPhone,
+    console_type: body.consoleType,
   });
 };
 
@@ -921,7 +931,8 @@ export interface LiveStationDto {
   id: number;
   code: string;
   roomLabel: string;
-  consoleType: string;
+  /** Band bo'lsa bronning konsoli, bo'sh yangi (konsolsiz) xonada `null`. */
+  consoleType: string | null;
   rate: number;
   status: string;
   bookingId: number | null;
@@ -938,7 +949,7 @@ export const listLiveStations = async (
       id: number;
       code: string;
       room_label: string;
-      console_type: string;
+      console_type: string | null;
       rate: number;
       status: string;
       booking_id: number | null;
@@ -1182,7 +1193,7 @@ export interface ClubStationLiveDto {
   id: number;
   code: string;
   roomLabel: string;
-  consoleType: string;
+  consoleType: string | null;
   status: string;
   occupied: boolean;
 }
@@ -1217,7 +1228,7 @@ interface ClubDashboardApi {
     id: number;
     code: string;
     room_label: string;
-    console_type: string;
+    console_type: string | null;
     status: string;
     occupied: boolean;
   }>;

@@ -447,7 +447,12 @@ async def list_live_stations(session: AsyncSession, club_id: int) -> list[dict[s
     rows = (
         await session.execute(
             text(
-                "SELECT s.id, s.code, s.room_label, s.console_type, s.rate, s.status,"
+                "SELECT s.id, s.code, s.room_label,"
+                # Band bo'lsa BRONning konsoli ustuvor (xona "sukut"idan farqli
+                # bo'lishi mumkin, reja #38); bo'sh bo'lsa eski xonaning
+                # (0023'dan oldingi) konsoli, yangi xonada ikkalasi ham NULL.
+                "       COALESCE(b.console_type, s.console_type) AS console_type,"
+                "       s.rate, s.status,"
                 "       b.id AS booking_id, upper(b.period) AS ends_at,"
                 "       COALESCE(u.display_name, u.first_name, b.guest_name) AS guest_label"
                 " FROM stations s"

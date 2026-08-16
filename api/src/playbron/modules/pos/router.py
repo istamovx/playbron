@@ -97,7 +97,9 @@ class LiveStationOut(BaseModel):
     id: int
     code: str
     room_label: str
-    console_type: str
+    # Band bo'lsa bronning konsoli, bo'sh yangi (konsolsiz) xonada `None`
+    # (reja #38, `pos/service.py::list_live_stations()`).
+    console_type: str | None
     rate: int
     status: str
     booking_id: int | None

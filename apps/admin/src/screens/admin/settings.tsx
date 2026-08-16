@@ -20,24 +20,22 @@ import {
   FieldRow,
   Modal,
   Panel,
-  Select,
   StatusLine,
   Tabs,
   Tag,
   TextField,
   toast,
 } from '@playbron/ui';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
 import { S } from '../../mock/data';
 import { useClub } from '../../store/club';
 import { useBoard } from '../../store/board';
 import { ROLE_LABEL, remainingText, useSession } from '../../store/session';
-import { FormGrid, Labeled, parseHm } from './parts';
+import { FormGrid, parseHm } from './parts';
 
 const TABS = ['Hisob', 'Klub ma’lumoti', 'Xonalar', 'Jurnal'];
-const FULL: CSSProperties = { width: '100%' };
 
 /**
  * Sozlamalar — klub adminining shaxsiy hisobi + klub ma'lumoti + xonalar
@@ -556,6 +554,10 @@ function ClubGeneralTab(): ReactNode {
 
 // ─────────────────────────── xonalar ───────────────────────────
 
+// Eski (0023'dan oldingi) xonalarda hali `console_type` bor — jadvalda
+// ko'rsatiladi, lekin FORMADA endi tanlanmaydi (reja #38, loyiha egasi,
+// 2026-08-16): "xona qo'shganda konsolni tanlash kerak emas — mijoz/xodim
+// bron/hisob ochishda tanlaydi".
 const CONSOLE_LABEL: Record<string, string> = {
   ps3: 'PS3',
   ps4: 'PS4',
@@ -563,13 +565,11 @@ const CONSOLE_LABEL: Record<string, string> = {
   ps5: 'PS5',
   ps5pro: 'PS5 Pro',
 };
-const CONSOLE_TYPES = Object.keys(CONSOLE_LABEL);
 
 interface StationDraft {
   id: number | null;
   code: string;
   roomLabel: string;
-  consoleType: string;
   rate: string;
   status: 'active' | 'maintenance';
 }
@@ -578,7 +578,6 @@ const EMPTY_STATION_DRAFT: StationDraft = {
   id: null,
   code: '',
   roomLabel: 'Standart',
-  consoleType: 'ps5',
   rate: '40000',
   status: 'active',
 };
@@ -635,14 +634,12 @@ function StationsTab(): ReactNode {
         await createStation(api, clubId, {
           code: draft.code.trim(),
           roomLabel: draft.roomLabel.trim() || 'Standart',
-          consoleType: draft.consoleType,
           rate,
         });
         toast.success(`Xona qo‘shildi — ${draft.code.trim()}`);
       } else {
         await updateStation(api, clubId, draft.id, {
           roomLabel: draft.roomLabel.trim() || 'Standart',
-          consoleType: draft.consoleType,
           rate,
           status: draft.status,
         });
@@ -664,7 +661,6 @@ function StationsTab(): ReactNode {
     try {
       await updateStation(api, clubId, station.id, {
         roomLabel: station.roomLabel,
-        consoleType: station.consoleType,
         rate: station.rate,
         status: station.status === 'active' ? 'maintenance' : 'active',
       });
@@ -707,17 +703,6 @@ function StationsTab(): ReactNode {
                 icon="meeting_room"
                 placeholder="Standart"
               />
-              <Labeled label="Konsol">
-                <Select
-                  value={CONSOLE_LABEL[draft.consoleType] ?? draft.consoleType}
-                  items={CONSOLE_TYPES.map((id) => CONSOLE_LABEL[id] as string)}
-                  onChange={(label) => {
-                    const id = CONSOLE_TYPES.find((c) => CONSOLE_LABEL[c] === label);
-                    if (id) setDraft({ ...draft, consoleType: id });
-                  }}
-                  style={FULL}
-                />
-              </Labeled>
               <TextField
                 label="Soatlik summa"
                 value={draft.rate}
@@ -793,9 +778,12 @@ function StationsTab(): ReactNode {
               ),
             },
             {
+              // Eski (0023'dan oldingi) xonalarda ko'rinadi — yangi xonada
+              // konsol endi bron/hisob ochilganda tanlanadi (reja #38).
               key: 'console',
               header: 'Konsol',
-              render: (row) => CONSOLE_LABEL[row.consoleType] ?? row.consoleType,
+              render: (row) =>
+                row.consoleType ? (CONSOLE_LABEL[row.consoleType] ?? row.consoleType) : '—',
             },
             {
               key: 'rate',
@@ -838,7 +826,6 @@ function StationsTab(): ReactNode {
                         id: row.id,
                         code: row.code,
                         roomLabel: row.roomLabel,
-                        consoleType: row.consoleType,
                         rate: String(row.rate),
                         status: row.status === 'active' ? 'active' : 'maintenance',
                       });

@@ -162,11 +162,11 @@ async def create_station(
     club_id: int,
     code: str,
     room_label: str,
-    console_type: str,
     rate: int,
 ) -> dict[str, Any]:
-    if console_type not in CONSOLE_TYPES:
-        raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
+    """Konsol turi endi xonaga biriktirilmaydi (reja #38, loyiha egasi,
+    2026-08-16) — `console_type` yangi xonalarda `NULL`, bron/hisob
+    ochilganda tanlanadi (`_resolve_console_type()`)."""
     if rate <= 0:
         raise AppError("Narx musbat bo'lsin", code="RATE_INVALID")
 
@@ -177,15 +177,14 @@ async def create_station(
     try:
         station_id = await session.scalar(
             text(
-                "INSERT INTO stations (club_id, code, room_label, console_type, rate, status)"
-                " VALUES (:club_id, :code, :room_label, :console_type, :rate, 'active')"
+                "INSERT INTO stations (club_id, code, room_label, rate, status)"
+                " VALUES (:club_id, :code, :room_label, :rate, 'active')"
                 " RETURNING id"
             ),
             {
                 "club_id": club_id,
                 "code": code,
                 "room_label": room_label.strip() or "Standart",
-                "console_type": console_type,
                 "rate": rate,
             },
         )
@@ -199,14 +198,14 @@ async def create_station(
         action="station_created",
         target=code,
         club_id=club_id,
-        after={"code": code, "room_label": room_label, "console_type": console_type, "rate": rate},
+        after={"code": code, "room_label": room_label, "rate": rate},
     )
 
     return {
         "id": station_id,
         "code": code,
         "room_label": room_label.strip() or "Standart",
-        "console_type": console_type,
+        "console_type": None,
         "rate": rate,
         "status": "active",
     }
@@ -218,12 +217,9 @@ async def update_station(
     club_id: int,
     station_id: int,
     room_label: str,
-    console_type: str,
     rate: int,
     status: str,
 ) -> dict[str, Any]:
-    if console_type not in CONSOLE_TYPES:
-        raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
     if rate <= 0:
         raise AppError("Narx musbat bo'lsin", code="RATE_INVALID")
     if status not in ("active", "maintenance"):
@@ -232,14 +228,12 @@ async def update_station(
     row = (
         await session.execute(
             text(
-                "UPDATE stations SET room_label = :room_label, console_type = :console_type,"
-                " rate = :rate, status = :status"
+                "UPDATE stations SET room_label = :room_label, rate = :rate, status = :status"
                 " WHERE id = :id AND club_id = :club_id"
                 " RETURNING id, code, room_label, console_type, rate, status"
             ),
             {
                 "room_label": room_label.strip() or "Standart",
-                "console_type": console_type,
                 "rate": rate,
                 "status": status,
                 "id": station_id,
@@ -254,12 +248,7 @@ async def update_station(
         action="station_updated",
         target=row.code,
         club_id=club_id,
-        after={
-            "room_label": room_label,
-            "console_type": console_type,
-            "rate": rate,
-            "status": status,
-        },
+        after={"room_label": room_label, "rate": rate, "status": status},
     )
 
     return _station_row_to_dict(row)
@@ -412,7 +401,8 @@ async def list_timeline(
         await session.execute(
             text(
                 "SELECT b.id, b.station_id, s.code AS station_code, s.room_label,"
-                "       s.console_type, lower(b.period) AS starts_at,"
+                # Xonadan emas, BRONdan — konsol endi shu darajada tanlanadi (reja #38)
+                "       b.console_type, lower(b.period) AS starts_at,"
                 "       upper(b.period) AS ends_at, b.status, b.closed_at IS NOT NULL AS closed,"
                 "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label"
                 " FROM bookings b"
@@ -456,7 +446,8 @@ async def _load_club_and_station(
     station = (
         await session.execute(
             text(
-                "SELECT id, code, rate, status FROM stations WHERE id = :id AND club_id = :club_id"
+                "SELECT id, code, console_type, rate, status FROM stations"
+                " WHERE id = :id AND club_id = :club_id"
             ),
             {"id": station_id, "club_id": club_id},
         )
@@ -465,6 +456,21 @@ async def _load_club_and_station(
         raise NotFound("Xona topilmadi")
 
     return club, station
+
+
+def _resolve_console_type(console_type: str | None, station: Any) -> str:
+    """Reja #38 (loyiha egasi, 2026-08-16) — konsol turi endi bron/hisob
+    ochilganda tanlanadi, xonaga biriktirilmaydi. Orqaga moslik: eski
+    (0023'dan oldingi) xonalar hali `console_type`ga ega — u berilmasa
+    SUKUT sifatida ishlatiladi (mini-app hali yangilanmagan yo'llar
+    buzilmasin). Konsolsiz (yangi) xonada esa bu endi MAJBURIY."""
+    if console_type is not None:
+        if console_type not in CONSOLE_TYPES:
+            raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
+        return console_type
+    if station.console_type is not None:
+        return str(station.console_type)
+    raise AppError("Konsol turini tanlang", code="CONSOLE_TYPE_REQUIRED")
 
 
 def _validate_window(starts_at: datetime, hours: int) -> datetime:
@@ -497,9 +503,11 @@ async def create_customer_booking(
     station_id: int,
     starts_at: datetime,
     hours: int,
+    console_type: str | None = None,
 ) -> dict[str, Any]:
     club, station = await _load_club_and_station(session, club_id, station_id)
     _validate_window(starts_at, hours)
+    resolved_console = _resolve_console_type(console_type, station)
 
     ends_at = starts_at + timedelta(hours=hours)
     rate = int(station.rate)
@@ -507,9 +515,10 @@ async def create_customer_booking(
     booking_id = await session.scalar(
         text(
             "INSERT INTO bookings"
-            " (club_id, station_id, customer_id, source, status, period, hours, rate_snapshot)"
+            " (club_id, station_id, customer_id, source, status, period, hours,"
+            "  rate_snapshot, console_type)"
             " VALUES (:club_id, :station_id, :customer_id, 'MINIAPP', 'PENDING',"
-            "         tstzrange(:starts_at, :ends_at), :hours, :rate)"
+            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :console_type)"
             " RETURNING id"
         ),
         {
@@ -520,6 +529,7 @@ async def create_customer_booking(
             "ends_at": ends_at,
             "hours": hours,
             "rate": rate,
+            "console_type": resolved_console,
         },
     )
 
@@ -550,6 +560,7 @@ async def create_customer_booking(
         "ends_at": ends_at.isoformat(),
         "hours": hours,
         "rate_snapshot": rate,
+        "console_type": resolved_console,
         "prepaid_amount": 0,
     }
 
@@ -564,6 +575,7 @@ async def create_staff_booking(
     hours: int,
     guest_name: str,
     guest_phone: str,
+    console_type: str | None = None,
 ) -> dict[str, Any]:
     """Xodim qo'lda ochadi — telefon/kelib bron qilgan mijoz uchun.
 
@@ -572,6 +584,7 @@ async def create_staff_booking(
     """
     club, station = await _load_club_and_station(session, club_id, station_id)
     _validate_window(starts_at, hours)
+    resolved_console = _resolve_console_type(console_type, station)
 
     name = clean_name(guest_name, limit=128)
     if len(name) < 2:
@@ -588,10 +601,11 @@ async def create_staff_booking(
         text(
             "INSERT INTO bookings"
             " (club_id, station_id, guest_name, guest_phone, source, status,"
-            "  period, hours, rate_snapshot, created_by, confirmed_by, confirmed_at)"
+            "  period, hours, rate_snapshot, console_type, created_by, confirmed_by,"
+            "  confirmed_at)"
             " VALUES (:club_id, :station_id, :guest_name, :guest_phone, 'STAFF', 'CONFIRMED',"
-            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :created_by,"
-            "         :created_by, now())"
+            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :console_type,"
+            "         :created_by, :created_by, now())"
             " RETURNING id"
         ),
         {
@@ -603,6 +617,7 @@ async def create_staff_booking(
             "ends_at": ends_at,
             "hours": hours,
             "rate": rate,
+            "console_type": resolved_console,
             "created_by": created_by,
         },
     )
@@ -615,6 +630,7 @@ async def create_staff_booking(
         "ends_at": ends_at.isoformat(),
         "hours": hours,
         "rate_snapshot": rate,
+        "console_type": resolved_console,
         "guest_name": name,
         "guest_phone": phone,
     }

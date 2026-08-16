@@ -174,8 +174,9 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
     stations = (
         await session.execute(
             text(
-                "SELECT s.id, s.code, s.room_label, s.console_type, s.status,"
-                "       (b.id IS NOT NULL) AS occupied"
+                "SELECT s.id, s.code, s.room_label,"
+                "       COALESCE(b.console_type, s.console_type) AS console_type,"
+                "       s.status, (b.id IS NOT NULL) AS occupied"
                 " FROM stations s"
                 " LEFT JOIN bookings b ON b.station_id = s.id AND b.status = 'CONFIRMED'"
                 "   AND b.period @> now() AND b.closed_at IS NULL"
