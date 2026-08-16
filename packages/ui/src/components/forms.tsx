@@ -272,3 +272,245 @@ export function TextField({
     </label>
   );
 }
+
+/**
+ * Kalendar sana tanlagich — `input[type=date]` o'rniga: native input ba'zi
+ * WebView/brauzerlarda (Telegram, eski Android) hech qanday tanlagich
+ * ochmaydi, oddiy matn maydoniga aylanib qoladi (loyiha egasining
+ * topilmasi, 2026-08-16 — ikki marta xabar berilgan: "kalendar hali ham
+ * ochilmayapti"). `Select`dagi bilan bir xil popover naqshi.
+ */
+const WEEKDAYS: readonly string[] = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sha', 'Ya'];
+const MONTHS: readonly string[] = [
+  'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
+  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
+];
+
+function parseDateValue(value: string): Date {
+  const parsed = value ? new Date(`${value}T00:00:00`) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function toDateValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  );
+}
+
+const iconBtnStyle: CSSProperties = {
+  display: 'grid',
+  placeItems: 'center',
+  width: 24,
+  height: 24,
+  padding: 0,
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--fg-3)',
+  cursor: 'pointer',
+};
+
+export function DatePicker({
+  value,
+  onChange,
+  label,
+  size = 'lg',
+  notch,
+  style,
+}: {
+  /** `YYYY-MM-DD`. */
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+  size?: ControlSize;
+  notch?: boolean;
+  style?: CSSProperties;
+}): ReactNode {
+  const selected = parseDateValue(value);
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const off = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', off);
+    return () => document.removeEventListener('mousedown', off);
+  }, [open]);
+
+  // Faqat ochilganda sana joriy tanlovga qaytariladi — foydalanuvchi oy
+  // varag'ini varaqlab, keyin qayta ochsa oldingi joyidan boshlanmasin.
+  // `selected` ATAYLAB bog'liqlik ro'yxatida emas — aks holda ochiq turgan
+  // popover foydalanuvchi navigatsiya qilayotganda o'z-o'zidan boshlang'ich
+  // oyga qaytib turaverardi.
+  useEffect(() => {
+    if (open) setCursor(new Date(selected.getFullYear(), selected.getMonth(), 1));
+  }, [open]);
+
+  const today = new Date();
+  const firstOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const startWeekday = (firstOfMonth.getDay() + 6) % 7; // Dushanba = 0
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const cells: Array<Date | null> = [];
+  for (let i = 0; i < startWeekday; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(cursor.getFullYear(), cursor.getMonth(), day));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const formatted = `${pad(selected.getDate())}.${pad(selected.getMonth() + 1)}.${selected.getFullYear()}`;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', ...style }}>
+      {label ? (
+        <span
+          style={{
+            display: 'block',
+            marginBottom: 6,
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--ls-label)',
+            textTransform: 'uppercase',
+            color: 'var(--text-label)',
+          }}
+        >
+          {label}
+        </span>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          height: controlHeight(size),
+          padding: '0 10px',
+          font: 'var(--type-data)',
+          color: 'var(--fg-1)',
+          background: 'var(--surface-field)',
+          border: `1px solid ${open ? 'var(--border-accent)' : 'var(--line-2)'}`,
+          borderRadius: 'var(--r-1)',
+          clipPath: notch ? 'var(--clip-tr)' : undefined,
+          cursor: 'pointer',
+          boxShadow: open ? 'var(--glow-violet-sm)' : 'none',
+          transition: 'var(--t-control)',
+        }}
+      >
+        <Icon name="event" size={14} color="var(--fg-4)" />
+        <span style={{ flex: 1, textAlign: 'left' }}>{formatted}</span>
+      </button>
+
+      {open ? (
+        <div
+          style={{
+            position: 'absolute',
+            zIndex: 40,
+            top: 'calc(100% + 4px)',
+            left: 0,
+            width: 264,
+            padding: 10,
+            background: 'var(--surface-pop)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-1)',
+            boxShadow: 'var(--shadow-pop)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+              style={iconBtnStyle}
+              aria-label="Oldingi oy"
+            >
+              <Icon name="chevron_left" size={16} />
+            </button>
+            <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
+              {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+              style={iconBtnStyle}
+              aria-label="Keyingi oy"
+            >
+              <Icon name="chevron_right" size={16} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+            {WEEKDAYS.map((w) => (
+              <span key={w} style={{ textAlign: 'center', font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                {w}
+              </span>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+            {cells.map((cell, index) => {
+              if (!cell) return <span key={`empty-${index}`} />;
+              const isToday = isSameDay(cell, today);
+              const isSelected = isSameDay(cell, selected);
+              return (
+                <button
+                  key={cell.getTime()}
+                  type="button"
+                  onClick={() => {
+                    onChange(toDateValue(cell));
+                    setOpen(false);
+                  }}
+                  style={{
+                    height: 28,
+                    display: 'grid',
+                    placeItems: 'center',
+                    font: 'var(--type-data)',
+                    color: isSelected ? 'var(--bg-app)' : isToday ? 'var(--text-accent)' : 'var(--fg-2)',
+                    background: isSelected ? 'var(--primary-100)' : 'transparent',
+                    border: isToday && !isSelected ? '1px solid var(--border-accent)' : '1px solid transparent',
+                    borderRadius: 'var(--r-1)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {cell.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Vaqt tanlagich — `Select`ning o'zi, faqat `HH:MM` ro'yxati bilan
+ * oldindan to'ldirilgan (sukut 30 daqiqalik qadam). */
+export function TimeSelect({
+  value,
+  onChange,
+  size = 'lg',
+  notch,
+  stepMinutes = 30,
+  style,
+}: {
+  /** `HH:MM`. */
+  value: string;
+  onChange: (value: string) => void;
+  size?: ControlSize;
+  notch?: boolean;
+  stepMinutes?: number;
+  style?: CSSProperties;
+}): ReactNode {
+  const items: string[] = [];
+  for (let m = 0; m < 24 * 60; m += stepMinutes) {
+    items.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  }
+  return <Select value={value} items={items} onChange={onChange} size={size} notch={notch} style={style} />;
+}

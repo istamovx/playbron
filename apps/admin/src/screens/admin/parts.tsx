@@ -2,7 +2,10 @@ import { Button } from '@playbron/ui';
 import type { CSSProperties, ReactNode } from 'react';
 
 /**
- * CRUD formalari uchun moslashuvchan to'r — tor ekranda bir ustunga tushadi.
+ * CRUD formalari uchun vertikal ustun — modallarda HECH QACHON yonma-yon
+ * maydon bo'lmasin (loyiha egasining topilmasi, 2026-08-16): avval
+ * `auto-fit` bilan keng modalda 2+ ustunga bo'linardi, endi doim bitta
+ * ustun, tepadan pastga.
  *
  * `gap` ixtiyoriy — sukut `--gap-block` (16px). Markazda chiquvchi kichik
  * modallar (4 talik forma: xodim, xona, to'lov) elementlar yopishib
@@ -19,10 +22,9 @@ export function FormGrid({
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
+        display: 'flex',
+        flexDirection: 'column',
         gap,
-        alignItems: 'end',
       }}
     >
       {children}

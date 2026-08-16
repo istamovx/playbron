@@ -8,7 +8,7 @@ import {
   type PendingBookingDto,
   type StationDto,
 } from '@playbron/api-client';
-import { Button, Modal, Panel, Select, StatusLine, TextField, toast } from '@playbron/ui';
+import { Button, DatePicker, Modal, Panel, Select, StatusLine, TextField, TimeSelect, toast } from '@playbron/ui';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -40,24 +40,37 @@ function formatPhone(raw: string): string {
   return out;
 }
 
-/** `datetime-local` input qiymati — klub vaqt zonasi hisobsiz, brauzer mahalliy vaqti. */
-function defaultStart(): string {
-  const in2h = new Date(Date.now() + 2 * 60 * 60 * 1000);
-  in2h.setMinutes(Math.ceil(in2h.getMinutes() / 30) * 30, 0, 0);
-  return toLocalInput(in2h);
+interface StartValue {
+  date: string;
+  time: string;
 }
 
-function toLocalInput(d: Date): string {
+function toStartValue(d: Date): StartValue {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
+/** Sukut boshlanish — telefon orqali OLDINDAN bron uchun (2 soat keyinga,
+ * 30 daqiqaga yaxlitlangan). Kalendar/vaqt tanlagich — brauzer mahalliy
+ * vaqti, klub vaqt zonasi hisobsiz (`native input[type=date]` ba'zi
+ * WebView/brauzerlarda tanlagich umuman ochmasdi — loyiha egasining
+ * ikki marta xabar bergan topilmasi, 2026-08-16, `packages/ui`dagi
+ * `DatePicker`/`TimeSelect` bilan almashtirildi). */
+function defaultStart(): StartValue {
+  const in2h = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  in2h.setMinutes(Math.ceil(in2h.getMinutes() / 30) * 30, 0, 0);
+  return toStartValue(in2h);
 }
 
 /** Mijoz hozir kelgan — hisob shu zahotiyoq boshlanadi (loyiha egasining
  * so'rovi, 2026-08-16): sukut `defaultStart()` telefon orqali OLDINDAN
  * bron uchun (2 soat keyinga), joyida kelgan mijoz uchun esa "Hozir" tez
  * tugmasi hozirgi daqiqani qo'yadi. */
-function nowStart(): string {
-  return toLocalInput(new Date());
+function nowStart(): StartValue {
+  return toStartValue(new Date());
 }
 
 function formatClock(iso: string): string {
@@ -256,7 +269,7 @@ function ManualBookingPanel({
     `${s.code} · ${s.roomLabel} · ${CONSOLE_LABEL[s.consoleType] ?? s.consoleType}`;
 
   const [stationLabel, setStationLabel] = useState('');
-  const [starts, setStarts] = useState(defaultStart());
+  const [start, setStart] = useState<StartValue>(defaultStart());
   const [hours, setHours] = useState('1');
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState(PHONE_PREFIX);
@@ -274,7 +287,8 @@ function ManualBookingPanel({
   const ready =
     clubId !== null &&
     activeStations.some((s) => labelOf(s) === stationLabel) &&
-    starts.length > 0 &&
+    start.date.length > 0 &&
+    start.time.length > 0 &&
     hoursNum >= 1 &&
     hoursNum <= 6 &&
     guestName.trim().length > 0 &&
@@ -292,17 +306,17 @@ function ManualBookingPanel({
     try {
       await createStaffBooking(api, clubId, {
         stationId: station.id,
-        // `datetime-local` — mahalliy vaqt, `Z` yo'q; `Date` shuni
+        // `DatePicker`/`TimeSelect` — mahalliy vaqt, `Z` yo'q; `Date` shuni
         // brauzer zonasida talqin qiladi, ISO'ga aylantirilganda UTC'ga
         // to'g'ri o'giradi.
-        startsAt: new Date(starts).toISOString(),
+        startsAt: new Date(`${start.date}T${start.time}`).toISOString(),
         hours: hoursNum,
         guestName: guestName.trim(),
         guestPhone,
       });
       setGuestName('');
       setGuestPhone(PHONE_PREFIX);
-      setStarts(defaultStart());
+      setStart(defaultStart());
       setDone(true);
       toast.success('Bron ochildi');
       onCreated();
@@ -347,6 +361,8 @@ function ManualBookingPanel({
         </label>
       )}
 
+      <DatePicker label="Sana" value={start.date} onChange={(date) => setStart({ ...start, date })} />
+
       <label style={{ display: 'grid', gap: 6 }}>
         <span
           style={{
@@ -356,31 +372,14 @@ function ManualBookingPanel({
             color: 'var(--text-label)',
           }}
         >
-          Boshlanish vaqti
+          Vaqt
         </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="datetime-local"
-            value={starts}
-            onChange={(event) => setStarts(event.target.value)}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              height: 'var(--control-h-lg)',
-              padding: '0 10px',
-              background: 'var(--surface-field)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--r-1)',
-              clipPath: 'var(--clip-tr)',
-              font: 'var(--type-data)',
-              color: 'var(--fg-1)',
-            }}
-          />
-          <Button variant="ghost" icon="bolt" onClick={() => setStarts(nowStart())}>
-            Hozir
-          </Button>
-        </div>
+        <TimeSelect value={start.time} onChange={(time) => setStart({ ...start, time })} style={{ width: '100%' }} />
       </label>
+
+      <Button variant="ghost" icon="bolt" onClick={() => setStart(nowStart())} block>
+        Hozir boshlash
+      </Button>
 
       <TextField
         label="Necha soat"
