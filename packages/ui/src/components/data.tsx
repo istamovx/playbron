@@ -438,6 +438,195 @@ export function ActivityBars({
   );
 }
 
+/**
+ * Vaqt bo'yicha tendensiya — kunlik/haftalik/oylik seriyalar uchun.
+ * `ActivityBars` diskret taqqoslashga mos (top mahsulot, kategoriya bo'yicha
+ * taqsimot); `LineChart` esa UZLUKSIZ o'zgarishga (tushum trendi, band
+ * bo'lish egri chizig'i) — ikkisi bir xil ma'lumotni ikki xil savolga
+ * javob berish uchun ko'rsatadi (loyiha egasining so'rovi, 2026-08-16:
+ * "faqat bar chart emas, linegraph ham").
+ *
+ * Chiziq va soha `--chart-*` tokenlaridan foydalanadi — bu tokenlar
+ * `colors.css`da ANCHADAN bor edi (`--chart-grid`, `--chart-guide`,
+ * `--chart-node-halo`, ...), lekin hech qanday komponent ularni
+ * ishlatmagan edi.
+ *
+ * Nuqtalar SVG emas, mutlaq joylashgan `<span>` — SVG `viewBox`
+ * `preserveAspectRatio="none"` bilan cho'zilganda aylana ellipsga
+ * aylanib qolardi (X/Y masshtab teng emas); chiziq/soha esa buzilishga
+ * chidamli, shuning uchun SVG'da qoladi.
+ */
+export function LineChart({
+  seed = 3,
+  points = 24,
+  height = 96,
+  labels,
+  values,
+  tip,
+  area = true,
+  style,
+}: {
+  seed?: number;
+  points?: number;
+  height?: number;
+  labels?: string[];
+  /** Tashqi qiymatlar. Berilmasa seed bo'yicha hosil qilinadi. */
+  values?: number[];
+  /** Sichqoncha tekkanda ko'rsatiladigan matn. Berilmasa tooltip chiqmaydi. */
+  tip?: (value: number, index: number) => string;
+  /** Chiziq ostidagi soha to'ldirilsinmi. */
+  area?: boolean;
+  style?: CSSProperties;
+}): ReactNode {
+  const random = seeded(seed);
+  const data =
+    values ??
+    Array.from({ length: points }, (_, index) => 0.18 + (index / points) * 0.35 + random() * 0.45);
+  const ticks = labels ?? [];
+  const [hover, setHover] = useState<number | null>(null);
+
+  const n = data.length;
+  const max = Math.max(...data, 0.0001);
+  const min = Math.min(0, ...data);
+  const span = max - min || 1;
+
+  const xOf = (index: number): number => (n <= 1 ? 50 : (index / (n - 1)) * 100);
+  const yOf = (value: number): number => 100 - ((value - min) / span) * 100;
+  const coords = data.map((value, index) => ({ x: xOf(index), y: yOf(value) }));
+
+  const linePath = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x} ${c.y}`).join(' ');
+  const firstX = coords[0]?.x ?? 0;
+  const lastX = coords[n - 1]?.x ?? 100;
+  const areaPath = `${linePath} L ${lastX} 100 L ${firstX} 100 Z`;
+
+  const tipText = tip && hover !== null ? tip(data[hover] as number, hover) : null;
+
+  return (
+    <div style={style}>
+      <div
+        onMouseLeave={() => setHover(null)}
+        style={{ position: 'relative', height, borderBottom: '1px solid var(--line-2)' }}
+      >
+        {tipText !== null && hover !== null ? (
+          <span
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: `${Math.min(94, Math.max(6, coords[hover]?.x ?? 0))}%`,
+              transform: 'translate(-50%, -8px)',
+              padding: '4px 8px',
+              background: 'var(--surface-raised)',
+              border: '1px solid var(--line-2)',
+              clipPath: 'var(--clip-tr)',
+              boxShadow: 'var(--shadow-pop)',
+              font: 'var(--type-data)',
+              color: 'var(--text-title)',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          >
+            {tipText}
+          </span>
+        ) : null}
+
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}
+        >
+          {[0, 50, 100].map((y) => (
+            <line key={y} x1={0} y1={y} x2={100} y2={y} stroke="var(--chart-grid)" strokeWidth={1} />
+          ))}
+
+          {hover !== null ? (
+            <line
+              x1={coords[hover]?.x}
+              y1={0}
+              x2={coords[hover]?.x}
+              y2={100}
+              stroke="var(--chart-guide)"
+              strokeWidth={1}
+            />
+          ) : null}
+
+          {area ? <path d={areaPath} fill="var(--chart-plot)" stroke="none" /> : null}
+
+          <path
+            className="pb-line"
+            d={linePath}
+            fill="none"
+            stroke="var(--primary-100)"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            pathLength={1}
+          />
+        </svg>
+
+        {coords.map((c, index) => {
+          const lit = index === hover;
+          return (
+            <span
+              key={index}
+              onMouseEnter={() => setHover(index)}
+              style={{
+                position: 'absolute',
+                left: `${c.x}%`,
+                top: `${c.y}%`,
+                // Haqiqiy nuqtadan kattaroq — sichqoncha tekkizish nishonini kengaytiradi
+                width: 18,
+                height: 18,
+                transform: 'translate(-50%, -50%)',
+                cursor: 'default',
+              }}
+            >
+              {lit ? (
+                <span
+                  style={{
+                    position: 'absolute',
+                    inset: 2,
+                    borderRadius: '50%',
+                    background: 'var(--chart-node-halo)',
+                  }}
+                />
+              ) : null}
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: lit ? 8 : 6,
+                  height: lit ? 8 : 6,
+                  borderRadius: '50%',
+                  background: 'var(--primary-100)',
+                  border: '2px solid var(--bg-app)',
+                  boxShadow: lit ? 'var(--glow-violet-sm)' : undefined,
+                  transition: 'var(--t-control)',
+                }}
+              />
+            </span>
+          );
+        })}
+      </div>
+
+      {ticks.length > 0 ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 7 }}>
+          {ticks.map((tick, index) => (
+            <span
+              key={`${tick}-${index}`}
+              style={{ font: 'var(--type-data-xs)', fontSize: 'var(--fs-xs)', color: 'var(--fg-4)' }}
+            >
+              {tick}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export interface Column<T> {
   key: string;
   header: string;

@@ -1,4 +1,4 @@
-import { ActivityBars, Panel, ProgressMeter, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
+import { LineChart, Panel, ProgressMeter, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
 import { useState, type ReactNode } from 'react';
 
 import {
@@ -65,10 +65,10 @@ export function ReportsScreen(): ReactNode {
       </div>
 
       <Panel title={`Tushum dinamikasi · ${config.label}`} notch brackets>
-        {/* Ustunlar barqaror: bir xil davr har safar bir xil grafikni beradi */}
+        {/* Chiziq barqaror: bir xil davr har safar bir xil grafikni beradi */}
         <div className="ds-chart">
-          <ActivityBars
-            bars={series.length}
+          <LineChart
+            points={series.length}
             values={series}
             labels={PERIOD_LABELS[period] ?? []}
             height={120}

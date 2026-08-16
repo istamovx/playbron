@@ -1,5 +1,5 @@
 import { errorText, getPlatformStats, type PlatformStatsDto } from '@playbron/api-client';
-import { ActivityBars, EntityTable, Panel, StatTile, StatusLine } from '@playbron/ui';
+import { EntityTable, LineChart, Panel, StatTile, StatusLine } from '@playbron/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -59,8 +59,8 @@ export function PlatformScreen(): ReactNode {
 
   const days = lastDays(TREND_DAYS);
   const trendValues = days.map((day) => stats?.dailyTrend[day] ?? 0);
-  // `ActivityBars` har bir ustun ostida joy ajratadi — bandlashib
-  // ketmasligi uchun faqat juft indekslarga sana yoziladi, qolganlari bo'sh.
+  // Har bir nuqta ostida joy ajratiladi — bandlashib ketmasligi uchun
+  // faqat juft indekslarga sana yoziladi, qolganlari bo'sh.
   const ticks = days.map((day, index) => (index % 2 === 0 ? shortDate(day) : ''));
 
   return (
@@ -118,8 +118,8 @@ export function PlatformScreen(): ReactNode {
             />
           </div>
           <div className="ds-chart">
-            <ActivityBars
-              bars={TREND_DAYS}
+            <LineChart
+              points={TREND_DAYS}
               values={trendValues}
               labels={ticks}
               height={264}

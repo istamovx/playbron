@@ -4,7 +4,7 @@ import {
   type PlatformReportDto,
   type PlatformReportPeriod,
 } from '@playbron/api-client';
-import { ActivityBars, Panel, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
+import { ActivityBars, LineChart, Panel, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -220,8 +220,8 @@ export function PlatformReportScreen(): ReactNode {
 
       <Panel title={`Platforma tushumi · ${config.label}`} notch brackets>
         <div className="ds-chart">
-          <ActivityBars
-            bars={buckets.length}
+          <LineChart
+            points={buckets.length}
             values={revenueValues}
             labels={ticks}
             height={180}
