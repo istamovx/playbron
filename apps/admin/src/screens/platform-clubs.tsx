@@ -5,8 +5,11 @@ import {
   listPlatformOrgs,
   recordPlatformPayment,
   updatePlatformOrg,
+  type PlatformOrgClubDto,
   type PlatformOrgDetailDto,
   type PlatformOrgDto,
+  type PlatformOrgPaymentDto,
+  type PlatformOrgStaffDto,
   type PlatformOrgStatus,
 } from '@playbron/api-client';
 import {
@@ -21,7 +24,7 @@ import {
   TextField,
   toast,
 } from '@playbron/ui';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
 import { S } from '../mock/data';
@@ -556,7 +559,7 @@ export function PlatformClubsScreen(): ReactNode {
               <StatusLine
                 tone="warn"
                 icon="block"
-                parts={['Hozircha faqat ko‘rsatish maqsadida', 'Kirish/bron avtomatik bloklanmaydi']}
+                parts={['Tashkilotning barcha xodimlari kira olmaydi', 'Saqlangach darhol amal qiladi']}
               />
             ) : null}
 
@@ -615,109 +618,15 @@ export function PlatformClubsScreen(): ReactNode {
             </div>
 
             <Panel title={`Klublar (${previewData.clubs.length})`} notch>
-              <EntityTable
-                rows={previewData.clubs}
-                rowKey={(row) => String(row.clubId)}
-                empty="Klub topilmadi"
-                columns={[
-                  {
-                    key: 'name',
-                    header: 'Klub',
-                    render: (row) => (
-                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                        <span style={{ color: 'var(--text-title)' }}>{row.clubName}</span>
-                        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                          {row.address}
-                        </span>
-                      </span>
-                    ),
-                  },
-                  {
-                    key: 'status',
-                    header: 'Holat',
-                    render: (row) => (
-                      <Tag tone={row.clubStatus === 'active' ? 'success' : 'amber'}>
-                        {row.clubStatus === 'active' ? 'Faol' : 'Qoralama'}
-                      </Tag>
-                    ),
-                  },
-                  {
-                    key: 'stations',
-                    header: 'Stansiya',
-                    align: 'right',
-                    render: (row) => <span>{row.stationsCount}</span>,
-                  },
-                  {
-                    key: 'bookings',
-                    header: '30 kun bron',
-                    align: 'right',
-                    render: (row) => <span>{row.bookings30d}</span>,
-                  },
-                ]}
-              />
+              <ClubsCardList clubs={previewData.clubs} />
             </Panel>
 
             <Panel title={`To‘lov tarixi (${previewData.payments.length})`} notch>
-              <EntityTable
-                rows={previewData.payments}
-                rowKey={(row) => String(row.id)}
-                empty="To‘lov topilmadi"
-                columns={[
-                  {
-                    key: 'amount',
-                    header: 'Summa',
-                    render: (row) => (
-                      <span style={{ color: 'var(--text-title)' }}>{S(row.amount)} so‘m</span>
-                    ),
-                  },
-                  {
-                    key: 'plan',
-                    header: 'Tarif',
-                    render: (row) => (
-                      <span>{row.planCode ? (PLAN_DISPLAY[row.planCode] ?? row.planCode) : '—'}</span>
-                    ),
-                  },
-                  {
-                    key: 'period',
-                    header: 'Muddat',
-                    render: (row) => <span>{row.periodMonths ? `${row.periodMonths} oy` : '—'}</span>,
-                  },
-                  {
-                    key: 'paidAt',
-                    header: 'Sana',
-                    render: (row) => <span>{formatExpiry(row.paidAt)}</span>,
-                  },
-                  {
-                    key: 'enteredBy',
-                    header: 'Kim kiritdi',
-                    render: (row) => <span>{row.enteredByName ?? '—'}</span>,
-                  },
-                ]}
-              />
+              <PaymentsCardList payments={previewData.payments} />
             </Panel>
 
             <Panel title={`Xodimlar (${previewData.staff.length})`} notch>
-              <EntityTable
-                rows={previewData.staff}
-                rowKey={(row) => `${row.clubId}:${row.userId}`}
-                empty="Xodim topilmadi"
-                columns={[
-                  {
-                    key: 'name',
-                    header: 'Ism',
-                    render: (row) => (
-                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                        <span style={{ color: 'var(--text-title)' }}>{row.firstName}</span>
-                        <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                          {row.login ?? '—'}
-                        </span>
-                      </span>
-                    ),
-                  },
-                  { key: 'role', header: 'Rol', render: (row) => <Tag tone="neutral">{row.role}</Tag> },
-                  { key: 'club', header: 'Klub', render: (row) => <span>{row.clubName}</span> },
-                ]}
-              />
+              <StaffCardList staff={previewData.staff} />
             </Panel>
           </div>
         ) : null}
@@ -890,6 +799,135 @@ export function PlatformClubsScreen(): ReactNode {
         />
       </Panel>
     </div>
+  );
+}
+
+const CARD_ROW: CSSProperties = {
+  padding: 'var(--card-pad)',
+  background: 'var(--surface-card)',
+  border: '1px solid var(--line-1)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  minWidth: 0,
+};
+
+function CardList({ children }: { children: ReactNode }): ReactNode {
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>{children}</div>;
+}
+
+function CardListEmpty({ text }: { text: string }): ReactNode {
+  return (
+    <div
+      style={{
+        border: '1px dashed var(--line-2)',
+        padding: 'var(--card-pad)',
+        color: 'var(--text-muted)',
+        font: 'var(--type-body-sm)',
+        textAlign: 'center',
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/**
+ * Preview modalning uch ro'yxati (klublar/to'lovlar/xodimlar) — jadval
+ * o'rniga kartalar (loyiha egasining topilmasi, 2026-08-16, reja #43):
+ * "klub preview modalda ma'lumot jadval holatida qolgan, uni card list ga
+ * o'zgartir". `EntityTable`ning tor-ekran karta rejimi bilan bir xil
+ * vizual til (`components/data.tsx` — `/design-sync` ostida, o'zgartirib
+ * bo'lmaydi), lekin bu yerda ENIga qaramasdan doim karta.
+ */
+function ClubsCardList({ clubs }: { clubs: PlatformOrgClubDto[] }): ReactNode {
+  if (clubs.length === 0) return <CardListEmpty text="Klub topilmadi" />;
+  return (
+    <CardList>
+      {clubs.map((row) => (
+        <div key={row.clubId} style={CARD_ROW}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <span style={{ font: 'var(--type-body)', color: 'var(--text-title)' }}>{row.clubName}</span>
+              <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>{row.address}</span>
+            </span>
+            <Tag tone={row.clubStatus === 'active' ? 'success' : 'amber'}>
+              {row.clubStatus === 'active' ? 'Faol' : 'Qoralama'}
+            </Tag>
+          </div>
+          <div style={{ display: 'flex', gap: 16, paddingTop: 6, borderTop: '1px solid var(--line-1)' }}>
+            <CardStat label="Stansiya" value={String(row.stationsCount)} />
+            <CardStat label="30 kun bron" value={String(row.bookings30d)} />
+          </div>
+        </div>
+      ))}
+    </CardList>
+  );
+}
+
+function PaymentsCardList({ payments }: { payments: PlatformOrgPaymentDto[] }): ReactNode {
+  if (payments.length === 0) return <CardListEmpty text="To‘lov topilmadi" />;
+  return (
+    <CardList>
+      {payments.map((row) => (
+        <div key={row.id} style={CARD_ROW}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>{S(row.amount)} so‘m</span>
+            <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+              {formatExpiry(row.paidAt)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <Tag tone="neutral">{row.planCode ? (PLAN_DISPLAY[row.planCode] ?? row.planCode) : 'Tarifsiz'}</Tag>
+            {row.periodMonths ? <Tag tone="neutral">{row.periodMonths} oy</Tag> : null}
+          </div>
+          <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+            Kim kiritdi: {row.enteredByName ?? '—'}
+            {row.note ? ` · ${row.note}` : ''}
+          </span>
+        </div>
+      ))}
+    </CardList>
+  );
+}
+
+function StaffCardList({ staff }: { staff: PlatformOrgStaffDto[] }): ReactNode {
+  if (staff.length === 0) return <CardListEmpty text="Xodim topilmadi" />;
+  return (
+    <CardList>
+      {staff.map((row) => (
+        <div
+          key={`${row.clubId}:${row.userId}`}
+          style={{ ...CARD_ROW, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <span style={{ font: 'var(--type-body)', color: 'var(--text-title)' }}>{row.firstName}</span>
+            <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+              {row.login ?? '—'} · {row.clubName}
+            </span>
+          </span>
+          <Tag tone="neutral">{row.role}</Tag>
+        </div>
+      ))}
+    </CardList>
+  );
+}
+
+function CardStat({ label, value }: { label: string; value: string }): ReactNode {
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span
+        style={{
+          font: 'var(--type-label)',
+          letterSpacing: 'var(--ls-label)',
+          textTransform: 'uppercase',
+          color: 'var(--text-label)',
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>{value}</span>
+    </span>
   );
 }
 
