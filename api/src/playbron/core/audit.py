@@ -84,3 +84,45 @@ async def log_action(
             )
     except Exception:  # noqa: BLE001 — atayin keng: log yozuvi hech qachon 500 bermasin
         log.warning("audit_log yozib bo'lmadi: action=%s target=%s", action, target, exc_info=True)
+
+
+async def log_auth_event(
+    *,
+    event: str,
+    user_id: int | None,
+    club_id: int | None = None,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    """`auth_events`ga bitta yozuv — kirish/chiqish (`staff/router.py::_log_event`
+    bilan bir xil jadval, umumiy yordamchi shu yerda).
+
+    `login`/`password` HECH QACHON yozilmaydi — faqat `detail`ga aniq
+    tanlangan maydonlar beriladi. `auth_events_insert` policy'si
+    `WITH CHECK (true)` — muvaffaqiyatsiz (anonim) kirish ham yozilishi
+    kerak, shuning uchun `log_action()`dagi kabi RLS bilan bog'liq
+    muvaffaqiyatsizlik xavfi yo'q; baribir mustaqil sessiya va keng
+    try/except — kirish oqimi log yozuvi ustida HECH QACHON to'xtamasin.
+    """
+    try:
+        async with AppSession() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO auth_events (event, user_id, club_id, detail)"
+                    " VALUES (:event, :uid, :club, CAST(:detail AS jsonb))"
+                ),
+                {
+                    "event": event,
+                    "uid": user_id,
+                    "club": club_id,
+                    # `detail` ustuni `NOT NULL` (`0005_two_worlds_auth.py`,
+                    # `server_default='{}'`) — lekin server_default faqat
+                    # ustun INSERT'da BUTUNLAY TUSHIB QOLSA ishlaydi, `NULL`
+                    # aniq berilsa emas. Shuning uchun bo'sh obyekt aniq
+                    # yuboriladi (loyiha egasining topilmasi, 2026-08-16 —
+                    # buning yo'qligi yozuvni "muvaffaqiyatsiz" holda jimgina
+                    # yutib yuborardi).
+                    "detail": json.dumps(detail or {}),
+                },
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("auth_events yozib bo'lmadi: event=%s", event, exc_info=True)

@@ -9,6 +9,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context, telegram_api
+from playbron.core.audit import log_auth_event
 from playbron.core.config import settings
 from playbron.core.errors import NotFound, Unauthorized
 from playbron.core.http import client_ip
@@ -198,6 +199,18 @@ async def staff_login(
         password=body.password,
         user_agent=ua,
         ip=ip,
+    )
+
+    # Klub egasi/admini o'z xodimining kirish tarixini ko'rishi uchun
+    # (loyiha egasining so'rovi, 2026-08-16). Muvaffaqiyatsiz urinish ATAYLAB
+    # yozilmaydi — `staff.staff_login()`dagi izohlangan qadam tartibi va
+    # vaqt-tenglashtirish (`waste_time()`/kechikish) HECH QANDAY o'zgarishsiz
+    # qoladi, chunki bu yerga faqat MUVAFFAQIYATLI kirishdan keyin yetiladi.
+    memberships = payload.get("memberships") or []
+    await log_auth_event(
+        event="staff_login",
+        user_id=payload["user"].id,
+        club_id=memberships[0]["club_id"] if memberships else None,
     )
 
     out = _to_session(payload)
@@ -544,3 +557,9 @@ async def logout(
     session: Annotated[AsyncSession, Depends(db)],
 ) -> None:
     await service.sign_out(session, refresh_token=body.refresh_token)
+    # `/logout` xodim VA mijoz uchun umumiy — hodisa nomi shuning uchun
+    # "staff_" bilan boshlanmaydi (mijozda `club_id` bo'lmaydi, RLS orqali
+    # klub egasiga baribir ko'rinmaydi).
+    ctx = context.current()
+    if ctx.user_id:
+        await log_auth_event(event="logout", user_id=ctx.user_id, club_id=ctx.club_id)
