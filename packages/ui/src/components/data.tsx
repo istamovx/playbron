@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { formatSum, type Sum } from '../format';
 import { useNarrow } from '../hooks';
@@ -484,6 +484,7 @@ export function LineChart({
     Array.from({ length: points }, (_, index) => 0.18 + (index / points) * 0.35 + random() * 0.45);
   const ticks = labels ?? [];
   const [hover, setHover] = useState<number | null>(null);
+  const pathRef = useRef<SVGPathElement>(null);
 
   const n = data.length;
   const max = Math.max(...data, 0.0001);
@@ -499,6 +500,26 @@ export function LineChart({
   const lastX = coords[n - 1]?.x ?? 100;
   const areaPath = `${linePath} L ${lastX} 100 L ${firstX} 100 Z`;
 
+  // Chapdan o'ngga chizib boruvchi kirish animatsiyasi. `pathLength` normalizatsiyasi
+  // (CSS'dagi nisbiy `stroke-dasharray`) tez-tez uzilib/qirqilib ko'rinishga sabab
+  // bo'lgan (loyiha egasining topilmasi, 2026-08-16) — o'rniga `getTotalLength()`
+  // bilan chiziqning HAQIQIY uzunligi o'lchanadi va aynan shu uzunlikda
+  // dasharray/dashoffset qo'yiladi — SVG chizig'ini animatsiya qilishning eng
+  // barqaror, brauzerlararo sinovdan o'tgan usuli.
+  useEffect(() => {
+    const el = pathRef.current;
+    if (!el) return;
+    const length = el.getTotalLength();
+    el.style.transition = 'none';
+    el.style.strokeDasharray = `${length}`;
+    el.style.strokeDashoffset = `${length}`;
+    // Reflow'ni majburlash — aks holda brauzer boshlang'ich va oxirgi holatni
+    // bitta freym deb hisoblab, animatsiyasiz sakrab o'tadi.
+    el.getBoundingClientRect();
+    el.style.transition = 'stroke-dashoffset 720ms cubic-bezier(0.22, 0.61, 0.36, 1)';
+    el.style.strokeDashoffset = '0';
+  }, [linePath]);
+
   const tipText = tip && hover !== null ? tip(data[hover] as number, hover) : null;
 
   return (
@@ -511,9 +532,12 @@ export function LineChart({
           <span
             style={{
               position: 'absolute',
-              bottom: '100%',
+              // Har doim tepada emas — nuqtaning o'z balandligiga qarab yuradi
+              // (loyiha egasining topilmasi, 2026-08-16). Past qiymatlarda
+              // konteynerdan tashqariga chiqib ketmasligi uchun pastki chegara.
+              top: `${Math.min(85, coords[hover]?.y ?? 0)}%`,
               left: `${Math.min(94, Math.max(6, coords[hover]?.x ?? 0))}%`,
-              transform: 'translate(-50%, -8px)',
+              transform: 'translate(-50%, -100%) translateY(-14px)',
               padding: '4px 8px',
               background: 'var(--surface-raised)',
               border: '1px solid var(--line-2)',
@@ -524,6 +548,7 @@ export function LineChart({
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
               zIndex: 2,
+              transition: 'var(--t-control)',
             }}
           >
             {tipText}
@@ -569,7 +594,7 @@ export function LineChart({
           {area ? <path d={areaPath} fill="var(--chart-plot)" stroke="none" /> : null}
 
           <path
-            className="pb-line"
+            ref={pathRef}
             d={linePath}
             fill="none"
             stroke="var(--primary-100)"
@@ -577,7 +602,6 @@ export function LineChart({
             strokeLinejoin="round"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"
-            pathLength={1}
           />
         </svg>
 

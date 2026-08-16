@@ -17,13 +17,19 @@ function controlHeight(size: ControlSize): string {
 /**
  * Konsol dropdown'i: chegarali boshqaruv + chevron, menyu — absolut ro'yxat.
  * `fixedLabel` berilsa yorliq o'zgarmaydi ("Actions" naqshi).
+ *
+ * Sukut `size='lg'` — `TextField` balandligi hech qanday `size` moslamasisiz
+ * doim `--control-h-lg`; avvalgi sukut (`'md'`) formada yonma-yon turgan
+ * Select'larni Inputlardan 8px pastroq ko'rsatardi (loyiha egasining
+ * topilmasi, 2026-08-16). `bookings.tsx`/`orders.tsx` buni allaqachon
+ * qo'lda `size="lg"` bilan chetlab o'tgan edi — endi hammasi bir xil.
  */
 export function Select({
   value,
   items = [],
   onChange,
   fixedLabel,
-  size = 'md',
+  size = 'lg',
   notch,
   disabled,
   style,
