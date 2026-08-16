@@ -346,7 +346,7 @@ export function PlatformClubsScreen(): ReactNode {
               />
             ) : null}
 
-            <FormGrid>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
                 <TextField
                   label="Summa (so‘m)"
@@ -354,42 +354,55 @@ export function PlatformClubsScreen(): ReactNode {
                   onChange={(value) => setPaymentDraft({ ...paymentDraft, amount: value })}
                   icon="payments"
                   inputMode="numeric"
-                  placeholder="1250000"
+                  placeholder="1 250 000"
                 />
-                {amountValid ? (
-                  <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                    {S(parsedAmount)} so‘m
-                  </span>
-                ) : null}
-              </div>
-              <Labeled label="Tarif">
-                <Select
-                  value={planSelectLabel(paymentDraft.planCode)}
-                  items={PLAN_LABELS}
-                  onChange={(label) => {
-                    const idx = PLAN_LABELS.findIndex((item) => item === label);
-                    if (idx >= 0) {
-                      setPaymentDraft({ ...paymentDraft, planCode: PLAN_CODES[idx] ?? null });
-                    }
+                {/* Har doim joy band qilinadi (bo'sh bo'lsa ham) — aks holda
+                    matn paydo bo'lganda qator balandligi o'zgarib, keyingi
+                    maydon (Tarif) `FormGrid`ning `align-items: end`i bilan
+                    pastga siljib, ustma-ust chiqib qolardi. */}
+                <span
+                  style={{
+                    font: 'var(--type-data-xs)',
+                    color: 'var(--text-dim)',
+                    visibility: amountValid ? 'visible' : 'hidden',
                   }}
-                  style={{ width: '100%' }}
+                >
+                  {amountValid ? `${S(parsedAmount)} so‘m` : '—'}
+                </span>
+              </div>
+
+              <FormGrid gap="var(--gap-panel)">
+                <Labeled label="Tarif">
+                  <Select
+                    value={planSelectLabel(paymentDraft.planCode)}
+                    items={PLAN_LABELS}
+                    onChange={(label) => {
+                      const idx = PLAN_LABELS.findIndex((item) => item === label);
+                      if (idx >= 0) {
+                        setPaymentDraft({ ...paymentDraft, planCode: PLAN_CODES[idx] ?? null });
+                      }
+                    }}
+                    style={{ width: '100%' }}
+                  />
+                </Labeled>
+                <TextField
+                  label="Necha oy"
+                  value={paymentDraft.periodMonths}
+                  onChange={(value) => setPaymentDraft({ ...paymentDraft, periodMonths: value })}
+                  icon="calendar_month"
+                  inputMode="numeric"
+                  placeholder="1"
                 />
-              </Labeled>
-              <TextField
-                label="Necha oy"
-                value={paymentDraft.periodMonths}
-                onChange={(value) => setPaymentDraft({ ...paymentDraft, periodMonths: value })}
-                icon="calendar_month"
-                inputMode="numeric"
-                placeholder="1"
-              />
+              </FormGrid>
+
               <TextField
                 label="Izoh"
                 value={paymentDraft.note}
                 onChange={(value) => setPaymentDraft({ ...paymentDraft, note: value })}
                 icon="edit_note"
+                placeholder="Ixtiyoriy izoh"
               />
-            </FormGrid>
+            </div>
 
             {paymentError ? <StatusLine tone="danger" icon="error" parts={paymentError} /> : null}
 

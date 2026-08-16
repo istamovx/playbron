@@ -20,7 +20,6 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   // Klub admini
   dashboard: '/dashboard',
   staff: '/staff',
-  club: '/club',
   products: '/products',
   reports: '/reports',
   expenses: '/expenses',

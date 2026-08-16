@@ -1,14 +1,27 @@
 import { Button } from '@playbron/ui';
 import type { CSSProperties, ReactNode } from 'react';
 
-/** CRUD formalari uchun moslashuvchan to'r — tor ekranda bir ustunga tushadi. */
-export function FormGrid({ children }: { children: ReactNode }): ReactNode {
+/**
+ * CRUD formalari uchun moslashuvchan to'r — tor ekranda bir ustunga tushadi.
+ *
+ * `gap` ixtiyoriy — sukut `--gap-block` (16px). Markazda chiquvchi kichik
+ * modallar (4 talik forma: xodim, xona, to'lov) elementlar yopishib
+ * qolmasligi uchun `--gap-panel` (24px) bilan chaqiradi — token, hardcode
+ * qiymat emas (loyiha egasining topilmasi, 2026-08-16).
+ */
+export function FormGrid({
+  children,
+  gap = 'var(--gap-block)',
+}: {
+  children: ReactNode;
+  gap?: string;
+}): ReactNode {
   return (
     <div
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
-        gap: 'var(--gap-block)',
+        gap,
         alignItems: 'end',
       }}
     >

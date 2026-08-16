@@ -144,7 +144,7 @@ export function ProductsScreen(): ReactNode {
           setError(null);
         }}
         title={draft?.id === null ? 'Mahsulot qo‘shish' : 'Mahsulotni tahrirlash'}
-        variant="center"
+        variant="drawer"
       >
         {draft ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>

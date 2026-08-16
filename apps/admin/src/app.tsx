@@ -11,7 +11,6 @@ import {
   type NavItem,
   type ScreenId,
 } from './mock/data';
-import { ClubInfoScreen } from './screens/admin/club-info';
 import { DashboardScreen } from './screens/admin/dashboard';
 import { ExpensesScreen } from './screens/admin/expenses';
 import { ProductsScreen } from './screens/admin/products';
@@ -32,7 +31,7 @@ import { LoginScreen } from './screens/login';
 import { TimelineScreen } from './screens/timeline';
 import { pathOf, screenOf } from './routes';
 import { useBoard, useClock, useNow } from './store/board';
-import { ROLE_LABEL, remainingText, useSession } from './store/session';
+import { useSession } from './store/session';
 
 /**
  * Klub konsoli — bitta shell, rolga qarab menyu.
@@ -248,18 +247,7 @@ export function App(): ReactNode {
                 style={{ width: 1, height: 30, background: 'var(--line-1)' }}
               />
 
-              <UserMenu
-                name={session.name}
-                // Tor ekranda sessiya qoldig'i sig'maydi — faqat rol qoladi
-                role={
-                  compact
-                    ? ROLE_LABEL[session.role]
-                    : `${ROLE_LABEL[session.role]} · ${remainingText(session.expiresAt)}`
-                }
-                status="online"
-                items={['Chiqish']}
-                onSelect={signOut}
-              />
+              <UserMenu name={session.name} status="online" items={['Chiqish']} onSelect={signOut} />
             </div>
           </header>
 
@@ -297,7 +285,6 @@ export function App(): ReactNode {
 
             {active === 'dashboard' ? <DashboardScreen /> : null}
             {active === 'staff' ? <StaffScreen /> : null}
-            {active === 'club' ? <ClubInfoScreen /> : null}
             {active === 'products' ? <ProductsScreen /> : null}
             {active === 'reports' ? <ReportsScreen /> : null}
             {active === 'expenses' ? <ExpensesScreen /> : null}

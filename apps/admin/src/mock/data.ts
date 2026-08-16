@@ -200,7 +200,6 @@ export type ScreenId =
   // Klub admini
   | 'dashboard'
   | 'staff'
-  | 'club'
   | 'products'
   | 'reports'
   | 'expenses'
@@ -232,7 +231,6 @@ export const NAV_ADMIN: NavItem[] = [
   { id: 'dashboard', icon: 'space_dashboard', label: 'Boshqaruv paneli' },
   { id: 'bookings', icon: 'event_available', label: 'Bronlar' },
   { id: 'staff', icon: 'group', label: 'Xodimlar' },
-  { id: 'club', icon: 'storefront', label: 'Klub ma’lumoti' },
   { id: 'products', icon: 'inventory_2', label: 'Mahsulotlar' },
   { id: 'reports', icon: 'analytics', label: 'Hisobot' },
   { id: 'expenses', icon: 'payments', label: 'Xarajatlar' },
@@ -257,11 +255,10 @@ export const TITLES: Record<ScreenId, [string, string[]]> = {
 
   dashboard: ['Boshqaruv paneli', ['Neon Arena', 'Bugun']],
   staff: ['Xodimlar', ['Neon Arena', 'Smenalar va kirish']],
-  club: ['Klub ma’lumoti', ['Tarif, xona va qurilmalar']],
   products: ['Mahsulotlar', ['Katalog va reestr']],
   reports: ['Hisobot', ['Tushum, xarajat va foyda']],
   expenses: ['Xarajatlar', ['Kommunal, ijara va maosh']],
-  settings: ['Sozlamalar', ['Shaxsiy hisob']],
+  settings: ['Sozlamalar', ['Hisob, klub va xonalar']],
 
   platform: ['Platforma', ['Barcha tashkilotlar', 'Cross-tenant, faqat o‘qish']],
   'platform-clubs': ['Klublar', ['Barcha tashkilotlar', 'Qo‘lda qo‘shish va to‘lov']],

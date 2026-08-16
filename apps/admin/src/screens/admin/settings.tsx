@@ -1,29 +1,67 @@
 import {
+  createStation,
+  errorText,
+  getClub,
+  listStationsForManagement,
   pollTelegramLink,
+  publishClub,
   startTelegramLink,
+  updateClub,
+  updateStation,
+  type StationDto,
   type TelegramLinkStatus,
 } from '@playbron/api-client';
-import { Button, FieldLadder, FieldRow, Panel, StatusLine } from '@playbron/ui';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Button,
+  EntityTable,
+  FieldLadder,
+  FieldRow,
+  Modal,
+  Panel,
+  Select,
+  StatusLine,
+  Tabs,
+  Tag,
+  TextField,
+  toast,
+} from '@playbron/ui';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
+import { S } from '../../mock/data';
 import { useClub } from '../../store/club';
 import { ROLE_LABEL, remainingText, useSession } from '../../store/session';
+import { FormGrid, Labeled, parseHm } from './parts';
 
-/** Ilova boti — `apps/landing/src/config.ts`dagi `appBot` bilan bir xil manba. */
-const APP_BOT_URL = 'https://t.me/playbronappbot';
-
-/** Poll oralig'i — nonce TTL (300s) ga nisbatan bemalol, foydalanuvchi botda
- * Start bosishga ulguradi. */
-const POLL_INTERVAL_MS = 2000;
+const TABS = ['Hisob', 'Klub ma’lumoti', 'Xonalar'];
+const FULL: CSSProperties = { width: '100%' };
 
 /**
- * Sozlamalar — klub adminining shaxsiy hisobi.
+ * Sozlamalar — klub adminining shaxsiy hisobi + klub ma'lumoti + xonalar.
  *
- * Parol bloki yo'q: kirish faqat Telegram orqali (DCR-001), shuning uchun
- * almashtiriladigan parolning o'zi mavjud emas.
+ * Avval "Klub ma'lumoti" alohida nav bo'limi edi (`club-info.tsx`) — loyiha
+ * egasining so'rovi bilan shu yerga ko'chirildi (2026-08-16).
  */
 export function SettingsScreen(): ReactNode {
+  const [tab, setTab] = useState(TABS[0] as string);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+      <div className="ds-scroll-x">
+        <Tabs items={TABS} value={tab} onChange={setTab} />
+      </div>
+
+      {tab === 'Hisob' ? <AccountTab /> : null}
+      {tab === 'Klub ma’lumoti' ? <ClubGeneralTab /> : null}
+      {tab === 'Xonalar' ? <StationsTab /> : null}
+    </div>
+  );
+}
+
+// ─────────────────────────── hisob ───────────────────────────
+
+/** Parol bloki yo'q: kirish faqat Telegram orqali (DCR-001). */
+function AccountTab(): ReactNode {
   const session = useSession((state) => state.session);
   const signOut = useSession((state) => state.signOut);
   const resetClub = useClub((state) => state.reset);
@@ -134,6 +172,9 @@ function TelegramLinkPanel(): ReactNode {
 
   useEffect(() => stopPolling, []);
 
+  const APP_BOT_URL = 'https://t.me/playbronappbot';
+  const POLL_INTERVAL_MS = 2000;
+
   const start = async (): Promise<void> => {
     stopPolling();
     setState('waiting');
@@ -185,5 +226,623 @@ function TelegramLinkPanel(): ReactNode {
         </Button>
       </div>
     </Panel>
+  );
+}
+
+// ─────────────────────────── klub ma'lumoti ───────────────────────────
+
+/**
+ * `parts.tsx::hm()` daqiqani 24 soatga o'raydi (smena vaqti uchun to'g'ri) —
+ * klub yopilish vaqti 26:00 gacha bo'lishi mumkin (`parseHm` shuni qabul
+ * qiladi), o'ralsa "02:00" bo'lib ko'rinib, ochilish-yopilish teskari
+ * ko'rinardi. Shu yerda o'ramaydigan variant kerak.
+ */
+function hm(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+interface ClubDraft {
+  name: string;
+  address: string;
+  phone: string;
+  about: string;
+  opens: string;
+  closes: string;
+  googleMapsUrl: string;
+  yandexMapsUrl: string;
+}
+
+/**
+ * Klub ma'lumoti — o'qish uchun ko'rinish + "Tahrirlash" tugmasi bilan
+ * ochiladigan forma. Avval bu yer to'g'ridan-to'g'ri, HAR DOIM tahrirlanadigan
+ * forma edi — kirganda darhol editable holatda turishi chalkash va xato edi
+ * (loyiha egasining topilmasi, 2026-08-16). Endi boshqa CRUD ekranlar bilan
+ * bir xil naqsh: jadval/ko'rinish + tahrirlash tugmasi + markazdan modal.
+ */
+function ClubGeneralTab(): ReactNode {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
+
+  const [view, setView] = useState<ClubDraft | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+
+  const [draft, setDraft] = useState<ClubDraft | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const club = await getClub(api, clubId);
+      setView({
+        name: club.name,
+        address: club.address,
+        phone: club.phone ?? '',
+        about: club.about,
+        opens: hm(club.opensAtMin),
+        closes: hm(club.closesAtMin),
+        googleMapsUrl: club.googleMapsUrl ?? '',
+        yandexMapsUrl: club.yandexMapsUrl ?? '',
+      });
+      setStatus(club.status);
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const publish = async (): Promise<void> => {
+    if (clubId === null) return;
+    setPublishing(true);
+    try {
+      await publishClub(api, clubId);
+      toast.success('Klub faollashtirildi — endi mijozlarga ko‘rinadi');
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const submit = async (): Promise<void> => {
+    if (!draft || clubId === null) return;
+    const opensMin = parseHm(draft.opens);
+    const closesMin = parseHm(draft.closes);
+    if (opensMin === null || closesMin === null) {
+      setError('Vaqt HH:MM shaklida bo‘lishi kerak');
+      return;
+    }
+    if (closesMin <= opensMin) {
+      setError('Yopilish vaqti ochilishdan keyin bo‘lsin (tunda 26:00 gacha yoziladi)');
+      return;
+    }
+    if (draft.name.trim().length === 0) {
+      setError('Klub nomini kiriting');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await updateClub(api, clubId, {
+        name: draft.name.trim(),
+        address: draft.address,
+        phone: draft.phone.trim() || null,
+        about: draft.about,
+        opensAtMin: opensMin,
+        closesAtMin: closesMin,
+        googleMapsUrl: draft.googleMapsUrl.trim() || null,
+        yandexMapsUrl: draft.yandexMapsUrl.trim() || null,
+      });
+      setDraft(null);
+      toast.success('Klub ma’lumoti saqlandi');
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Modal
+        open={draft !== null}
+        onClose={() => {
+          setDraft(null);
+          setError(null);
+        }}
+        title="Klub ma’lumotini tahrirlash"
+        variant="drawer"
+      >
+        {draft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <FormGrid>
+              <TextField
+                label="Klub nomi"
+                value={draft.name}
+                onChange={(value) => setDraft({ ...draft, name: value })}
+                icon="storefront"
+                placeholder="Neon Arena"
+              />
+              <TextField
+                label="Telefon"
+                value={draft.phone}
+                onChange={(value) => setDraft({ ...draft, phone: value })}
+                icon="call"
+                inputMode="tel"
+                placeholder="+998901234567"
+              />
+            </FormGrid>
+
+            <TextField
+              label="Manzil"
+              value={draft.address}
+              onChange={(value) => setDraft({ ...draft, address: value })}
+              icon="location_on"
+              placeholder="Toshkent, Chilonzor tumani"
+            />
+            <TextField
+              label="Tavsif"
+              value={draft.about}
+              onChange={(value) => setDraft({ ...draft, about: value })}
+              icon="notes"
+              placeholder="Klub haqida qisqacha"
+            />
+
+            <FormGrid>
+              <TextField
+                label="Google Maps havolasi"
+                value={draft.googleMapsUrl}
+                onChange={(value) => setDraft({ ...draft, googleMapsUrl: value })}
+                icon="map"
+                placeholder="https://maps.google.com/?q=..."
+              />
+              <TextField
+                label="Yandex Maps havolasi"
+                value={draft.yandexMapsUrl}
+                onChange={(value) => setDraft({ ...draft, yandexMapsUrl: value })}
+                icon="map"
+                placeholder="https://yandex.uz/maps/?ll=..."
+              />
+            </FormGrid>
+            {/* Mijoz ilovasidagi "Manzil" tugmasi shu havolani ochadi — klub
+                haritada joylashuvni Google/Yandex'dan ulashib, shu yerga
+                qo'yish yetarli, koordinata qo'lda kiritilmaydi. */}
+
+            <FormGrid>
+              <TextField
+                label="Ochilish"
+                value={draft.opens}
+                onChange={(value) => setDraft({ ...draft, opens: value })}
+                icon="schedule"
+                placeholder="10:00"
+              />
+              <TextField
+                label="Yopilish"
+                value={draft.closes}
+                onChange={(value) => setDraft({ ...draft, closes: value })}
+                icon="bedtime"
+                placeholder="26:00"
+              />
+            </FormGrid>
+
+            {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={saving}
+                onClick={() => void submit()}
+              >
+                {saving ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={saving}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Panel
+        title="Asosiy ma’lumot"
+        notch
+        brackets
+        action={
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="edit"
+            disabled={!view}
+            onClick={() => {
+              if (view) setDraft(view);
+              setError(null);
+            }}
+          >
+            Tahrirlash
+          </Button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+          {status === 'draft' ? (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                padding: 'var(--card-pad)',
+                background: 'var(--surface-inset)',
+                border: '1px solid var(--yellow-100)',
+                clipPath: 'var(--clip-tr)',
+              }}
+            >
+              <StatusLine
+                tone="warn"
+                icon="visibility_off"
+                parts={['Klub hali mijozlarga ko‘rinmaydi', 'Kamida bitta faol xona kerak']}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                icon="rocket_launch"
+                disabled={publishing}
+                onClick={() => void publish()}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {publishing ? 'Faollashtirilmoqda…' : 'Klubni faollashtirish'}
+              </Button>
+            </div>
+          ) : null}
+
+          {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
+
+          {view ? (
+            <FieldLadder>
+              <FieldRow label="Klub nomi" value={view.name} />
+              <FieldRow label="Telefon" value={view.phone || '—'} />
+              <FieldRow label="Manzil" value={view.address || '—'} />
+              <FieldRow label="Tavsif" value={view.about || '—'} />
+              <FieldRow label="Google Maps" value={view.googleMapsUrl || '—'} />
+              <FieldRow label="Yandex Maps" value={view.yandexMapsUrl || '—'} />
+              <FieldRow label="Ish vaqti" value={`${view.opens} – ${view.closes}`} />
+            </FieldLadder>
+          ) : (
+            <StatusLine
+              tone="neutral"
+              icon="hourglass_empty"
+              parts={[loading ? 'Yuklanmoqda…' : 'Ma’lumot topilmadi']}
+            />
+          )}
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+// ─────────────────────────── xonalar ───────────────────────────
+
+const CONSOLE_LABEL: Record<string, string> = {
+  ps3: 'PS3',
+  ps4: 'PS4',
+  ps4pro: 'PS4 Pro',
+  ps5: 'PS5',
+  ps5pro: 'PS5 Pro',
+};
+const CONSOLE_TYPES = Object.keys(CONSOLE_LABEL);
+
+interface StationDraft {
+  id: number | null;
+  code: string;
+  roomLabel: string;
+  consoleType: string;
+  rate: string;
+  status: 'active' | 'maintenance';
+}
+
+const EMPTY_STATION_DRAFT: StationDraft = {
+  id: null,
+  code: '',
+  roomLabel: 'Standart',
+  consoleType: 'ps5',
+  rate: '40000',
+  status: 'active',
+};
+
+function StationsTab(): ReactNode {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
+
+  const [stations, setStations] = useState<StationDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<StationDraft | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setStations(await listStationsForManagement(api, clubId));
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const submit = async (): Promise<void> => {
+    if (!draft || clubId === null) return;
+    const rate = Number(draft.rate);
+    if (draft.id === null && draft.code.trim().length === 0) {
+      setError('Xona kodini kiriting');
+      return;
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setError('Soatlik summa musbat bo‘lsin');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (draft.id === null) {
+        await createStation(api, clubId, {
+          code: draft.code.trim(),
+          roomLabel: draft.roomLabel.trim() || 'Standart',
+          consoleType: draft.consoleType,
+          rate,
+        });
+        toast.success(`Xona qo‘shildi — ${draft.code.trim()}`);
+      } else {
+        await updateStation(api, clubId, draft.id, {
+          roomLabel: draft.roomLabel.trim() || 'Standart',
+          consoleType: draft.consoleType,
+          rate,
+          status: draft.status,
+        });
+        toast.success('Xona yangilandi');
+      }
+      setDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleMaintenance = async (station: StationDto): Promise<void> => {
+    if (clubId === null) return;
+    try {
+      await updateStation(api, clubId, station.id, {
+        roomLabel: station.roomLabel,
+        consoleType: station.consoleType,
+        rate: station.rate,
+        status: station.status === 'active' ? 'maintenance' : 'active',
+      });
+      toast.success(
+        station.status === 'active' ? 'Xona ta’mirga chiqarildi' : 'Xona faollashtirildi',
+      );
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    }
+  };
+
+  return (
+    <>
+      <Modal
+        open={draft !== null}
+        onClose={() => {
+          setDraft(null);
+          setError(null);
+        }}
+        title={draft?.id === null ? 'Xona qo‘shish' : 'Xonani tahrirlash'}
+        variant="center"
+      >
+        {draft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+            <FormGrid gap="var(--gap-panel)">
+              {draft.id === null ? (
+                <TextField
+                  label="Kod"
+                  value={draft.code}
+                  onChange={(value) => setDraft({ ...draft, code: value })}
+                  icon="tag"
+                  placeholder="A1"
+                />
+              ) : null}
+              <TextField
+                label="Xona turi"
+                value={draft.roomLabel}
+                onChange={(value) => setDraft({ ...draft, roomLabel: value })}
+                icon="meeting_room"
+                placeholder="Standart"
+              />
+              <Labeled label="Konsol">
+                <Select
+                  value={CONSOLE_LABEL[draft.consoleType] ?? draft.consoleType}
+                  items={CONSOLE_TYPES.map((id) => CONSOLE_LABEL[id] as string)}
+                  onChange={(label) => {
+                    const id = CONSOLE_TYPES.find((c) => CONSOLE_LABEL[c] === label);
+                    if (id) setDraft({ ...draft, consoleType: id });
+                  }}
+                  style={FULL}
+                />
+              </Labeled>
+              <TextField
+                label="Soatlik summa"
+                value={draft.rate}
+                onChange={(value) => setDraft({ ...draft, rate: value })}
+                icon="payments"
+                inputMode="numeric"
+                placeholder="40000"
+              />
+            </FormGrid>
+
+            {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={submitting}
+                onClick={() => void submit()}
+              >
+                {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={submitting}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Panel
+        title={`Xonalar (${stations.length})`}
+        notch
+        brackets
+        action={
+          <Button
+            variant="primary"
+            size="sm"
+            icon="add"
+            onClick={() => {
+              setError(null);
+              setDraft(EMPTY_STATION_DRAFT);
+            }}
+          >
+            Xona qo‘shish
+          </Button>
+        }
+      >
+        {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
+
+        <EntityTable
+          rows={stations}
+          rowKey={(row) => String(row.id)}
+          empty={loading ? 'Yuklanmoqda…' : 'Xona qo‘shilmagan'}
+          columns={[
+            {
+              key: 'code',
+              header: 'Xona',
+              render: (row) => (
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                  <span style={{ color: 'var(--text-title)' }}>{row.code}</span>
+                  <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                    {row.roomLabel}
+                  </span>
+                </span>
+              ),
+            },
+            {
+              key: 'console',
+              header: 'Konsol',
+              render: (row) => CONSOLE_LABEL[row.consoleType] ?? row.consoleType,
+            },
+            {
+              key: 'rate',
+              header: 'Soatlik',
+              align: 'right',
+              render: (row) => (
+                <span
+                  style={{
+                    font: 'var(--type-data)',
+                    color: 'var(--text-title)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {S(row.rate)}
+                </span>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Holat',
+              render: (row) => (
+                <Tag tone={row.status === 'active' ? 'success' : 'amber'}>
+                  {row.status === 'active' ? 'Faol' : 'Ta’mirda'}
+                </Tag>
+              ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              align: 'right',
+              render: (row) => (
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="edit"
+                    onClick={() => {
+                      setError(null);
+                      setDraft({
+                        id: row.id,
+                        code: row.code,
+                        roomLabel: row.roomLabel,
+                        consoleType: row.consoleType,
+                        rate: String(row.rate),
+                        status: row.status === 'active' ? 'active' : 'maintenance',
+                      });
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="build"
+                    onClick={() => void toggleMaintenance(row)}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+    </>
   );
 }

@@ -158,8 +158,8 @@ export function StaffScreen(): ReactNode {
         variant="center"
       >
         {draft ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-            <FormGrid>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+            <FormGrid gap="var(--gap-panel)">
               <TextField
                 label="Ism"
                 value={draft.firstName}
