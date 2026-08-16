@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
 import { useSession } from '../../store/session';
-import { FormGrid, Labeled } from './parts';
+import { Labeled } from './parts';
 
 const ROLE_LABEL: Record<string, string> = { OWNER: 'Egasi', ADMIN: 'Admin', STAFF: 'Xodim' };
 
@@ -155,42 +155,41 @@ export function StaffScreen(): ReactNode {
           setError(null);
         }}
         title="Xodim qo‘shish"
-        variant="center"
+        variant="drawer"
       >
         {draft ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-            <FormGrid gap="var(--gap-panel)">
-              <TextField
-                label="Ism"
-                value={draft.firstName}
-                onChange={(value) => setDraft({ ...draft, firstName: value })}
-                icon="person"
+            <TextField
+              label="Ism"
+              value={draft.firstName}
+              onChange={(value) => setDraft({ ...draft, firstName: value })}
+              icon="person"
+              placeholder="Aziz Karimov"
+            />
+            <TextField
+              label="Login"
+              value={draft.login}
+              onChange={(value) => setDraft({ ...draft, login: value })}
+              icon="key"
+              placeholder="aziz.kassa"
+            />
+            <TextField
+              label="Boshlang‘ich parol"
+              value={draft.password}
+              onChange={(value) => setDraft({ ...draft, password: value })}
+              icon="lock"
+            />
+            <Labeled label="Rol">
+              <Select
+                value={ROLE_LABEL[draft.role] ?? draft.role}
+                items={roleOptions.map((r) => ROLE_LABEL[r] as string)}
+                onChange={(label) => {
+                  const role = roleOptions.find((r) => ROLE_LABEL[r] === label);
+                  if (role) setDraft({ ...draft, role });
+                }}
+                style={{ width: '100%' }}
               />
-              <TextField
-                label="Login"
-                value={draft.login}
-                onChange={(value) => setDraft({ ...draft, login: value })}
-                icon="key"
-                placeholder="aziz.kassa"
-              />
-              <TextField
-                label="Boshlang‘ich parol"
-                value={draft.password}
-                onChange={(value) => setDraft({ ...draft, password: value })}
-                icon="lock"
-              />
-              <Labeled label="Rol">
-                <Select
-                  value={ROLE_LABEL[draft.role] ?? draft.role}
-                  items={roleOptions.map((r) => ROLE_LABEL[r] as string)}
-                  onChange={(label) => {
-                    const role = roleOptions.find((r) => ROLE_LABEL[r] === label);
-                    if (role) setDraft({ ...draft, role });
-                  }}
-                  style={{ width: '100%' }}
-                />
-              </Labeled>
-            </FormGrid>
+            </Labeled>
 
             {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
 

@@ -227,9 +227,10 @@ export const NAV_STAFF: NavItem[] = [
   { id: 'blacklist', icon: 'person_off', label: 'Qora ro‘yxat', count: 3 },
 ];
 
+// Bronlar — faqat xodim (`NAV_STAFF`) ishlaydi. Klub admini kunlik bron
+// operatsiyasi bilan shug'ullanmaydi (loyiha egasining so'rovi, 2026-08-16).
 export const NAV_ADMIN: NavItem[] = [
   { id: 'dashboard', icon: 'space_dashboard', label: 'Boshqaruv paneli' },
-  { id: 'bookings', icon: 'event_available', label: 'Bronlar' },
   { id: 'staff', icon: 'group', label: 'Xodimlar' },
   { id: 'products', icon: 'inventory_2', label: 'Mahsulotlar' },
   { id: 'reports', icon: 'analytics', label: 'Hisobot' },
