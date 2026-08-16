@@ -251,18 +251,28 @@ export const NAV_SUPER_ADMIN: NavItem[] = [
   { id: 'platform-settings', icon: 'settings', label: 'Sozlamalar' },
 ];
 
+/**
+ * Ekran sarlavhasi va uning ostidagi izoh.
+ *
+ * Izohlar FAQAT statik va ROST tavsif bo'lishi mumkin. Avval bu yerda
+ * o'ylab topilgan ma'lumot turardi (audit topilmasi, 2026-08-16): har
+ * bir klub egasi "NEON ARENA" ni ko'rardi, Qora ro'yxat sarlavhasi esa
+ * BO'SH ro'yxat ustida "3 bloklangan · 4 kuzatuvda" deb turardi. Klub
+ * nomi endi sessiyadan (`app.tsx`) qo'shiladi, o'zgaruvchan sonlar esa
+ * ekranning O'ZIDA real ma'lumotdan ko'rsatiladi.
+ */
 export const TITLES: Record<ScreenId, [string, string[]]> = {
-  live: ['Live board', ['Neon Arena', 'A-blok', '10 xona']],
-  timeline: ['Kunlik timeline', ['Neon Arena', '10 xona', '10:00 – 02:00']],
-  orders: ['Buyurtmalar', ['Bar', '5 aktiv', 'O‘rtacha 6 daqiqa']],
+  live: ['Live board', ['Xonalar holati va taymerlar']],
+  timeline: ['Kunlik timeline', ['Xona bo‘yicha bronlar']],
+  orders: ['Buyurtmalar', ['Bar buyurtmalari']],
   bookings: ['Bronlar', ['Mijoz va qo‘lda bron', 'Tasdiq — botda xabar']],
-  pos: ['Kassa', ['Kechki smena', 'Kamola R.', '14 hisob']],
-  shift: ['Smena', ['12-08-2026', '18:00 dan', 'Kamola R.']],
-  blacklist: ['Qora ro‘yxat', ['Neon Arena', '3 bloklangan', '4 kuzatuvda']],
+  pos: ['Kassa', ['Hisob yopish va to‘lov']],
+  shift: ['Smena', ['Ochish, kirim-chiqim, yopish']],
+  blacklist: ['Qora ro‘yxat', ['Bloklangan mijozlar']],
 
-  dashboard: ['Boshqaruv paneli', ['Neon Arena', 'Bugun']],
-  staff: ['Xodimlar', ['Neon Arena', 'Smenalar va kirish']],
-  products: ['Mahsulotlar', ['Katalog va reestr']],
+  dashboard: ['Boshqaruv paneli', ['Bugungi ko‘rsatkichlar']],
+  staff: ['Xodimlar', ['Hisob ochish va rol berish']],
+  products: ['Mahsulotlar', ['Katalog va qoldiq']],
   reports: ['Hisobot', ['Tushum, xarajat va foyda']],
   expenses: ['Xarajatlar', ['Kommunal, ijara va maosh']],
   settings: ['Sozlamalar', ['Hisob, klub va xonalar']],

@@ -125,7 +125,14 @@ export function App(): ReactNode {
     );
   }
 
-  const [title, meta] = TITLES[active];
+  const [title, staticMeta] = TITLES[active];
+  // Klub nomi HAQIQIY sessiyadan. Avval `TITLES` ichida "Neon Arena" deb
+  // qotirilgan edi va uni har bir klub egasi ko'rardi (audit topilmasi,
+  // 2026-08-16). Super admin ekranlarida klub tushunchasi yo'q — faqat
+  // klub doirasidagi ekranlarda qo'shiladi.
+  const activeClubName = session.clubs.find((c) => c.id === activeClubId)?.name;
+  const meta =
+    activeClubName && !active.startsWith('platform') ? [activeClubName, ...staticMeta] : staticMeta;
 
   return (
     <div

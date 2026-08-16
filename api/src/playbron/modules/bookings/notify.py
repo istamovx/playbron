@@ -103,25 +103,43 @@ async def notify_customer_confirmed(
 
 
 async def notify_customer_rejected(
-    session: AsyncSession, *, customer_id: int, club_name: str, reason: str | None
+    session: AsyncSession,
+    *,
+    customer_id: int,
+    club_name: str,
+    reason: str | None,
+    telegram_id: int | None = None,
 ) -> None:
+    """`telegram_id` — chaqiruvchi uni bron holati o'zgarishidan OLDIN
+    o'qib qo'ygan bo'lsa uzatiladi.
+
+    Bu SHART: `users_booking_contact` policy'si mijoz qatorini faqat uning
+    shu klubda `PENDING`/`CONFIRMED` broni bo'lsa ochadi. Bron `CANCELLED`
+    bo'lgach shart yolg'onga aylanadi va bu yerdagi o'qish jimgina NULL
+    qaytaradi — xabar hech qachon yuborilmasdi (audit topilmasi,
+    2026-08-16). Berilmasa eski (zaxira) yo'l saqlanadi.
+    """
     tail = f"\n\nSabab: {reason}" if reason else ""
     await _notify_customer(
         session,
         customer_id=customer_id,
         text_body=f"❌ Broningiz bekor qilindi — {club_name}{tail}",
+        telegram_id=telegram_id,
     )
 
 
-async def _notify_customer(session: AsyncSession, *, customer_id: int, text_body: str) -> None:
-    try:
-        telegram_id = await session.scalar(
-            text("SELECT telegram_id FROM users WHERE id = :uid AND kind = 'customer'"),
-            {"uid": customer_id},
-        )
-    except Exception:  # noqa: BLE001
-        log.warning("Mijoz telegram_id o'qib bo'lmadi (uid=%s)", customer_id, exc_info=True)
-        return
+async def _notify_customer(
+    session: AsyncSession, *, customer_id: int, text_body: str, telegram_id: int | None = None
+) -> None:
+    if telegram_id is None:
+        try:
+            telegram_id = await session.scalar(
+                text("SELECT telegram_id FROM users WHERE id = :uid AND kind = 'customer'"),
+                {"uid": customer_id},
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("Mijoz telegram_id o'qib bo'lmadi (uid=%s)", customer_id, exc_info=True)
+            return
 
     if not telegram_id:
         return

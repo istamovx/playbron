@@ -31,7 +31,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { api } from '../../lib/api';
 import { S } from '../../mock/data';
-import { useClub } from '../../store/club';
 import { useBoard } from '../../store/board';
 import { ROLE_LABEL, remainingText, useSession } from '../../store/session';
 import { FormGrid, parseHm } from './parts';
@@ -66,15 +65,60 @@ export function SettingsScreen(): ReactNode {
 
 // ─────────────────────────── hisob ───────────────────────────
 
-/** Parol bloki yo'q: kirish faqat Telegram orqali (DCR-001). */
+/**
+ * Hisob — ma'lumot, parol almashtirish va Telegram bog'lash.
+ *
+ * Avvalgi izoh ("kirish faqat Telegram orqali, DCR-001") ESKIRGAN edi va
+ * ekranda YOLG'ON ma'lumot ko'rsatilardi: "Kirish — Telegram", "Parol
+ * saqlanmaydi, o'g'irlanadigan sir yo'q" (audit topilmasi, 2026-08-16).
+ * Aslida xodim dunyosiga kirish LOGIN + PAROL bilan
+ * (`auth/staff.py::staff_login()`), parol esa Argon2id xeshi ko'rinishida
+ * `staff_credentials` jadvalida saqlanadi. Klub egasi bu matnga qarab
+ * "parolim yo'q, himoya kerak emas" degan xulosaga kelishi mumkin edi.
+ */
 function AccountTab(): ReactNode {
   const session = useSession((state) => state.session);
   const signOut = useSession((state) => state.signOut);
-  const resetClub = useClub((state) => state.reset);
+  const changePassword = useSession((state) => state.changePassword);
 
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSubmitting, setPwSubmitting] = useState(false);
 
   if (!session) return null;
+
+  const submitPassword = async (): Promise<void> => {
+    if (current.length < 1) {
+      setPwError('Joriy parolni kiriting');
+      return;
+    }
+    if (next.length < 8) {
+      setPwError('Yangi parol kamida 8 belgi bo‘lsin');
+      return;
+    }
+    if (next !== repeat) {
+      setPwError('Yangi parol takrori mos kelmadi');
+      return;
+    }
+
+    setPwSubmitting(true);
+    setPwError(null);
+    try {
+      await changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setRepeat('');
+      toast.success('Parol almashtirildi');
+    } catch (cause) {
+      const message = errorText(cause);
+      setPwError(message);
+      toast.error(message);
+    } finally {
+      setPwSubmitting(false);
+    }
+  };
 
   return (
     <div className="ds-split" style={{ alignItems: 'start' }}>
@@ -82,7 +126,7 @@ function AccountTab(): ReactNode {
         <Panel title="Hisob" notch brackets>
           <FieldLadder>
             <FieldRow label="Ism" value={session.name} />
-            <FieldRow label="Kirish" value="Telegram" />
+            <FieldRow label="Login" value={session.login ?? '—'} />
             <FieldRow label="Rol" value={ROLE_LABEL[session.role]} />
             <FieldRow label="Klublar" value={String(session.clubs.length)} />
             <FieldRow label="Sessiya tugashiga" value={remainingText(session.expiresAt)} />
@@ -95,58 +139,57 @@ function AccountTab(): ReactNode {
           </div>
         </Panel>
 
-        <Panel title="Xavfsizlik" notch>
-          <StatusLine
-            tone="neutral"
-            icon="verified_user"
-            parts={[
-              'Kirish faqat Telegram orqali',
-              'Parol saqlanmaydi, o‘g‘irlanadigan sir yo‘q',
-            ]}
-          />
+        <Panel title="Parolni almashtirish" notch>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <TextField
+              label="Joriy parol"
+              value={current}
+              onChange={setCurrent}
+              icon="lock"
+              type="password"
+            />
+            <TextField
+              label="Yangi parol"
+              value={next}
+              onChange={setNext}
+              icon="lock_reset"
+              type="password"
+            />
+            <TextField
+              label="Yangi parol (takror)"
+              value={repeat}
+              onChange={setRepeat}
+              icon="lock_reset"
+              type="password"
+            />
+
+            {pwError ? <StatusLine tone="danger" icon="error" parts={pwError} /> : null}
+
+            <Button
+              variant="primary"
+              notch
+              icon="check"
+              disabled={pwSubmitting}
+              onClick={() => void submitPassword()}
+            >
+              {pwSubmitting ? 'Saqlanmoqda…' : 'Almashtirish'}
+            </Button>
+          </div>
         </Panel>
 
         <TelegramLinkPanel />
       </div>
 
-      <Panel title="Ma’lumotlar" notch dashed>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-          <StatusLine
-            tone="neutral"
-            icon="database"
-            parts={['Klub ma’lumoti qurilmada saqlanadi', 'Server ulanganda sinxronlanadi']}
-          />
-
-          {confirmReset ? (
-            <>
-              <StatusLine
-                tone="danger"
-                icon="warning"
-                parts={['Xona, tarif, mahsulot va xarajatlar', 'boshlang‘ich holatga qaytadi']}
-              />
-              <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-                <Button
-                  variant="danger"
-                  notch
-                  icon="restart_alt"
-                  onClick={() => {
-                    resetClub();
-                    setConfirmReset(false);
-                  }}
-                >
-                  Qaytarish
-                </Button>
-                <Button variant="ghost" onClick={() => setConfirmReset(false)}>
-                  Bekor
-                </Button>
-              </div>
-            </>
-          ) : (
-            <Button variant="ghost" icon="restart_alt" onClick={() => setConfirmReset(true)}>
-              Boshlang‘ich holatga qaytarish
-            </Button>
-          )}
-        </div>
+      <Panel title="Xavfsizlik" notch>
+        <StatusLine
+          tone="neutral"
+          icon="verified_user"
+          parts={[
+            'Kirish login va parol bilan',
+            'Parol xesh ko‘rinishida saqlanadi (Argon2id)',
+            'Birov bergan parol birinchi kirishda almashtiriladi',
+          ]}
+        />
       </Panel>
     </div>
   );

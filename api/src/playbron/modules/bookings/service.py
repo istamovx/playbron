@@ -698,12 +698,22 @@ async def _load_pending_booking(session: AsyncSession, club_id: int, booking_id:
     row = (
         await session.execute(
             text(
+                # `u.telegram_id` ATAYLAB SHU YERDA o'qiladi — bron holati
+                # o'zgarishidan OLDIN. `users_booking_contact` policy'si
+                # (`0009_bookings.py`) mijoz qatorini FAQAT uning shu klubda
+                # `PENDING`/`CONFIRMED` broni bo'lsa ochadi. Bron `CANCELLED`
+                # bo'lgach bu shart yolg'onga aylanadi va keyingi o'qish
+                # jimgina NULL qaytaradi — natijada rad etilgan mijozga xabar
+                # UMUMAN bormasdi (audit topilmasi, 2026-08-16;
+                # `[[playbron-rls-cross-table-subquery-gap]]` bilan bir xil sinf).
                 "SELECT b.id, b.customer_id, b.status, b.source, b.hours,"
                 "       lower(b.period) AS starts_at, s.code AS station_code,"
-                "       c.name AS club_name, c.timezone AS club_tz"
+                "       c.name AS club_name, c.timezone AS club_tz,"
+                "       u.telegram_id AS customer_telegram_id"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
                 " JOIN clubs c ON c.id = b.club_id"
+                " LEFT JOIN users u ON u.id = b.customer_id"
                 " WHERE b.id = :id AND b.club_id = :club_id"
             ),
             {"id": booking_id, "club_id": club_id},
@@ -764,6 +774,8 @@ async def reject_booking(
             customer_id=booking.customer_id,
             club_name=booking.club_name,
             reason=clean_reason,
+            # UPDATE'dan OLDIN o'qilgan — endi RLS uni ko'rsatmaydi
+            telegram_id=booking.customer_telegram_id,
         )
 
 
@@ -780,10 +792,15 @@ async def _load_booking_for_staff(session: AsyncSession, club_id: int, booking_i
     row = (
         await session.execute(
             text(
+                # `u.telegram_id` — bekor qilishdan OLDIN o'qiladi
+                # (`_load_pending_booking()`dagi bilan bir xil sabab:
+                # `users_booking_contact` policy'si `CANCELLED`dan keyin
+                # mijoz qatorini yopadi).
                 "SELECT b.id, b.station_id, s.code AS station_code, b.status, b.hours,"
                 "       b.rate_snapshot, b.closed_at, b.customer_id,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
                 "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label,"
+                "       u.telegram_id AS customer_telegram_id,"
                 "       c.name AS club_name, c.timezone AS club_tz"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
@@ -947,6 +964,8 @@ async def cancel_confirmed_booking(
             customer_id=booking.customer_id,
             club_name=booking.club_name,
             reason=clean_reason,
+            # UPDATE'dan OLDIN o'qilgan — endi RLS uni ko'rsatmaydi
+            telegram_id=booking.customer_telegram_id,
         )
 
 async def customer_stats(session: AsyncSession, customer_id: int) -> dict[str, int]:
