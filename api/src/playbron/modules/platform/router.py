@@ -102,6 +102,33 @@ async def create_org(
     return OrgCreateOut(login=login)
 
 
+class OrgUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    status: Literal["pending", "active", "suspended"] | None = None
+
+
+class OrgUpdateOut(BaseModel):
+    org_id: int
+    org_name: str
+    org_status: str
+
+
+@router.patch("/orgs/{org_id}", response_model=OrgUpdateOut)
+async def update_org(
+    body: OrgUpdateIn,
+    org_id: Annotated[int, Path()],
+    _: Annotated[None, Depends(require_super_admin)],
+    session: Annotated[AsyncSession, Depends(platform_write_db)],
+) -> OrgUpdateOut:
+    """Nomi/holatini tahrirlash — `POST /orgs/{id}/payments` (`plan_code`)
+    bilan bir vazifani bajarmasin, deb ATAYLAB alohida yo'l (audit
+    topilmasi, 2026-08-16, reja #16)."""
+    row = await service.update_organization(
+        session, org_id=org_id, name=body.name, status=body.status
+    )
+    return OrgUpdateOut(**row)
+
+
 class PaymentIn(BaseModel):
     amount: int = Field(gt=0)
     plan_code: str | None = Field(default=None, max_length=32)

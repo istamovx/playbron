@@ -3,7 +3,9 @@ import {
   errorText,
   listPlatformOrgs,
   recordPlatformPayment,
+  updatePlatformOrg,
   type PlatformOrgDto,
+  type PlatformOrgStatus,
 } from '@playbron/api-client';
 import {
   Button,
@@ -86,6 +88,26 @@ interface PaymentDraft {
 
 const EMPTY_PAYMENT_DRAFT: PaymentDraft = { amount: '', planCode: null, periodMonths: '', note: '' };
 
+interface EditDraft {
+  orgId: number;
+  name: string;
+  status: PlatformOrgStatus;
+}
+
+const ORG_STATUS_LABELS: Record<PlatformOrgStatus, string> = {
+  pending: 'Kutilmoqda',
+  active: 'Faol',
+  suspended: 'To‘xtatilgan',
+};
+const ORG_STATUS_OPTIONS: PlatformOrgStatus[] = ['pending', 'active', 'suspended'];
+
+function orgStatusTone(status: string): 'success' | 'amber' | 'danger' | 'neutral' {
+  if (status === 'active') return 'success';
+  if (status === 'pending') return 'amber';
+  if (status === 'suspended') return 'danger';
+  return 'neutral';
+}
+
 /**
  * Platforma — Klublar: super admin uchun cross-tenant tashkilotlar ro'yxati.
  * Qo'lda klub+ega hisobi ochish (to'lov oqimi ishlamay qolganda yoki
@@ -107,6 +129,10 @@ export function PlatformClubsScreen(): ReactNode {
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>(EMPTY_PAYMENT_DRAFT);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [payingSubmitting, setPayingSubmitting] = useState(false);
+
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -214,6 +240,32 @@ export function PlatformClubsScreen(): ReactNode {
       toast.error(message);
     } finally {
       setPayingSubmitting(false);
+    }
+  };
+
+  const submitEdit = async (): Promise<void> => {
+    if (!editDraft) return;
+    if (editDraft.name.trim().length < 2) {
+      setEditError('Nomni to‘liq kiriting');
+      return;
+    }
+
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      await updatePlatformOrg(api, editDraft.orgId, {
+        name: editDraft.name.trim(),
+        status: editDraft.status,
+      });
+      toast.success('Tashkilot yangilandi');
+      setEditDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setEditError(message);
+      toast.error(message);
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -441,6 +493,69 @@ export function PlatformClubsScreen(): ReactNode {
         ) : null}
       </Modal>
 
+      <Modal
+        open={editDraft !== null}
+        onClose={() => {
+          setEditDraft(null);
+          setEditError(null);
+        }}
+        title="Tashkilotni tahrirlash"
+        variant="drawer"
+      >
+        {editDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <TextField
+              label="Tashkilot nomi"
+              value={editDraft.name}
+              onChange={(value) => setEditDraft({ ...editDraft, name: value })}
+              icon="corporate_fare"
+            />
+            <Labeled label="Holat">
+              <Select
+                value={ORG_STATUS_LABELS[editDraft.status]}
+                items={ORG_STATUS_OPTIONS.map((s) => ORG_STATUS_LABELS[s])}
+                onChange={(label) => {
+                  const status = ORG_STATUS_OPTIONS.find((s) => ORG_STATUS_LABELS[s] === label);
+                  if (status) setEditDraft({ ...editDraft, status });
+                }}
+                style={{ width: '100%' }}
+              />
+            </Labeled>
+            {editDraft.status === 'suspended' ? (
+              <StatusLine
+                tone="warn"
+                icon="block"
+                parts={['Hozircha faqat ko‘rsatish maqsadida', 'Kirish/bron avtomatik bloklanmaydi']}
+              />
+            ) : null}
+
+            {editError ? <StatusLine tone="danger" icon="error" parts={editError} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={editSubmitting}
+                onClick={() => void submitEdit()}
+              >
+                {editSubmitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={editSubmitting}
+                onClick={() => {
+                  setEditDraft(null);
+                  setEditError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
       <Panel
         title={`Klublar (${orgs.length})`}
         notch
@@ -473,8 +588,13 @@ export function PlatformClubsScreen(): ReactNode {
               render: (row) => (
                 <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
                   <span style={{ color: 'var(--text-title)' }}>{row.clubName ?? '—'}</span>
-                  <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                    {row.orgName}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                      {row.orgName}
+                    </span>
+                    <Tag tone={orgStatusTone(row.orgStatus)}>
+                      {ORG_STATUS_LABELS[row.orgStatus as PlatformOrgStatus] ?? row.orgStatus}
+                    </Tag>
                   </span>
                 </span>
               ),
@@ -562,18 +682,35 @@ export function PlatformClubsScreen(): ReactNode {
               header: '',
               align: 'right',
               render: (row) => (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="payments"
-                  onClick={() => {
-                    setSelectedOrgId(row.orgId);
-                    setPaymentDraft(EMPTY_PAYMENT_DRAFT);
-                    setPaymentError(null);
-                  }}
-                >
-                  To‘lov
-                </Button>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="edit"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditDraft({
+                        orgId: row.orgId,
+                        name: row.orgName,
+                        status: (ORG_STATUS_OPTIONS as string[]).includes(row.orgStatus)
+                          ? (row.orgStatus as PlatformOrgStatus)
+                          : 'pending',
+                      });
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="payments"
+                    onClick={() => {
+                      setSelectedOrgId(row.orgId);
+                      setPaymentDraft(EMPTY_PAYMENT_DRAFT);
+                      setPaymentError(null);
+                    }}
+                  >
+                    To‘lov
+                  </Button>
+                </div>
               ),
             },
           ]}

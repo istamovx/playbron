@@ -278,6 +278,53 @@ async def record_payment(
     }
 
 
+async def update_organization(
+    session: AsyncSession, *, org_id: int, name: str | None, status: str | None
+) -> dict[str, Any]:
+    """Tashkilot nomi/holatini tahrirlash — `record_payment()`dagi
+    `plan_code` yozuvidan ATAYLAB alohida yo'l (audit topilmasi,
+    2026-08-16, reja #16): to'lov qayd etilganda tarif yangilanishi bilan
+    super adminning qo'lda nom/holat tahriri bir joyda aralashmasin — ikki
+    mustaqil sabab bitta UPDATE ichida yashirinmasin.
+
+    `organizations_platform_write` policy'si (`0017_platform_org_plan.py`)
+    ustunga xos EMAS — `app_platform()` bo'lsa istalgan ustunni yangilashga
+    ruxsat beradi, shuning uchun bu yerga yangi migratsiya kerak emas.
+
+    `status` hozircha faqat KO'RSATISH uchun (`docs/06-super-admin.md`
+    §4.1dagi `pending`/`active`/`suspended` lug'ati bilan bir xil) — login/
+    bron yo'lida hali TEKSHIRILMAYDI, xuddi `plan_code` limitlari kabi
+    (spec §4.3dagi to'liq TOTP+`subscriptions`+`glass_sessions` oqimi hali
+    qurilmagan). Noto'g'ri xavfsizlik taassurotini oldini olish uchun shu
+    izoh qoldiriladi.
+    """
+    if name is None and status is None:
+        raise AppError("Kamida bitta maydon kiritilsin", code="NO_FIELDS")
+
+    row = (
+        await session.execute(
+            text(
+                "UPDATE organizations"
+                " SET name = COALESCE(:name, name), status = COALESCE(:status, status)"
+                " WHERE id = :org"
+                " RETURNING id, name, status"
+            ),
+            {"name": name, "status": status, "org": org_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Tashkilot topilmadi")
+
+    await log_action(
+        action="platform_org_update",
+        target=row.name,
+        org_id=org_id,
+        after={"name": row.name, "status": row.status},
+    )
+
+    return {"org_id": row.id, "org_name": row.name, "org_status": row.status}
+
+
 def _bucket_key(value: datetime) -> str:
     return value.date().isoformat()
 

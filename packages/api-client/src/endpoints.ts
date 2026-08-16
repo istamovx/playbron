@@ -1006,6 +1006,29 @@ export const recordPlatformPayment = async (
   };
 };
 
+export type PlatformOrgStatus = 'pending' | 'active' | 'suspended';
+
+export interface PlatformOrgUpdateIn {
+  name?: string | null;
+  status?: PlatformOrgStatus | null;
+}
+
+/**
+ * Nomi/holatini tahrirlash — `recordPlatformPayment` (`plan_code`) bilan
+ * ATAYLAB alohida yo'l (audit topilmasi, 2026-08-16, reja #16).
+ */
+export const updatePlatformOrg = async (
+  api: ApiClient,
+  orgId: number,
+  body: PlatformOrgUpdateIn,
+): Promise<{ orgId: number; orgName: string; orgStatus: string }> => {
+  const row = await api.patch<{ org_id: number; org_name: string; org_status: string }>(
+    `/platform/orgs/${orgId}`,
+    { name: body.name ?? null, status: body.status ?? null },
+  );
+  return { orgId: row.org_id, orgName: row.org_name, orgStatus: row.org_status };
+};
+
 // ── Platforma: Hisobot ───────────────────────────────────────────────────
 
 export type PlatformReportPeriod = 'day' | 'week' | 'month' | 'year';
