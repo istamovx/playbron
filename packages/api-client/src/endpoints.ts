@@ -52,13 +52,19 @@ export async function signOut(api: ApiClient): Promise<void> {
 export interface TelegramLinkStart {
   nonce: string;
   expiresIn: number;
+  /** Haqiqiy bot username — `null` bo'lsa token noto'g'ri/o'chirilgan
+   * (backend Telegram `getMe`ni chaqiradi va xato bo'lsa jimgina `null`
+   * qaytaradi, `botlogin.py::admin_bot_username()`). */
+  botUsername: string | null;
 }
 
 export type TelegramLinkStatus = 'pending' | 'expired' | 'ready';
 
 export const startTelegramLink = async (api: ApiClient): Promise<TelegramLinkStart> => {
-  const body = await api.post<{ nonce: string; expires_in: number }>('/auth/telegram/link/start');
-  return { nonce: body.nonce, expiresIn: body.expires_in };
+  const body = await api.post<{ nonce: string; expires_in: number; bot_username: string | null }>(
+    '/auth/telegram/link/start',
+  );
+  return { nonce: body.nonce, expiresIn: body.expires_in, botUsername: body.bot_username };
 };
 
 export const pollTelegramLink = async (

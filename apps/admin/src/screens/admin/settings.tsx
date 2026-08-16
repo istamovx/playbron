@@ -182,15 +182,25 @@ export function TelegramLinkPanel(): ReactNode {
 
   useEffect(() => stopPolling, []);
 
-  const APP_BOT_URL = 'https://t.me/playbronappbot';
   const POLL_INTERVAL_MS = 2000;
 
   const start = async (): Promise<void> => {
     stopPolling();
     setState('waiting');
     try {
-      const { nonce } = await startTelegramLink(api);
-      window.open(`${APP_BOT_URL}?start=${nonce}`, '_blank', 'noopener');
+      // `botUsername` server'dan — token'ni frontend BILMAYDI (`router.py::
+      // start_telegram_link()`). Avval BU YERDA hardcode qilingan edi
+      // (`@playbronappbot`, sinov manzili) — token/bot boshqacha bo'lsa
+      // tugma DOIM o'lik havolaga olib borardi (loyiha egasi: "botlarni
+      // ishlata olmadim"). `null` — token noto'g'ri/o'chirilgan (Telegram
+      // `getMe` rad etgan), bu holda havola OCHILMAYDI.
+      const { nonce, botUsername } = await startTelegramLink(api);
+      if (!botUsername) {
+        stopPolling();
+        setState('error');
+        return;
+      }
+      window.open(`https://t.me/${botUsername}?start=${nonce}`, '_blank', 'noopener');
 
       timer.current = setInterval(() => {
         void pollTelegramLink(api, nonce)
