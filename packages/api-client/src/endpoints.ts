@@ -796,6 +796,164 @@ export const getPlatformStats = async (api: ApiClient): Promise<PlatformStatsDto
   };
 };
 
+// ── Platforma: Klublar (qo'lda qo'shish) ────────────────────────────────
+// Manba: `0016_platform_org_admin.py`.
+
+export interface PlatformOrgDto {
+  orgId: number;
+  orgName: string;
+  orgStatus: string;
+  planCode: string | null;
+  createdAt: string;
+  ownerName: string;
+  ownerLogin: string | null;
+  clubId: number | null;
+  clubName: string | null;
+  clubStatus: string | null;
+  stationsCount: number;
+  bookings30d: number;
+}
+
+interface PlatformOrgApi {
+  org_id: number;
+  org_name: string;
+  org_status: string;
+  plan_code: string | null;
+  created_at: string;
+  owner_name: string;
+  owner_login: string | null;
+  club_id: number | null;
+  club_name: string | null;
+  club_status: string | null;
+  stations_count: number;
+  bookings_30d: number;
+}
+
+const fromPlatformOrgApi = (row: PlatformOrgApi): PlatformOrgDto => ({
+  orgId: row.org_id,
+  orgName: row.org_name,
+  orgStatus: row.org_status,
+  planCode: row.plan_code,
+  createdAt: row.created_at,
+  ownerName: row.owner_name,
+  ownerLogin: row.owner_login,
+  clubId: row.club_id,
+  clubName: row.club_name,
+  clubStatus: row.club_status,
+  stationsCount: row.stations_count,
+  bookings30d: row.bookings_30d,
+});
+
+export const listPlatformOrgs = async (api: ApiClient): Promise<PlatformOrgDto[]> => {
+  const rows = await api.get<PlatformOrgApi[]>('/platform/orgs');
+  return rows.map(fromPlatformOrgApi);
+};
+
+export interface PlatformOrgCreateIn {
+  firstName: string;
+  clubName: string;
+  phone: string;
+  address: string;
+  login: string;
+  password: string;
+}
+
+export const createPlatformOrg = (
+  api: ApiClient,
+  body: PlatformOrgCreateIn,
+): Promise<{ login: string }> =>
+  api.post<{ login: string }>('/platform/orgs', {
+    first_name: body.firstName,
+    club_name: body.clubName,
+    phone: body.phone,
+    address: body.address,
+    login: body.login,
+    password: body.password,
+  });
+
+export interface PlatformPaymentIn {
+  amount: number;
+  planCode?: string | null;
+  periodMonths?: number | null;
+  note?: string | null;
+}
+
+export interface PlatformPaymentDto {
+  id: number;
+  orgId: number;
+  amount: number;
+  planCode: string | null;
+  periodMonths: number | null;
+  paidAt: string;
+  note: string | null;
+}
+
+export const recordPlatformPayment = async (
+  api: ApiClient,
+  orgId: number,
+  body: PlatformPaymentIn,
+): Promise<PlatformPaymentDto> => {
+  const row = await api.post<{
+    id: number;
+    org_id: number;
+    amount: number;
+    plan_code: string | null;
+    period_months: number | null;
+    paid_at: string;
+    note: string | null;
+  }>(`/platform/orgs/${orgId}/payments`, {
+    amount: body.amount,
+    plan_code: body.planCode ?? null,
+    period_months: body.periodMonths ?? null,
+    note: body.note ?? null,
+  });
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    amount: row.amount,
+    planCode: row.plan_code,
+    periodMonths: row.period_months,
+    paidAt: row.paid_at,
+    note: row.note,
+  };
+};
+
+// ── Platforma: Hisobot ───────────────────────────────────────────────────
+
+export type PlatformReportPeriod = 'day' | 'week' | 'month' | 'year';
+
+export interface PlatformReportDto {
+  period: PlatformReportPeriod;
+  /** Chelak (ISO sana) → yig'ilgan to'lov summasi. */
+  revenueByBucket: Record<string, number>;
+  /** Chelak (ISO sana) → shu davrda qo'shilgan yangi tashkilotlar soni. */
+  newOrgsByBucket: Record<string, number>;
+  totalRevenue: number;
+  totalOrganizations: number;
+}
+
+interface PlatformReportApi {
+  period: string;
+  revenue_by_bucket: Record<string, number>;
+  new_orgs_by_bucket: Record<string, number>;
+  total_revenue: number;
+  total_organizations: number;
+}
+
+export const getPlatformReport = async (
+  api: ApiClient,
+  period: PlatformReportPeriod,
+): Promise<PlatformReportDto> => {
+  const row = await api.get<PlatformReportApi>('/platform/report', { query: { period } });
+  return {
+    period: row.period as PlatformReportPeriod,
+    revenueByBucket: row.revenue_by_bucket,
+    newOrgsByBucket: row.new_orgs_by_bucket,
+    totalRevenue: row.total_revenue,
+    totalOrganizations: row.total_organizations,
+  };
+};
+
 // ── Me ────────────────────────────────────────────────────────────────────
 
 export const getMe = (api: ApiClient): Promise<Me> => api.get<Me>('/me');

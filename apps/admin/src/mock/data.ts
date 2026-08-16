@@ -206,7 +206,10 @@ export type ScreenId =
   | 'expenses'
   | 'settings'
   // Super admin
-  | 'platform';
+  | 'platform'
+  | 'platform-clubs'
+  | 'platform-report'
+  | 'platform-settings';
 
 export interface NavItem {
   id: ScreenId;
@@ -238,6 +241,9 @@ export const NAV_ADMIN: NavItem[] = [
 
 export const NAV_SUPER_ADMIN: NavItem[] = [
   { id: 'platform', icon: 'hub', label: 'Platforma' },
+  { id: 'platform-clubs', icon: 'storefront', label: 'Klublar' },
+  { id: 'platform-report', icon: 'analytics', label: 'Hisobot' },
+  { id: 'platform-settings', icon: 'settings', label: 'Sozlamalar' },
 ];
 
 export const TITLES: Record<ScreenId, [string, string[]]> = {
@@ -258,6 +264,9 @@ export const TITLES: Record<ScreenId, [string, string[]]> = {
   settings: ['Sozlamalar', ['Shaxsiy hisob']],
 
   platform: ['Platforma', ['Barcha tashkilotlar', 'Cross-tenant, faqat o‘qish']],
+  'platform-clubs': ['Klublar', ['Barcha tashkilotlar', 'Qo‘lda qo‘shish va to‘lov']],
+  'platform-report': ['Hisobot', ['Platforma tushumi', 'Kunlik — yillik kesim']],
+  'platform-settings': ['Sozlamalar', ['Super admin hisobi']],
 };
 
 /** Stansiya id → yig'ilgan bonus. */

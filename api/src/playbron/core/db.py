@@ -151,6 +151,27 @@ async def platform_scope() -> AsyncIterator[AsyncSession]:
             yield session
 
 
+@asynccontextmanager
+async def platform_write_scope() -> AsyncIterator[AsyncSession]:
+    """Platforma-XOS yozish — masalan qo'lda kiritilgan to'lov yozuvi.
+
+    `platform_scope()`dan farqi: bu YOZISH uchun (`SET TRANSACTION READ
+    ONLY` yo'q). Doirasi ataylab TOR — faqat `app_platform()` bilan
+    qo'riqlanadigan jadvallarga (`platform_payments`) mo'ljallangan.
+    Umumiy tenant jadvallariga (klub, tashkilot, xodim) yozish BU YERDAN
+    EMAS — ular uchun `auth_owner_signup()` SECURITY DEFINER funksiyasi
+    bor, u `playbron_app` orqali, `app.signup_login` GUC'i bilan ishlaydi
+    (`0008_owner_signup.py`) — mavjud, tekshirilgan yo'l qayta ochilmaydi.
+    """
+    if not context.current().is_super_admin:
+        raise PermissionError("platform_write_scope faqat super admin uchun")
+
+    async with PlatformSession() as session:
+        async with session.begin():
+            await session.execute(text("SELECT set_config('app.platform', 'true', true)"))
+            yield session
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency."""
     async with session_scope() as session:

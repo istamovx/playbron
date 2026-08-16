@@ -7,7 +7,7 @@ from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
-from playbron.core.db import platform_scope, session_scope
+from playbron.core.db import platform_scope, platform_write_scope, session_scope
 from playbron.core.errors import Forbidden, Unauthorized
 from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_CUSTOMER, AUDIENCE_STAFF, decode_access
@@ -160,4 +160,12 @@ async def platform_db(
     (bitta joyda xato qilinsa ham teshik ochilmasin).
     """
     async with platform_scope() as session:
+        yield session
+
+
+async def platform_write_db(
+    _: Annotated[None, Depends(require_super_admin)],
+) -> AsyncIterator[AsyncSession]:
+    """`/platform/*` uchun platforma-xos yozish sessiyasi (`platform_payments`)."""
+    async with platform_write_scope() as session:
         yield session

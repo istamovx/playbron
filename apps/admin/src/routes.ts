@@ -27,6 +27,9 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   settings: '/settings',
   // Super admin
   platform: '/platform',
+  'platform-clubs': '/platform/clubs',
+  'platform-report': '/platform/report',
+  'platform-settings': '/platform/settings',
 };
 
 const PATH_SCREEN = new Map<string, ScreenId>(

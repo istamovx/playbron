@@ -229,3 +229,139 @@ async def test_super_admin_sees_cross_tenant_stats(
     assert isinstance(body["top_clubs"], list)
     for row in body["top_clubs"]:
         assert {"club_id", "club_name", "org_name", "bookings"} <= row.keys()
+
+
+@skip_no_db
+async def test_super_admin_lists_organizations(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    sa_h = await _login(client, SA_LOGIN)
+    r = await client.get("/api/v1/platform/orgs", headers=sa_h)
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    org_ids = {row["org_id"] for row in rows}
+    assert world["org_a"] in org_ids
+    assert world["org_b"] in org_ids
+    row_a = next(row for row in rows if row["org_id"] == world["org_a"])
+    assert row_a["club_id"] == world["club_a"]
+    assert row_a["owner_login"] == OWNER_A_LOGIN
+    assert row_a["stations_count"] >= 1
+
+
+@skip_no_db
+async def test_regular_owner_cannot_list_organizations(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    owner_h = await _login(client, OWNER_A_LOGIN)
+    r = await client.get("/api/v1/platform/orgs", headers=owner_h)
+    assert r.status_code == 404, r.text
+
+
+@skip_no_db
+async def test_super_admin_creates_org_manually(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    sa_h = await _login(client, SA_LOGIN)
+    login = "plt.manual.owner"
+
+    try:
+        r = await client.post(
+            "/api/v1/platform/orgs",
+            json={
+                "first_name": "Qo'lda",
+                "club_name": "Qo'lda Qo'shilgan Klub",
+                "phone": "+998901234567",
+                "address": "Toshkent, sinov",
+                "login": login,
+                "password": "juda mustahkam qolda parol",
+            },
+            headers=sa_h,
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["login"] == login
+
+        # Yaratilgan hisob darhol o'zi kira oladi (parolni SA tanladi/berdi,
+        # lekin `must_change=false` — xuddi owner_signup'dagi kabi).
+        login_r = await client.post(
+            "/api/v1/auth/staff/login",
+            json={"login": login, "password": "juda mustahkam qolda parol"},
+        )
+        assert login_r.status_code == 200, login_r.text
+        assert login_r.json()["memberships"][0]["role"] == "OWNER"
+
+        # Ikkinchi marta bir xil login — LOGIN_TAKEN, 409.
+        dup = await client.post(
+            "/api/v1/platform/orgs",
+            json={
+                "first_name": "Boshqa",
+                "club_name": "Boshqa Klub",
+                "phone": "+998901234568",
+                "address": "Toshkent, sinov 2",
+                "login": login,
+                "password": "yana bitta mustahkam parol",
+            },
+            headers=sa_h,
+        )
+        assert dup.status_code == 409, dup.text
+        assert dup.json()["error"]["code"] == "LOGIN_TAKEN"
+    finally:
+        engine = _owner_engine()
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "organizations", "users"):
+                await conn.execute(
+                    text(
+                        "DELETE FROM organizations WHERE owner_user_id IN"
+                        " (SELECT id FROM users WHERE login = :l)"
+                    ),
+                    {"l": login},
+                )
+                await conn.execute(text("DELETE FROM users WHERE login = :l"), {"l": login})
+        await engine.dispose()
+
+
+@skip_no_db
+async def test_super_admin_records_payment_and_sees_it_in_report(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    sa_h = await _login(client, SA_LOGIN)
+
+    r = await client.post(
+        f"/api/v1/platform/orgs/{world['org_a']}/payments",
+        json={"amount": 490000, "plan_code": "gold", "period_months": 1, "note": "sinov to'lovi"},
+        headers=sa_h,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["org_id"] == world["org_a"]
+    assert body["amount"] == 490000
+    assert body["plan_code"] == "gold"
+
+    bad = await client.post(
+        f"/api/v1/platform/orgs/{world['org_a']}/payments",
+        json={"amount": 0},
+        headers=sa_h,
+    )
+    assert bad.status_code == 422, bad.text  # Field(gt=0) — Pydantic darajasida rad
+
+    missing_org = await client.post(
+        "/api/v1/platform/orgs/999999999/payments",
+        json={"amount": 100000},
+        headers=sa_h,
+    )
+    assert missing_org.status_code == 404, missing_org.text
+
+    report = await client.get("/api/v1/platform/report", params={"period": "month"}, headers=sa_h)
+    assert report.status_code == 200, report.text
+    report_body = report.json()
+    assert report_body["period"] == "month"
+    assert report_body["total_revenue"] >= 490000
+    assert sum(report_body["revenue_by_bucket"].values()) >= 490000
+
+
+@skip_no_db
+async def test_report_rejects_unknown_period(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    sa_h = await _login(client, SA_LOGIN)
+    r = await client.get("/api/v1/platform/report", params={"period": "decade"}, headers=sa_h)
+    assert r.status_code == 422, r.text

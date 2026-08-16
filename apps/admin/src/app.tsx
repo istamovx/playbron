@@ -23,6 +23,9 @@ import { BookingsScreen } from './screens/bookings';
 import { LiveBoardScreen } from './screens/live-board';
 import { OrdersScreen } from './screens/orders';
 import { PlatformScreen } from './screens/platform';
+import { PlatformClubsScreen } from './screens/platform-clubs';
+import { PlatformReportScreen } from './screens/platform-report';
+import { PlatformSettingsScreen } from './screens/platform-settings';
 import { PosScreen } from './screens/pos';
 import { ShiftScreen } from './screens/shift';
 import { LoginScreen } from './screens/login';
@@ -301,6 +304,9 @@ export function App(): ReactNode {
             {active === 'settings' ? <SettingsScreen /> : null}
 
             {active === 'platform' ? <PlatformScreen /> : null}
+            {active === 'platform-clubs' ? <PlatformClubsScreen /> : null}
+            {active === 'platform-report' ? <PlatformReportScreen /> : null}
+            {active === 'platform-settings' ? <PlatformSettingsScreen /> : null}
           </main>
         </div>
       </div>
