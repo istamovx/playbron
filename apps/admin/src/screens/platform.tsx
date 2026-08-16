@@ -1,5 +1,5 @@
 import { errorText, getPlatformStats, type PlatformStatsDto } from '@playbron/api-client';
-import { EntityTable, LineChart, Panel, StatTile, StatusLine } from '@playbron/ui';
+import { ActivityBars, EntityTable, Panel, StatTile, StatusLine } from '@playbron/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -58,7 +58,13 @@ export function PlatformScreen(): ReactNode {
   }
 
   const days = lastDays(TREND_DAYS);
-  const trendValues = days.map((day) => stats?.dailyTrend[day] ?? 0);
+  const trendRaw = days.map((day) => stats?.dailyTrend[day] ?? 0);
+  // `ActivityBars` ustun balandligini `value` NING O'ZIDAN (0…1 deb
+  // kutib) hisoblaydi, `LineChart`dagi kabi o'zi min/max bo'yicha
+  // masshtablamaydi — shuning uchun bu yerda o'zimiz peak'ga nisbatan
+  // normalizatsiya qilamiz (loyiha egasining topilmasi, 2026-08-16).
+  const trendPeak = Math.max(1, ...trendRaw);
+  const trendValues = trendRaw.map((value) => value / trendPeak);
   // Har bir nuqta ostida joy ajratiladi — bandlashib ketmasligi uchun
   // faqat juft indekslarga sana yoziladi, qolganlari bo'sh.
   const ticks = days.map((day, index) => (index % 2 === 0 ? shortDate(day) : ''));
@@ -118,12 +124,12 @@ export function PlatformScreen(): ReactNode {
             />
           </div>
           <div className="ds-chart">
-            <LineChart
-              points={TREND_DAYS}
+            <ActivityBars
+              bars={TREND_DAYS}
               values={trendValues}
               labels={ticks}
               height={264}
-              tip={(value, index) => `${shortDate(days[index] as string)} · ${Math.round(value)} bron`}
+              tip={(_value, index) => `${shortDate(days[index] as string)} · ${trendRaw[index] ?? 0} bron`}
             />
           </div>
         </div>

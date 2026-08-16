@@ -1031,6 +1031,137 @@ export const closeShift = async (
   return fromShiftApi(row);
 };
 
+// ── Boshqaruv paneli / Hisobot ───────────────────────────────────────────
+// Manba: `api/src/playbron/modules/finance/router.py` (`reports.py`).
+// Faqat OWNER/ADMIN.
+
+export interface ClubStationLiveDto {
+  id: number;
+  code: string;
+  roomLabel: string;
+  consoleType: string;
+  status: string;
+  occupied: boolean;
+}
+
+export interface ClubDashboardDto {
+  revenueToday: number;
+  expensesToday: number;
+  profitToday: number;
+  sessionsToday: number;
+  hoursToday: number;
+  occupancyToday: number;
+  barRevenueToday: number;
+  opensAtMin: number;
+  closesAtMin: number;
+  /** Soat (0-23) → shu soatda boshlangan seanslar soni. */
+  hourly: Record<string, number>;
+  stations: ClubStationLiveDto[];
+}
+
+interface ClubDashboardApi {
+  revenue_today: number;
+  expenses_today: number;
+  profit_today: number;
+  sessions_today: number;
+  hours_today: number;
+  occupancy_today: number;
+  bar_revenue_today: number;
+  opens_at_min: number;
+  closes_at_min: number;
+  hourly: Record<string, number>;
+  stations: Array<{
+    id: number;
+    code: string;
+    room_label: string;
+    console_type: string;
+    status: string;
+    occupied: boolean;
+  }>;
+}
+
+export const getClubDashboard = async (api: ApiClient, clubId: number): Promise<ClubDashboardDto> => {
+  const row = await api.get<ClubDashboardApi>(`/clubs/${clubId}/dashboard`);
+  return {
+    revenueToday: row.revenue_today,
+    expensesToday: row.expenses_today,
+    profitToday: row.profit_today,
+    sessionsToday: row.sessions_today,
+    hoursToday: row.hours_today,
+    occupancyToday: row.occupancy_today,
+    barRevenueToday: row.bar_revenue_today,
+    opensAtMin: row.opens_at_min,
+    closesAtMin: row.closes_at_min,
+    hourly: row.hourly,
+    stations: row.stations.map((s) => ({
+      id: s.id,
+      code: s.code,
+      roomLabel: s.room_label,
+      consoleType: s.console_type,
+      status: s.status,
+      occupied: s.occupied,
+    })),
+  };
+};
+
+export type ClubReportPeriod = 'day' | 'week' | 'month' | 'year';
+
+export interface ClubReportDto {
+  period: ClubReportPeriod;
+  revenue: number;
+  expenses: number;
+  profit: number;
+  playRevenue: number;
+  barRevenue: number;
+  sessions: number;
+  hours: number;
+  occupancy: number;
+  stationCount: number;
+  topProducts: Array<{ productName: string; revenue: number }>;
+  expenseByCategory: Array<{ category: string; amount: number }>;
+  /** ISO vaqt belgisi (chelak boshi) → shu chelakdagi tushum. */
+  revenueSeries: Array<{ bucket: string; amount: number }>;
+}
+
+interface ClubReportApi {
+  period: string;
+  revenue: number;
+  expenses: number;
+  profit: number;
+  play_revenue: number;
+  bar_revenue: number;
+  sessions: number;
+  hours: number;
+  occupancy: number;
+  station_count: number;
+  top_products: Array<{ product_name: string; revenue: number }>;
+  expense_by_category: Array<{ category: string; amount: number }>;
+  revenue_series: Array<{ bucket: string; amount: number }>;
+}
+
+export const getClubReport = async (
+  api: ApiClient,
+  clubId: number,
+  period: ClubReportPeriod,
+): Promise<ClubReportDto> => {
+  const row = await api.get<ClubReportApi>(`/clubs/${clubId}/reports?period=${period}`);
+  return {
+    period: (row.period as ClubReportPeriod) ?? period,
+    revenue: row.revenue,
+    expenses: row.expenses,
+    profit: row.profit,
+    playRevenue: row.play_revenue,
+    barRevenue: row.bar_revenue,
+    sessions: row.sessions,
+    hours: row.hours,
+    occupancy: row.occupancy,
+    stationCount: row.station_count,
+    topProducts: row.top_products.map((p) => ({ productName: p.product_name, revenue: p.revenue })),
+    expenseByCategory: row.expense_by_category.map((c) => ({ category: c.category, amount: c.amount })),
+    revenueSeries: row.revenue_series.map((b) => ({ bucket: b.bucket, amount: b.amount })),
+  };
+};
+
 // ── Platforma (super admin) ─────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/platform/router.py`. Faqat o'qish,
 // cross-tenant — `docs/06-super-admin.md` §3, kichik kesim

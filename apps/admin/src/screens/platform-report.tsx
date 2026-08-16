@@ -4,7 +4,7 @@ import {
   type PlatformReportDto,
   type PlatformReportPeriod,
 } from '@playbron/api-client';
-import { ActivityBars, LineChart, Panel, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
+import { ActivityBars, Panel, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -164,8 +164,16 @@ export function PlatformReportScreen(): ReactNode {
   const buckets = bucketsFor(period);
   const ticks = tickLabels(period, buckets);
 
-  const revenueValues = buckets.map((bucket) => report?.revenueByBucket[bucket] ?? 0);
-  const newOrgsValues = buckets.map((bucket) => report?.newOrgsByBucket[bucket] ?? 0);
+  const revenueRaw = buckets.map((bucket) => report?.revenueByBucket[bucket] ?? 0);
+  const newOrgsRaw = buckets.map((bucket) => report?.newOrgsByBucket[bucket] ?? 0);
+  // `ActivityBars` ustun balandligini `value`ning O'ZIDAN (0…1 deb kutib)
+  // hisoblaydi, o'zi min/max bo'yicha masshtablamaydi — peak'ga nisbatan
+  // normalizatsiya shu yerda qilinadi (loyiha egasining topilmasi,
+  // 2026-08-16).
+  const revenuePeak = Math.max(1, ...revenueRaw);
+  const revenueValues = revenueRaw.map((value) => value / revenuePeak);
+  const newOrgsPeak = Math.max(1, ...newOrgsRaw);
+  const newOrgsValues = newOrgsRaw.map((value) => value / newOrgsPeak);
 
   const periodRevenue = report ? sumBucket(report.revenueByBucket) : 0;
   const periodNewOrgs = report ? sumBucket(report.newOrgsByBucket) : 0;
@@ -220,12 +228,12 @@ export function PlatformReportScreen(): ReactNode {
 
       <Panel title={`Platforma tushumi · ${config.label}`} notch brackets>
         <div className="ds-chart">
-          <LineChart
-            points={buckets.length}
+          <ActivityBars
+            bars={buckets.length}
             values={revenueValues}
             labels={ticks}
             height={180}
-            tip={(value, index) => `${tipDate(period, buckets[index] as string)} · ${S(value)} so‘m`}
+            tip={(_value, index) => `${tipDate(period, buckets[index] as string)} · ${S(revenueRaw[index] ?? 0)} so‘m`}
           />
         </div>
       </Panel>
@@ -237,7 +245,7 @@ export function PlatformReportScreen(): ReactNode {
             values={newOrgsValues}
             labels={ticks}
             height={140}
-            tip={(value, index) => `${tipDate(period, buckets[index] as string)} · ${value} ta klub`}
+            tip={(_value, index) => `${tipDate(period, buckets[index] as string)} · ${newOrgsRaw[index] ?? 0} ta klub`}
           />
         </div>
       </Panel>

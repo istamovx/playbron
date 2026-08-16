@@ -7,7 +7,7 @@ o'qishidan farqi shu.
 """
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from playbron.core import context
 from playbron.core.errors import Forbidden
 from playbron.deps import db, require_admin, require_staff
-from playbron.modules.finance import service, shifts
+from playbron.modules.finance import reports, service, shifts
 
 router = APIRouter(prefix="/clubs", tags=["finance"])
 
@@ -259,3 +259,84 @@ async def close_shift(
         closed_by=context.current().user_id,
     )
     return ShiftOut(**row)
+
+
+# ── Boshqaruv paneli / Hisobot ───────────────────────────────────────────
+# Faqat OWNER/ADMIN — `expenses`dagi bilan bir xil ruxsat, frontend nav'ida
+# ham bu ekranlar faqat `NAV_ADMIN`da (STAFF'ga ko'rinmaydi).
+
+
+class StationLiveOut(BaseModel):
+    id: int
+    code: str
+    room_label: str
+    console_type: str
+    status: str
+    occupied: bool
+
+
+class DashboardOut(BaseModel):
+    revenue_today: int
+    expenses_today: int
+    profit_today: int
+    sessions_today: int
+    hours_today: int
+    occupancy_today: int
+    bar_revenue_today: int
+    opens_at_min: int
+    closes_at_min: int
+    hourly: dict[str, int]
+    stations: list[StationLiveOut]
+
+
+@router.get(
+    "/{club_id}/dashboard", response_model=DashboardOut, dependencies=[Depends(require_admin)]
+)
+async def dashboard(
+    club_id: Annotated[int, Path()], session: Annotated[AsyncSession, Depends(db)]
+) -> DashboardOut:
+    _assert_path_matches_header(club_id)
+    row = await reports.get_dashboard(session, club_id)
+    return DashboardOut(**{**row, "hourly": {str(k): v for k, v in row["hourly"].items()}})
+
+
+class TopProductOut(BaseModel):
+    product_name: str
+    revenue: int
+
+
+class ExpenseCategoryOut(BaseModel):
+    category: str
+    amount: int
+
+
+class RevenueBucketOut(BaseModel):
+    bucket: str
+    amount: int
+
+
+class ReportOut(BaseModel):
+    period: str
+    revenue: int
+    expenses: int
+    profit: int
+    play_revenue: int
+    bar_revenue: int
+    sessions: int
+    hours: int
+    occupancy: int
+    station_count: int
+    top_products: list[TopProductOut]
+    expense_by_category: list[ExpenseCategoryOut]
+    revenue_series: list[RevenueBucketOut]
+
+
+@router.get("/{club_id}/reports", response_model=ReportOut, dependencies=[Depends(require_admin)])
+async def club_report(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+    period: Literal["day", "week", "month", "year"] = "day",
+) -> ReportOut:
+    _assert_path_matches_header(club_id)
+    row = await reports.get_report(session, club_id=club_id, period=period)
+    return ReportOut(**row)

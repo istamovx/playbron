@@ -1,83 +1,105 @@
-import { errorText, getClub } from '@playbron/api-client';
-import { ActivityBars, Grid, Panel, ProgressMeter, StatTile, StatusLine } from '@playbron/ui';
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  errorText,
+  getClubDashboard,
+  listOpenShifts,
+  type ClubDashboardDto,
+  type OpenShiftSummaryDto,
+} from '@playbron/api-client';
+import { ActivityBars, Panel, StatTile, StatusLine, Tag, toast } from '@playbron/ui';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
-import { EXPENSE_SHARE, consoleLabel, seriesFor, stockRow, totalsFor } from '../../mock/club';
 import { S } from '../../mock/data';
-import { useClub } from '../../store/club';
 import { useSession } from '../../store/session';
-import { CARD, LABEL, VALUE, hourSlot } from './parts';
 
 /**
- * Ish vaqti (`opensAt`/`closesAt`) — bu yerda YAGONA real backendga
- * ulangan qism (`GET /clubs/{id}`, `settings.tsx::ClubGeneralTab`dagi bilan
- * bir xil manba). Qolgan barcha ko'rsatkich (tushum/foyda/bandlik/seans/
- * xarajat/xodim smenasi) hali `useClub()` mock do'konidan — buning uchun
- * klub darajasidagi agregatsiya endpointi yo'q (loyiha egasining so'rovi
- * bilan boshlangan audit, 2026-08-16; qadam-baqadam reja task #10-22).
+ * Boshqaruv paneli — klub admini ochganda ko'radigan birinchi ekran.
+ *
+ * Reja #27 (2026-08-16, loyiha egasi): "hech qayerda seed qolmasin, hamma
+ * rol 0 dan boshlansin" — ekran to'liq `useClub()` mock do'konidan REAL
+ * agregatsiyaga (`GET /clubs/{id}/dashboard`, `finance/reports.py`)
+ * ko'chirildi. "Smenadagi xodimlar" — real ochiq smenalar (reja #26).
+ *
+ * "Xonalar qavat bo'yicha" panel OLIB TASHLANDI: `stations.floor` ustuni
+ * hali yo'q (reja #19) — soxta guruhlash o'rniga tekis stansiya holati
+ * ko'rsatiladi. "Bar savdosi"dagi FOYDA ham yo'q: tannarx ustuni yo'q
+ * (reja #21) — faqat haqiqiy TUSHUM ko'rsatiladi.
  */
-function useRealClubHours(): { opensAt: number; closesAt: number } | null {
-  const session = useSession((state) => state.session);
-  const clubId = session?.clubs[0]?.id ?? null;
-  const [hours, setHours] = useState<{ opensAt: number; closesAt: number } | null>(null);
 
-  useEffect(() => {
-    if (clubId === null) return;
-    let cancelled = false;
-    void getClub(api, clubId)
-      .then((club) => {
-        if (!cancelled) setHours({ opensAt: club.opensAtMin, closesAt: club.closesAtMin });
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setHours(null);
-        // Fon ma'lumoti — xato bo'lsa jimgina mock qiymatga tushadi, butun
-        // panelni buzmaydi (pastda `?? club.opensAt`).
-        void errorText(cause);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [clubId]);
+function hourLabel(hour: number): string {
+  return `${String(hour % 24).padStart(2, '0')}:00`;
+}
 
+/** Klub ish vaqti oralig'idagi soatlar (kechayarim oshib ketishi mumkin). */
+function hoursInWindow(opensAtMin: number, closesAtMin: number): number[] {
+  const opensHour = Math.floor(opensAtMin / 60);
+  let closesHour = Math.floor(closesAtMin / 60);
+  if (closesHour <= opensHour) closesHour += 24;
+  const hours: number[] = [];
+  for (let h = opensHour; h <= closesHour; h += 1) hours.push(h % 24);
   return hours;
 }
 
-/** Boshqaruv paneli — klub admini ochganda ko'radigan birinchi ekran. */
 export function DashboardScreen(): ReactNode {
-  const club = useClub((state) => state.club);
-  const rooms = useClub((state) => state.rooms);
-  const products = useClub((state) => state.products);
-  const expenses = useClub((state) => state.expenses);
-  const staff = useClub((state) => state.staff);
-  const realHours = useRealClubHours();
-  const opensAt = realHours?.opensAt ?? club.opensAt;
-  const closesAt = realHours?.closesAt ?? club.closesAt;
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
 
-  const monthExpenses = expenses.reduce((sum, row) => sum + row.amount, 0);
-  const totals = totalsFor('day', Math.round(monthExpenses * EXPENSE_SHARE.day));
-  const series = seriesFor('day', 16);
-  // 10:00 dan boshlanadigan 16 soatlik oynada joriy soat qaysi ustunga tushadi
-  const activeBar = hourSlot(series.length);
-  const seriesSum = series.reduce((sum, value) => sum + value, 0);
+  const [data, setData] = useState<ClubDashboardDto | null>(null);
+  const [onShift, setOnShift] = useState<OpenShiftSummaryDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const stock = products.map(stockRow);
-  const lowStock = stock.filter((row) => row.low);
-  const barRevenue = stock.reduce((sum, row) => sum + row.revenue, 0);
-  const barProfit = stock.reduce((sum, row) => sum + row.profit, 0);
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [dashboard, shifts] = await Promise.all([
+        getClubDashboard(api, clubId),
+        listOpenShifts(api, clubId),
+      ]);
+      setData(dashboard);
+      setOnShift(shifts);
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
 
-  const onShift = staff.filter((member) => member.status === 'ACTIVE');
-  const busy = Math.round((totals.occupancy / 100) * rooms.length);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
-  const byFloor = [...new Set(rooms.map((room) => room.floor))].sort((a, b) => a - b);
+  if (loading && data === null) {
+    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+  }
+
+  if (loadError && data === null) {
+    return <StatusLine tone="danger" icon="error" parts={[loadError]} />;
+  }
+
+  if (data === null) {
+    return null;
+  }
+
+  const hours = hoursInWindow(data.opensAtMin, data.closesAtMin);
+  const counts = hours.map((h) => data.hourly[String(h)] ?? 0);
+  const peak = Math.max(1, ...counts);
+  const series = counts.map((n) => Math.min(1, n / peak));
+  const nowHour = new Date().getHours();
+  const activeBar = Math.max(0, hours.indexOf(nowHour));
+  const busy = data.stations.filter((s) => s.occupied).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
       <div className="pb-tiles-4">
-        <StatTile label="Bugungi tushum" value={S(totals.revenue)} unit="so‘m" icon="payments" />
-        <StatTile label="Sof foyda" value={S(totals.profit)} unit="so‘m" icon="trending_up" />
-        <StatTile label="Seanslar" value={String(totals.sessions)} unit="ta" icon="sports_esports" />
-        <StatTile label="Bandlik" value={String(totals.occupancy)} unit="%" icon="donut_large" />
+        <StatTile label="Bugungi tushum" value={S(data.revenueToday)} unit="so‘m" icon="payments" />
+        <StatTile label="Sof foyda" value={S(data.profitToday)} unit="so‘m" icon="trending_up" />
+        <StatTile label="Seanslar" value={String(data.sessionsToday)} unit="ta" icon="sports_esports" />
+        <StatTile label="Bandlik" value={String(data.occupancyToday)} unit="%" icon="donut_large" />
       </div>
 
       <div className="ds-split" style={{ alignItems: 'start' }}>
@@ -85,121 +107,104 @@ export function DashboardScreen(): ReactNode {
           <Panel title="Bugungi bandlik" notch brackets>
             <div className="ds-chart">
               <ActivityBars
-                bars={series.length}
+                bars={hours.length}
                 values={series}
                 active={activeBar}
                 height={92}
-                labels={['10:00', '14:00', '18:00', '22:00', '02:00']}
-                tip={(value, index) =>
-                  `${String((10 + index) % 24).padStart(2, '0')}:00 · ${Math.round(value * 100)}% · ${S(Math.round(totals.revenue * (value / seriesSum)))} so‘m`
-                }
+                labels={hours.filter((_, i) => i % Math.max(1, Math.floor(hours.length / 5)) === 0).map(hourLabel)}
+                tip={(_value, index) => `${hourLabel(hours[index] ?? 0)} · ${counts[index] ?? 0} ta seans`}
               />
             </div>
             <StatusLine
               tone="neutral"
               icon="schedule"
               parts={[
-                `Ish vaqti ${Math.floor(opensAt / 60)}:00 – ${Math.floor(closesAt / 60) % 24}:00`,
-                `${busy} / ${rooms.length} xona band`,
+                `Ish vaqti ${Math.floor(data.opensAtMin / 60)}:00 – ${Math.floor(data.closesAtMin / 60) % 24}:00`,
+                `${busy} / ${data.stations.length} xona band`,
               ]}
             />
           </Panel>
 
-          <Panel title="Xonalar qavat bo‘yicha" notch>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-              {byFloor.map((floor) => {
-                const list = rooms.filter((room) => room.floor === floor);
-                const kinds = [...new Set(list.map((room) => room.kind))];
-                const consoles = [...new Set(list.map((room) => room.console))];
-                const share = (list.length / rooms.length) * 100;
-
-                return (
-                  <div key={floor} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                      <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                        {floor}-qavat
+          <Panel title="Xonalar" notch>
+            {data.stations.length === 0 ? (
+              <StatusLine tone="neutral" icon="meeting_room" parts="Xona qo‘shilmagan" />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.stations.map((station) => (
+                  <div
+                    key={station.id}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+                  >
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                      <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-title)' }}>
+                        {station.code} · {station.roomLabel}
                       </span>
-                      <span style={{ font: 'var(--type-data)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                        {list.length} xona
+                      <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                        {station.consoleType.toUpperCase()}
                       </span>
-                    </div>
-                    <ProgressMeter
-                      percent={share}
-                      tip={() => `${floor}-qavat · ${list.length}/${rooms.length} xona (${Math.round(share)}%)`}
-                    />
-                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                      {kinds.join(' · ')} — {consoles.map(consoleLabel).join(', ')}
                     </span>
+                    <Tag tone={station.occupied ? 'amber' : 'success'}>{station.occupied ? 'Band' : 'Bo‘sh'}</Tag>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
           </Panel>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
           <Panel title="Bar savdosi" notch brackets>
-            <Grid min={150}>
-              <div style={CARD}>
-                <span style={LABEL}>Tushum</span>
-                <span style={VALUE}>{S(barRevenue)}</span>
-              </div>
-              <div style={CARD}>
-                <span style={LABEL}>Foyda</span>
-                <span style={{ ...VALUE, color: 'var(--secondary-500)' }}>{S(barProfit)}</span>
-              </div>
-            </Grid>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+              <span
+                style={{
+                  font: 'var(--type-label)',
+                  letterSpacing: 'var(--ls-label)',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-label)',
+                }}
+              >
+                Tushum
+              </span>
+              <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>
+                {S(data.barRevenueToday)}
+              </span>
+            </div>
+          </Panel>
 
-            {lowStock.length > 0 ? (
-              <div style={{ marginTop: 'var(--gap-block)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <StatusLine
-                  tone="warn"
-                  icon="inventory"
-                  parts={[`${lowStock.length} pozitsiya tugayapti`, 'Kirim qilish kerak']}
-                />
-                {lowStock.slice(0, 4).map((row) => (
+          <Panel title="Smenadagi xodimlar" notch>
+            {onShift.length === 0 ? (
+              <StatusLine tone="neutral" icon="person_off" parts="Hozir ochiq smena yo‘q" />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {onShift.map((member) => (
                   <div
-                    key={row.product.id}
+                    key={member.id}
                     style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}
                   >
-                    <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-body)' }}>
-                      {row.product.name}
+                    <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-title)' }}>
+                      {member.staffName}
                     </span>
-                    <span style={{ font: 'var(--type-data)', color: 'var(--yellow-100)', whiteSpace: 'nowrap' }}>
-                      {row.left} dona
+                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                      {new Date(member.openedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}dan
                     </span>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div style={{ marginTop: 'var(--gap-block)' }}>
-                <StatusLine tone="ok" icon="check_circle" parts="Qoldiqlar yetarli" />
-              </div>
             )}
-          </Panel>
-
-          <Panel title="Smenadagi xodimlar" notch>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {onShift.map((member) => (
-                <div
-                  key={member.id}
-                  style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}
-                >
-                  <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-title)' }}>
-                    {member.name}
-                  </span>
-                  <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
-                    {member.shift}
-                  </span>
-                </div>
-              ))}
-            </div>
           </Panel>
 
           <Panel title="Bugungi xarajat" notch>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-              <span style={LABEL}>Oylikdan ulush</span>
-              <span style={{ ...VALUE, color: 'var(--red-100)' }}>{S(totals.expenses)}</span>
+              <span
+                style={{
+                  font: 'var(--type-label)',
+                  letterSpacing: 'var(--ls-label)',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-label)',
+                }}
+              >
+                Jami
+              </span>
+              <span style={{ font: 'var(--type-data)', color: 'var(--red-100)' }}>{S(data.expensesToday)}</span>
             </div>
           </Panel>
         </div>
