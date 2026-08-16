@@ -44,8 +44,20 @@ function formatPhone(raw: string): string {
 function defaultStart(): string {
   const in2h = new Date(Date.now() + 2 * 60 * 60 * 1000);
   in2h.setMinutes(Math.ceil(in2h.getMinutes() / 30) * 30, 0, 0);
+  return toLocalInput(in2h);
+}
+
+function toLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${in2h.getFullYear()}-${pad(in2h.getMonth() + 1)}-${pad(in2h.getDate())}T${pad(in2h.getHours())}:${pad(in2h.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Mijoz hozir kelgan — hisob shu zahotiyoq boshlanadi (loyiha egasining
+ * so'rovi, 2026-08-16): sukut `defaultStart()` telefon orqali OLDINDAN
+ * bron uchun (2 soat keyinga), joyida kelgan mijoz uchun esa "Hozir" tez
+ * tugmasi hozirgi daqiqani qo'yadi. */
+function nowStart(): string {
+  return toLocalInput(new Date());
 }
 
 function formatClock(iso: string): string {
@@ -346,21 +358,28 @@ function ManualBookingPanel({
         >
           Boshlanish vaqti
         </span>
-        <input
-          type="datetime-local"
-          value={starts}
-          onChange={(event) => setStarts(event.target.value)}
-          style={{
-            height: 'var(--control-h-lg)',
-            padding: '0 10px',
-            background: 'var(--surface-field)',
-            border: '1px solid var(--line-2)',
-            borderRadius: 'var(--r-1)',
-            clipPath: 'var(--clip-tr)',
-            font: 'var(--type-data)',
-            color: 'var(--fg-1)',
-          }}
-        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="datetime-local"
+            value={starts}
+            onChange={(event) => setStarts(event.target.value)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: 'var(--control-h-lg)',
+              padding: '0 10px',
+              background: 'var(--surface-field)',
+              border: '1px solid var(--line-2)',
+              borderRadius: 'var(--r-1)',
+              clipPath: 'var(--clip-tr)',
+              font: 'var(--type-data)',
+              color: 'var(--fg-1)',
+            }}
+          />
+          <Button variant="ghost" icon="bolt" onClick={() => setStarts(nowStart())}>
+            Hozir
+          </Button>
+        </div>
       </label>
 
       <TextField
