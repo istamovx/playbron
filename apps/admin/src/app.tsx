@@ -1,5 +1,5 @@
 import { Icon, SidebarNav, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
 import {
@@ -180,76 +180,83 @@ export function App(): ReactNode {
               </button>
             ) : null}
 
-            <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
               <div
                 style={{
-                  font: 'var(--fw-bold) var(--fs-title-fluid)/var(--lh-tight) var(--font-display)',
+                  font: compact
+                    ? 'var(--fw-bold) 15px/var(--lh-tight) var(--font-display)'
+                    : 'var(--fw-bold) var(--fs-title-fluid)/var(--lh-tight) var(--font-display)',
                   color: 'var(--text-title)',
                   textTransform: 'uppercase',
                   letterSpacing: '.02em',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {title}
               </div>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 7 }}>
-                {meta.map((item) => (
+              {compact ? null : (
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 7 }}>
+                  {meta.map((item) => (
+                    <span
+                      key={item}
+                      style={{
+                        font: 'var(--type-label)',
+                        letterSpacing: 'var(--ls-label)',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {compact ? (
+              <MobileHeaderMenu time={CLK(now)} name={session.name} onSignOut={signOut} />
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingBottom: 2,
+                  minWidth: 0,
+                  flexShrink: 1,
+                }}
+              >
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}
+                >
                   <span
-                    key={item}
                     style={{
                       font: 'var(--type-label)',
                       letterSpacing: 'var(--ls-label)',
                       textTransform: 'uppercase',
-                      color: 'var(--text-muted)',
+                      color: 'var(--text-dim)',
                     }}
                   >
-                    {item}
+                    Klub vaqti
                   </span>
-                ))}
+                  <span
+                    style={{
+                      font: 'var(--type-data)',
+                      color: 'var(--text-title)',
+                      letterSpacing: '.04em',
+                    }}
+                  >
+                    {CLK(now)}
+                  </span>
+                </div>
+
+                <div style={{ width: 1, height: 30, background: 'var(--line-1)' }} />
+
+                <UserMenu name={session.name} status="online" items={['Chiqish']} onSelect={signOut} />
               </div>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                paddingBottom: 2,
-                minWidth: 0,
-                flexShrink: 1,
-              }}
-            >
-              <div
-                className="ds-hide-xs"
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}
-              >
-                <span
-                  style={{
-                    font: 'var(--type-label)',
-                    letterSpacing: 'var(--ls-label)',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-dim)',
-                  }}
-                >
-                  Klub vaqti
-                </span>
-                <span
-                  style={{
-                    font: 'var(--type-data)',
-                    color: 'var(--text-title)',
-                    letterSpacing: '.04em',
-                  }}
-                >
-                  {CLK(now)}
-                </span>
-              </div>
-
-              <div
-                className="ds-hide-xs"
-                style={{ width: 1, height: 30, background: 'var(--line-1)' }}
-              />
-
-              <UserMenu name={session.name} status="online" items={['Chiqish']} onSelect={signOut} />
-            </div>
+            )}
           </header>
 
           <div
@@ -382,6 +389,133 @@ function Drawer({
       >
         <Nav items={items} active={active} onSelect={onSelect} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Mobil holatda o'ng tomondagi ikkinchi hamburger — "Klub vaqti" + chiqish
+ * shu ostiga tushadi (loyiha egasining topilmasi, 2026-08-16): avval bular
+ * `.ds-hide-xs` klassi bilan yashirilgan edi, lekin xuddi shu elementda
+ * INLINE `display: 'flex'` ham bor edi — inline uslub CSS klassdan HAR
+ * DOIM ustun turadi, shuning uchun ≤600px'da ham ko'rinishda qolib,
+ * sarlavha bilan ustma-ust chiqardi. Endi butunlay JS orqali
+ * (`compact` boolean) boshqariladi, klass ziddiyati yo'q.
+ */
+function MobileHeaderMenu({
+  time,
+  name,
+  onSignOut,
+}: {
+  time: string;
+  name: string;
+  onSignOut: () => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const off = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', off);
+    return () => document.removeEventListener('mousedown', off);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 'none' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Profil va vaqt"
+        style={{
+          flex: 'none',
+          width: 'var(--control-h-lg)',
+          height: 'var(--control-h-lg)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: `1px solid ${open ? 'var(--border-accent)' : 'var(--line-2)'}`,
+          background: 'transparent',
+          color: 'var(--text-body)',
+          cursor: 'pointer',
+        }}
+      >
+        <Icon name="menu" size={20} />
+      </button>
+
+      {open ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            right: 0,
+            zIndex: 60,
+            minWidth: 200,
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            background: 'var(--surface-panel)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-1)',
+            boxShadow: 'var(--shadow-pop)',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span
+              style={{
+                font: 'var(--type-label)',
+                letterSpacing: 'var(--ls-label)',
+                textTransform: 'uppercase',
+                color: 'var(--text-dim)',
+              }}
+            >
+              Klub vaqti
+            </span>
+            <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', letterSpacing: '.04em' }}>
+              {time}
+            </span>
+          </div>
+
+          <div style={{ height: 1, background: 'var(--line-1)' }} />
+
+          <span
+            style={{
+              font: 'var(--type-body-sm)',
+              color: 'var(--fg-1)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {name}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSignOut();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--risk-high)',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'var(--type-body-sm)',
+            }}
+          >
+            <Icon name="logout" size={16} />
+            Chiqish
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

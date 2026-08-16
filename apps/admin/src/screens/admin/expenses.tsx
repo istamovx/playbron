@@ -464,6 +464,13 @@ export function ExpensesScreen(): ReactNode {
         </Panel>
 
         <Panel title="Moddalar bo‘yicha" notch>
+          {catRows.length === 0 ? (
+            <StatusLine
+              tone="neutral"
+              icon="pie_chart"
+              parts={[loading ? 'Yuklanmoqda…' : 'Xarajat kiritilmagan']}
+            />
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
             {catRows.map(([cat, amount]) => (
               <div key={cat} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -498,6 +505,7 @@ export function ExpensesScreen(): ReactNode {
               </div>
             ))}
           </div>
+          )}
 
           <div style={{ marginTop: 'var(--gap-panel)' }}>
             <StatusLine

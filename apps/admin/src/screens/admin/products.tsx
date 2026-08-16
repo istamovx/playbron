@@ -170,6 +170,7 @@ export function ProductsScreen(): ReactNode {
                 onChange={(value) => setDraft({ ...draft, price: value })}
                 icon="sell"
                 inputMode="numeric"
+                placeholder="15000"
               />
             </FormGrid>
 

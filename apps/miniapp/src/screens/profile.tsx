@@ -204,6 +204,7 @@ function PersonalSection(): ReactNode {
           setSaved(false);
         }}
         icon="person"
+        placeholder="Aziz Karimov"
       />
       <TextField
         label="Telefon"
@@ -214,6 +215,7 @@ function PersonalSection(): ReactNode {
         }}
         icon="call"
         inputMode="tel"
+        placeholder="+998 90 123 45 67"
         onSubmitKey={save}
       />
 

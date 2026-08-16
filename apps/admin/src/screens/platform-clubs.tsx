@@ -353,12 +353,14 @@ export function PlatformClubsScreen(): ReactNode {
                 value={createDraft.firstName}
                 onChange={(value) => setCreateDraft({ ...createDraft, firstName: value })}
                 icon="person"
+                placeholder="Aziz Karimov"
               />
               <TextField
                 label="Klub nomi"
                 value={createDraft.clubName}
                 onChange={(value) => setCreateDraft({ ...createDraft, clubName: value })}
                 icon="storefront"
+                placeholder="Neon Arena"
               />
               <TextField
                 label="Telefon"
@@ -373,6 +375,7 @@ export function PlatformClubsScreen(): ReactNode {
                 value={createDraft.address}
                 onChange={(value) => setCreateDraft({ ...createDraft, address: value })}
                 icon="location_on"
+                placeholder="Toshkent, Chilonzor tumani"
               />
               <TextField
                 label="Login"

@@ -301,6 +301,13 @@ function NewOrderModal({
           </Labeled>
         )}
 
+        {products.length === 0 ? (
+          <StatusLine
+            tone="warn"
+            icon="inventory_2"
+            parts={['Mahsulot qo‘shilmagan', 'Avval Katalogga mahsulot qo‘shing']}
+          />
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {products.map((product) => (
             <div
@@ -333,6 +340,7 @@ function NewOrderModal({
             </div>
           ))}
         </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--type-data)' }}>
           <span style={{ color: 'var(--text-dim)' }}>Jami</span>
