@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -59,10 +60,13 @@ async def clean() -> AsyncIterator[None]:
 
         engine = _owner_engine()
         async with engine.begin() as conn:
-            await conn.execute(
-                text("DELETE FROM users WHERE kind = 'customer' AND telegram_id = :t"),
-                {"t": TG},
-            )
+            # Tabiiy aktor yo'q (mijoz o'chirilmoqda, kirish emas) —
+            # `rls_bypass` (`conftest.py`).
+            async with rls_bypass(conn, "users"):
+                await conn.execute(
+                    text("DELETE FROM users WHERE kind = 'customer' AND telegram_id = :t"),
+                    {"t": TG},
+                )
         await engine.dispose()
 
     await wipe()
@@ -94,15 +98,15 @@ def _msg(update_id: int, **over: Any) -> dict[str, Any]:
 async def _phone_in_db() -> str | None:
     engine = _owner_engine()
     async with engine.begin() as conn:
-        row = (
-            await conn.execute(
-                text(
-                    "SELECT phone FROM users"
-                    " WHERE kind = 'customer' AND telegram_id = :t"
-                ),
-                {"t": TG},
-            )
-        ).first()
+        # `app.telegram_id` o'rnatilmagan — `users_self` GUC'siz hech qanday
+        # mijoz qatorini ochmaydi, shuning uchun `rls_bypass` (`conftest.py`).
+        async with rls_bypass(conn, "users"):
+            row = (
+                await conn.execute(
+                    text("SELECT phone FROM users WHERE kind = 'customer' AND telegram_id = :t"),
+                    {"t": TG},
+                )
+            ).first()
     await engine.dispose()
     return None if row is None else row[0]
 

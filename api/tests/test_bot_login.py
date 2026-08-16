@@ -150,9 +150,7 @@ async def test_webhook_requires_secret(client: httpx.AsyncClient) -> None:
 
 
 @skip_no_db
-async def test_unknown_nonce(
-    client: httpx.AsyncClient, _mute_notify: list[dict[str, Any]]
-) -> None:
+async def test_unknown_nonce(client: httpx.AsyncClient, _mute_notify: list[dict[str, Any]]) -> None:
     # Begona nonce bilan webhook — 200, lekin tasdiqlanmaydi.
     # Konsol tili noma'lum — javob Telegram ilova tiliga qaytadi
     r = await client.post(

@@ -93,10 +93,10 @@ def test_via_bot_is_rejected() -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        "+7 900 123 45 67",     # boshqa mamlakat
-        "901234567",            # kod yo'q
-        "+99890123456",         # kalta
-        "+9989012345678",       # uzun
+        "+7 900 123 45 67",  # boshqa mamlakat
+        "901234567",  # kod yo'q
+        "+99890123456",  # kalta
+        "+9989012345678",  # uzun
         "salom",
         "",
         None,
@@ -111,7 +111,7 @@ def test_bad_phone_is_rejected(raw: str | None) -> None:
     ("raw", "expect"),
     [
         ("+998901234567", "+998901234567"),
-        ("998901234567", "+998901234567"),      # Telegram `+` siz beradi
+        ("998901234567", "+998901234567"),  # Telegram `+` siz beradi
         ("+998 90 123 45 67", "+998901234567"),
         ("(998) 90-123-45-67", "+998901234567"),
     ],

@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -37,28 +38,35 @@ async def account() -> AsyncIterator[int]:
     """Super admin — parolsiz, boshlang'ich holatda."""
     engine = _owner_engine()
     async with engine.begin() as conn:
-        user_id = await conn.scalar(
-            text(
-                "INSERT INTO users (kind, login, status, first_name)"
-                " VALUES ('staff', :login, 'active', 'Sinov')"
-                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
-                " DO UPDATE SET status = 'active' RETURNING id"
-            ),
-            {"login": LOGIN},
-        )
-        await conn.execute(
-            text("INSERT INTO super_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
-            {"uid": user_id},
-        )
-        await conn.execute(
-            text("DELETE FROM staff_credentials WHERE user_id = :uid"), {"uid": user_id}
-        )
+        # `account` butun grafni nol'dan quradi — hali tabiiy aktor yo'q
+        # (`super_admins`da umuman INSERT policy'si yo'q), shuning uchun
+        # `rls_bypass` (`conftest.py`).
+        async with rls_bypass(conn, "users", "super_admins", "staff_credentials"):
+            user_id = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Sinov')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": LOGIN},
+            )
+            await conn.execute(
+                text("INSERT INTO super_admins (user_id) VALUES (:uid) ON CONFLICT DO NOTHING"),
+                {"uid": user_id},
+            )
+            await conn.execute(
+                text("DELETE FROM staff_credentials WHERE user_id = :uid"), {"uid": user_id}
+            )
 
     yield user_id
 
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM super_admins WHERE user_id = :uid"), {"uid": user_id})
-        await conn.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
+        async with rls_bypass(conn, "super_admins", "users"):
+            await conn.execute(
+                text("DELETE FROM super_admins WHERE user_id = :uid"), {"uid": user_id}
+            )
+            await conn.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
     await engine.dispose()
 
 
@@ -90,11 +98,14 @@ async def test_sets_password_for_configured_login(account: int) -> None:
 
     engine = _owner_engine()
     async with engine.begin() as conn:
-        row = await conn.execute(
-            text("SELECT password_hash, must_change FROM staff_credentials WHERE user_id = :uid"),
-            {"uid": account},
-        )
-        password_hash, must_change = row.one()
+        async with rls_bypass(conn, "staff_credentials"):
+            row = await conn.execute(
+                text(
+                    "SELECT password_hash, must_change FROM staff_credentials WHERE user_id = :uid"
+                ),
+                {"uid": account},
+            )
+            password_hash, must_change = row.one()
     await engine.dispose()
 
     assert await verify_password(password_hash, PASSWORD)
@@ -114,32 +125,34 @@ async def test_unchanged_password_does_not_revoke_sessions(account: int) -> None
 
     engine = _owner_engine()
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
-                " VALUES (:uid, :hash, false)"
-            ),
-            {"uid": account, "hash": await hash_password(PASSWORD)},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO refresh_tokens"
-                " (user_id, token_hash, kind, chain_started_at, expires_at)"
-                " VALUES (:uid, 'probe-hash-sab', 'staff', now(), now() + interval '1 day')"
-            ),
-            {"uid": account},
-        )
+        async with rls_bypass(conn, "staff_credentials", "refresh_tokens"):
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :hash, false)"
+                ),
+                {"uid": account, "hash": await hash_password(PASSWORD)},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO refresh_tokens"
+                    " (user_id, token_hash, kind, chain_started_at, expires_at)"
+                    " VALUES (:uid, 'probe-hash-sab', 'staff', now(), now() + interval '1 day')"
+                ),
+                {"uid": account},
+            )
 
     await sync_super_admin_password()
 
     async with engine.begin() as conn:
-        revoked = await conn.scalar(
-            text(
-                "SELECT revoked_at FROM refresh_tokens"
-                " WHERE user_id = :uid AND token_hash = 'probe-hash-sab'"
-            ),
-            {"uid": account},
-        )
+        async with rls_bypass(conn, "refresh_tokens"):
+            revoked = await conn.scalar(
+                text(
+                    "SELECT revoked_at FROM refresh_tokens"
+                    " WHERE user_id = :uid AND token_hash = 'probe-hash-sab'"
+                ),
+                {"uid": account},
+            )
     await engine.dispose()
 
     assert revoked is None
@@ -152,32 +165,34 @@ async def test_changed_password_revokes_old_sessions(account: int) -> None:
 
     engine = _owner_engine()
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
-                " VALUES (:uid, :hash, false)"
-            ),
-            {"uid": account, "hash": await hash_password("boshqa mustahkam parol")},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO refresh_tokens"
-                " (user_id, token_hash, kind, chain_started_at, expires_at)"
-                " VALUES (:uid, 'probe-hash-sab2', 'staff', now(), now() + interval '1 day')"
-            ),
-            {"uid": account},
-        )
+        async with rls_bypass(conn, "staff_credentials", "refresh_tokens"):
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :hash, false)"
+                ),
+                {"uid": account, "hash": await hash_password("boshqa mustahkam parol")},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO refresh_tokens"
+                    " (user_id, token_hash, kind, chain_started_at, expires_at)"
+                    " VALUES (:uid, 'probe-hash-sab2', 'staff', now(), now() + interval '1 day')"
+                ),
+                {"uid": account},
+            )
 
     await sync_super_admin_password()
 
     async with engine.begin() as conn:
-        revoked = await conn.scalar(
-            text(
-                "SELECT revoked_at FROM refresh_tokens"
-                " WHERE user_id = :uid AND token_hash = 'probe-hash-sab2'"
-            ),
-            {"uid": account},
-        )
+        async with rls_bypass(conn, "refresh_tokens"):
+            revoked = await conn.scalar(
+                text(
+                    "SELECT revoked_at FROM refresh_tokens"
+                    " WHERE user_id = :uid AND token_hash = 'probe-hash-sab2'"
+                ),
+                {"uid": account},
+            )
     await engine.dispose()
 
     assert revoked is not None
@@ -200,9 +215,10 @@ async def test_too_short_password_is_rejected(account: int) -> None:
 
     engine = _owner_engine()
     async with engine.begin() as conn:
-        exists = await conn.scalar(
-            text("SELECT 1 FROM staff_credentials WHERE user_id = :uid"), {"uid": account}
-        )
+        async with rls_bypass(conn, "staff_credentials"):
+            exists = await conn.scalar(
+                text("SELECT 1 FROM staff_credentials WHERE user_id = :uid"), {"uid": account}
+            )
     await engine.dispose()
 
     assert exists is None

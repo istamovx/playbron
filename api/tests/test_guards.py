@@ -3,7 +3,6 @@
 Manba: `docs/05-auth-redesign.md` §6.6, `docs/06-super-admin.md` §0.1 (P0-2).
 """
 
-
 import pytest
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient

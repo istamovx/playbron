@@ -143,14 +143,15 @@ jobs:
       - run: alembic upgrade head
         working-directory: api
 
-      # FAQAT policy invariantlari — ular `pg_catalog`ni o'qiydi, GUC yoki
-      # yozuv talab qilmaydi. Qolgan testlarning fixture'lari (`_owner_engine()`
-      # orqali xom INSERT/DELETE) `app.*` GUC'siz yozadi — bu superuser'siz
-      # bazada RLS tomonidan RAD ETILADI. Bu FIXTURE tooling qarzi, mahsulot
-      # kodining o'zi emas (yuqoridagi `api` job'i mahsulot yo'llarini haqiqiy
-      # endpoint orqali, ya'ni to'g'ri GUC'lar bilan sinaydi). Kengaytirish —
-      # alohida topshiriq.
-      - run: pytest tests/test_policy_invariants.py -q
+      # Butun to'plam shu yerda — real (superuser'siz, BYPASSRLS'siz) RLS
+      # ostida. Ilgari faqat `test_policy_invariants.py` yurardi: qolgan
+      # fixture'lar `_owner_engine()` orqali xom INSERT/DELETE qilar, `app.*`
+      # GUC qo'ymas edi — bu superuser'siz bazada RLS tomonidan RAD ETILARDI.
+      # Endi har bir fixture GUC qo'yadi yoki (`tests/conftest.py`dagi
+      # `rls_bypass()`) FORCE RLS'ni vaqtincha olib turib, tabiiy aktorsiz
+      # ob'ekt grafini quradi — xuddi `0005_two_worlds_auth.py`dagi
+      # `_force_rls()` kabi.
+      - run: pytest -q
         working-directory: api
         env:
           RUN_DB_TESTS: '1'

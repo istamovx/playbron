@@ -26,9 +26,7 @@ ADMIN_BOT_TOKEN = "654321:ADMIN-TOKEN"  # noqa: S105
 @pytest.fixture(autouse=True)
 def _bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tg.settings.bot_token, "get_secret_value", lambda: BOT_TOKEN)
-    monkeypatch.setattr(
-        tg.settings.admin_bot_token, "get_secret_value", lambda: ADMIN_BOT_TOKEN
-    )
+    monkeypatch.setattr(tg.settings.admin_bot_token, "get_secret_value", lambda: ADMIN_BOT_TOKEN)
 
 
 def _sign_init_data(fields: dict[str, str]) -> str:
@@ -119,9 +117,7 @@ def test_init_data_empty_rejected() -> None:
 
 
 def test_widget_valid() -> None:
-    payload = _sign_widget(
-        {"id": "777", "first_name": "Jasur", "auth_date": str(int(time.time()))}
-    )
+    payload = _sign_widget({"id": "777", "first_name": "Jasur", "auth_date": str(int(time.time()))})
     identity = tg.verify_widget(payload)
 
     assert identity.telegram_id == 777
@@ -129,9 +125,7 @@ def test_widget_valid() -> None:
 
 
 def test_widget_tampered_rejected() -> None:
-    payload = _sign_widget(
-        {"id": "777", "first_name": "Jasur", "auth_date": str(int(time.time()))}
-    )
+    payload = _sign_widget({"id": "777", "first_name": "Jasur", "auth_date": str(int(time.time()))})
     payload["id"] = "888"
 
     with pytest.raises(Unauthorized) as err:

@@ -53,12 +53,39 @@ DEFAULT_MIN_LENGTH: Final = 12
 # qo'shiladi; hozircha bu tekshiruv faqat eng qo'pol holatlarni ushlaydi.
 _COMMON: Final[frozenset[str]] = frozenset(
     {
-        "password", "parol", "parol123", "playbron", "qwerty", "qwerty123",
-        "123456", "1234567", "12345678", "123456789", "1234567890",
-        "admin", "admin123", "administrator", "welcome", "iloveyou",
-        "letmein", "monkey", "dragon", "football", "abc123", "111111",
-        "000000", "121212", "zaqwsx", "asdfgh", "qazwsx", "superadmin",
-        "toshkent", "uzbekistan", "salom", "playstation", "playstation5",
+        "password",
+        "parol",
+        "parol123",
+        "playbron",
+        "qwerty",
+        "qwerty123",
+        "123456",
+        "1234567",
+        "12345678",
+        "123456789",
+        "1234567890",
+        "admin",
+        "admin123",
+        "administrator",
+        "welcome",
+        "iloveyou",
+        "letmein",
+        "monkey",
+        "dragon",
+        "football",
+        "abc123",
+        "111111",
+        "000000",
+        "121212",
+        "zaqwsx",
+        "asdfgh",
+        "qazwsx",
+        "superadmin",
+        "toshkent",
+        "uzbekistan",
+        "salom",
+        "playstation",
+        "playstation5",
     }
 )
 
@@ -114,9 +141,7 @@ def validate(
         raise BadRequest("Parol login bilan bir xil bo‘lmasin", code="PASSWORD_IS_LOGIN")
 
     if phone and _digits(password) and _digits(password) == _digits(phone):
-        raise BadRequest(
-            "Parol telefon raqami bilan bir xil bo‘lmasin", code="PASSWORD_IS_PHONE"
-        )
+        raise BadRequest("Parol telefon raqami bilan bir xil bo‘lmasin", code="PASSWORD_IS_PHONE")
 
     for name in names:
         if name and lowered == name.casefold():
@@ -134,9 +159,7 @@ def _digits(value: str) -> str:
 
 async def hash_password(raw: str) -> str:
     """Argon2id PHC satri. Salt kutubxona tomonidan har xeshda yangi."""
-    return await anyio.to_thread.run_sync(
-        _hasher.hash, normalize(raw), limiter=_limiter
-    )
+    return await anyio.to_thread.run_sync(_hasher.hash, normalize(raw), limiter=_limiter)
 
 
 async def verify_password(password_hash: str, raw: str) -> bool:

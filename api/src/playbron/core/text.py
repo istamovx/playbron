@@ -23,9 +23,17 @@ from typing import Final
 _BIDI: Final = frozenset(
     chr(code)
     for code in (
-        0x200E, 0x200F,                          # LRM, RLM
-        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,  # LRE, RLE, PDF, LRO, RLO
-        0x2066, 0x2067, 0x2068, 0x2069,          # LRI, RLI, FSI, PDI
+        0x200E,
+        0x200F,  # LRM, RLM
+        0x202A,
+        0x202B,
+        0x202C,
+        0x202D,
+        0x202E,  # LRE, RLE, PDF, LRO, RLO
+        0x2066,
+        0x2067,
+        0x2068,
+        0x2069,  # LRI, RLI, FSI, PDI
     )
 )
 
@@ -33,8 +41,11 @@ _BIDI: Final = frozenset(
 _INVISIBLE: Final = frozenset(
     chr(code)
     for code in (
-        0x200B, 0x200C, 0x200D,  # ZWSP, ZWNJ, ZWJ
-        0x2060, 0xFEFF,          # word joiner, BOM
+        0x200B,
+        0x200C,
+        0x200D,  # ZWSP, ZWNJ, ZWJ
+        0x2060,
+        0xFEFF,  # word joiner, BOM
     )
 )
 

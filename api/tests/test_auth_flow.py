@@ -192,9 +192,7 @@ async def test_refresh_rotates_and_detects_theft(
 
 
 @skip_no_db
-async def test_logout_revokes_refresh(
-    client: httpx.AsyncClient, clean_client_user: None
-) -> None:
+async def test_logout_revokes_refresh(client: httpx.AsyncClient, clean_client_user: None) -> None:
     signed = await client.post(
         "/api/v1/auth/telegram/initdata", json={"init_data": init_data(CLIENT_TG, "c4")}
     )

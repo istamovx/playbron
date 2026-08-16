@@ -178,9 +178,7 @@ class ClubPaymentCredentials(Base):
     )
     provider: Mapped[str] = mapped_column(String(16))
     credentials: Mapped[dict] = mapped_column(JSONB)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Membership(Base):

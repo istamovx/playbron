@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -58,30 +59,34 @@ async def staff_user() -> AsyncIterator[int]:
     password_hash = await hash_password(OLD)
 
     async with engine.begin() as conn:
-        user_id = await conn.scalar(
-            text(
-                "INSERT INTO users (kind, login, status, first_name)"
-                " VALUES ('staff', :login, 'active', 'Sinov')"
-                " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
-                " DO UPDATE SET status = 'active' RETURNING id"
-            ),
-            {"login": LOGIN},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
-                " VALUES (:uid, :h, true)"
-                " ON CONFLICT (user_id) DO UPDATE"
-                " SET password_hash = EXCLUDED.password_hash, must_change = true,"
-                "     failed_count = 0"
-            ),
-            {"uid": user_id, "h": password_hash},
-        )
+        # `staff_user` butun grafni nol'dan quradi — hali tabiiy aktor yo'q,
+        # shuning uchun `rls_bypass` (`conftest.py`).
+        async with rls_bypass(conn, "users", "staff_credentials"):
+            user_id = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Sinov')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": LOGIN},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, true)"
+                    " ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = true,"
+                    "     failed_count = 0"
+                ),
+                {"uid": user_id, "h": password_hash},
+            )
 
     yield int(user_id)
 
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
+        async with rls_bypass(conn, "users"):
+            await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
     await engine.dispose()
 
 
@@ -92,9 +97,7 @@ async def _login(client: httpx.AsyncClient, password: str) -> httpx.Response:
 
 
 @skip_no_db
-async def test_assigned_password_demands_change(
-    client: httpx.AsyncClient, staff_user: int
-) -> None:
+async def test_assigned_password_demands_change(client: httpx.AsyncClient, staff_user: int) -> None:
     """Birov bergan parol bir martalik — Ilova C.2."""
     r = await _login(client, OLD)
     assert r.status_code == 200, r.text
@@ -157,9 +160,7 @@ async def test_short_password_is_rejected_with_reason(
 
 
 @skip_no_db
-async def test_same_password_is_rejected(
-    client: httpx.AsyncClient, staff_user: int
-) -> None:
+async def test_same_password_is_rejected(client: httpx.AsyncClient, staff_user: int) -> None:
     token = (await _login(client, OLD)).json()["access_token"]
 
     r = await client.post(

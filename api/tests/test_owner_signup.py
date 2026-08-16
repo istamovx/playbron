@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -72,15 +73,18 @@ async def clean() -> AsyncIterator[None]:
         async with engine.begin() as conn:
             # Tashkilot va klub `users` ga FK bilan bog'langan; egasini
             # o'chirish uchun avval tashkilot ketadi (klub CASCADE bilan).
-            await conn.execute(
-                text(
-                    "DELETE FROM organizations WHERE owner_user_id IN"
-                    " (SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%')"
+            # Tabiiy aktor yo'q (bir nechta login shabloniga mos qatorlar
+            # o'chirilmoqda) — `rls_bypass` (`conftest.py`).
+            async with rls_bypass(conn, "organizations", "users"):
+                await conn.execute(
+                    text(
+                        "DELETE FROM organizations WHERE owner_user_id IN"
+                        " (SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%')"
+                    )
                 )
-            )
-            await conn.execute(
-                text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%'")
-            )
+                await conn.execute(
+                    text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%'")
+                )
         await engine.dispose()
 
     await wipe()
@@ -123,16 +127,17 @@ async def test_organization_starts_pending_without_plan(client: httpx.AsyncClien
 
     engine = _owner_engine()
     async with engine.begin() as conn:
-        row = (
-            await conn.execute(
-                text(
-                    "SELECT o.status, o.plan_code, c.status, c.address, c.phone"
-                    " FROM organizations o JOIN clubs c ON c.org_id = o.id"
-                    " JOIN users u ON u.id = o.owner_user_id WHERE u.login = :login"
-                ),
-                {"login": LOGIN},
-            )
-        ).first()
+        async with rls_bypass(conn, "organizations", "clubs", "users"):
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT o.status, o.plan_code, c.status, c.address, c.phone"
+                        " FROM organizations o JOIN clubs c ON c.org_id = o.id"
+                        " JOIN users u ON u.id = o.owner_user_id WHERE u.login = :login"
+                    ),
+                    {"login": LOGIN},
+                )
+            ).first()
     await engine.dispose()
 
     assert row is not None
