@@ -4,7 +4,15 @@ import {
   type ClubReportDto,
   type ClubReportPeriod,
 } from '@playbron/api-client';
-import { ActivityBars, Panel, ProgressMeter, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
+import {
+  ActivityBars,
+  CyberLoaderOverlay,
+  Panel,
+  ProgressMeter,
+  SegmentedControl,
+  StatTile,
+  StatusLine,
+} from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
@@ -68,7 +76,7 @@ export function ReportsScreen(): ReactNode {
   }, [reload]);
 
   if (loading && report === null) {
-    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+    return <CyberLoaderOverlay />;
   }
   if (loadError && report === null) {
     return <StatusLine tone="danger" icon="error" parts={[loadError]} />;

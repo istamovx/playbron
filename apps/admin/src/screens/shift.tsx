@@ -6,7 +6,7 @@ import {
   openShift,
   type ShiftDto,
 } from '@playbron/api-client';
-import { Button, Modal, Panel, StatTile, StatusLine, TextField, toast } from '@playbron/ui';
+import { Button, CyberLoaderOverlay, Modal, Panel, StatTile, StatusLine, TextField, toast } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -215,7 +215,7 @@ export function ShiftScreen(): ReactNode {
   }
 
   if (shift === null) {
-    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+    return <CyberLoaderOverlay />;
   }
 
   const inTotal = shift.movements.filter((m) => m.kind === 'IN').reduce((sum, m) => sum + m.amount, 0);

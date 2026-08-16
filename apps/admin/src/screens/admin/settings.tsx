@@ -164,7 +164,12 @@ type LinkState = 'idle' | 'waiting' | 'ready' | 'expired' | 'error';
  * hozircha bermaydi (`GET /me` kengaymagan). Har safar qayta bosish
  * xavfsiz: bog'lash `ON CONFLICT (user_id) DO UPDATE`.
  */
-function TelegramLinkPanel(): ReactNode {
+/** `app.tsx`da ham (header'dan) qayta ishlatiladi — xodim (`NAV_STAFF`)
+ * menyusida "Sozlamalar" bandi UMUMAN yo'q (loyiha egasining topilmasi,
+ * 2026-08-16: "xodim o'z accountini botga qanday ulaydi? Shu qism qolib
+ * ketipti"), shuning uchun bog'lash HAR BIR rol ko'radigan headerga
+ * ko'chirildi; bu yerdagi nusxa klub admin/egasi uchun saqlanib qoladi. */
+export function TelegramLinkPanel(): ReactNode {
   const [state, setState] = useState<LinkState>('idle');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 

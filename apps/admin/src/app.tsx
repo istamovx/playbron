@@ -1,5 +1,5 @@
 import { getCurrentShift } from '@playbron/api-client';
-import { Button, Icon, SidebarNav, StatusLine, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
+import { Button, Icon, Modal, SidebarNav, StatusLine, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
@@ -16,7 +16,7 @@ import { DashboardScreen } from './screens/admin/dashboard';
 import { ExpensesScreen } from './screens/admin/expenses';
 import { ProductsScreen } from './screens/admin/products';
 import { ReportsScreen } from './screens/admin/reports';
-import { SettingsScreen } from './screens/admin/settings';
+import { SettingsScreen, TelegramLinkPanel } from './screens/admin/settings';
 import { StaffScreen } from './screens/admin/staff';
 import { BlacklistScreen } from './screens/blacklist';
 import { BookingsScreen } from './screens/bookings';
@@ -57,6 +57,10 @@ export function App(): ReactNode {
   const compact = useCompact();
   const location = useLocation();
   const navigate = useNavigate();
+  // Xodim (NAV_STAFF) menyusida "Sozlamalar" bandi umuman yo'q — bog'lash
+  // shu sabab headerdan (barcha rol ko'radi), loyiha egasining topilmasi,
+  // 2026-08-16: "xodim o'z accountini botga qanday ulaydi? Qolib ketipti."
+  const [telegramOpen, setTelegramOpen] = useState(false);
 
   /** Navigatsiya URL orqali; store keyingi fazalar uchun sinxron qoladi. */
   const go = useCallback(
@@ -136,6 +140,16 @@ export function App(): ReactNode {
       }}
     >
       <ToastHost />
+
+      <Modal
+        open={telegramOpen}
+        onClose={() => setTelegramOpen(false)}
+        title="Telegram ulash"
+        variant="center"
+      >
+        <TelegramLinkPanel />
+      </Modal>
+
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {compact ? null : <Nav items={items} active={active} onSelect={go} />}
 
@@ -218,7 +232,12 @@ export function App(): ReactNode {
             </div>
 
             {compact ? (
-              <MobileHeaderMenu time={CLK(now)} name={session.name} onSignOut={signOut} />
+              <MobileHeaderMenu
+                time={CLK(now)}
+                name={session.name}
+                onSignOut={signOut}
+                onTelegramLink={() => setTelegramOpen(true)}
+              />
             ) : (
               <div
                 style={{
@@ -256,7 +275,12 @@ export function App(): ReactNode {
 
                 <div style={{ width: 1, height: 30, background: 'var(--line-1)' }} />
 
-                <UserMenu name={session.name} status="online" items={['Chiqish']} onSelect={signOut} />
+                <UserMenu
+                  name={session.name}
+                  status="online"
+                  items={['Telegram ulash', 'Chiqish']}
+                  onSelect={(item) => (item === 'Chiqish' ? signOut() : setTelegramOpen(true))}
+                />
               </div>
             )}
           </header>
@@ -468,10 +492,12 @@ function MobileHeaderMenu({
   time,
   name,
   onSignOut,
+  onTelegramLink,
 }: {
   time: string;
   name: string;
   onSignOut: () => void;
+  onTelegramLink: () => void;
 }): ReactNode {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -554,6 +580,28 @@ function MobileHeaderMenu({
           >
             {name}
           </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onTelegramLink();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--fg-1)',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'var(--type-body-sm)',
+            }}
+          >
+            <Icon name="link" size={16} />
+            Telegram ulash
+          </button>
 
           <button
             type="button"

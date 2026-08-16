@@ -5,7 +5,7 @@ import {
   type ClubDashboardDto,
   type OpenShiftSummaryDto,
 } from '@playbron/api-client';
-import { ActivityBars, Panel, StatTile, StatusLine, Tag, toast } from '@playbron/ui';
+import { ActivityBars, CyberLoaderOverlay, Panel, StatTile, StatusLine, Tag, toast } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../lib/api';
@@ -78,7 +78,7 @@ export function DashboardScreen(): ReactNode {
   }, [reload]);
 
   if (loading && data === null) {
-    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+    return <CyberLoaderOverlay />;
   }
 
   if (loadError && data === null) {

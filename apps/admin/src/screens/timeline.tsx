@@ -5,7 +5,7 @@ import {
   type LiveStationDto,
   type TimelineBookingDto,
 } from '@playbron/api-client';
-import { Modal, Panel, SegmentedControl, StatusLine, useNarrow } from '@playbron/ui';
+import { CyberLoaderOverlay, Modal, Panel, SegmentedControl, StatusLine, useNarrow } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -174,7 +174,7 @@ export function TimelineScreen(): ReactNode {
   const nowLeft = `${((((nowOvernight ? nowMin + 24 * 60 : nowMin) - DAY_START) / SPAN) * 100).toFixed(2)}%`;
 
   if (loading && stations.length === 0) {
-    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+    return <CyberLoaderOverlay />;
   }
   if (loadError && stations.length === 0) {
     return <StatusLine tone="danger" icon="error" parts={[loadError]} />;
