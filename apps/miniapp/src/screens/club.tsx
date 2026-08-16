@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo } from 'react';
 
 import { HM, S } from '../mock/data';
-import { CONSOLE_LABEL, isoDateOf, nowMinutesOfDay } from '../lib/slots';
+import { CONSOLE_LABEL, isoDateOf, minutesOfDayInZone, nowMinutesOfDay } from '../lib/slots';
 import { openExternalLink } from '../lib/telegram';
 import { useApp } from '../store/app';
 import { useBooking, useDayBookings } from '../store/booking';
@@ -24,9 +24,10 @@ export function ClubScreen(): ReactNode {
   const loadStations = useBooking((state) => state.loadStations);
   const loadDay = useBooking((state) => state.loadDay);
 
-  const today = isoDateOf(0);
+  const timezone = club?.timezone ?? 'Asia/Tashkent';
+  const today = isoDateOf(0, timezone);
   const todayBookings = useDayBookings(today);
-  const nowMin = nowMinutesOfDay();
+  const nowMin = nowMinutesOfDay(timezone);
 
   useEffect(() => {
     if (clubId === null) return;
@@ -54,8 +55,8 @@ export function ClubScreen(): ReactNode {
       const busy = group.filter((s) =>
         todayBookings.some((b) => {
           if (b.stationId !== s.id) return false;
-          const from = new Date(b.startsAt).getHours() * 60 + new Date(b.startsAt).getMinutes();
-          const to = new Date(b.endsAt).getHours() * 60 + new Date(b.endsAt).getMinutes();
+          const from = minutesOfDayInZone(b.startsAt, timezone);
+          const to = minutesOfDayInZone(b.endsAt, timezone);
           return nowMin >= from && nowMin < (to > from ? to : 24 * 60);
         }),
       ).length;
@@ -72,7 +73,7 @@ export function ClubScreen(): ReactNode {
         free,
       };
     });
-  }, [stations, todayBookings, nowMin]);
+  }, [stations, todayBookings, nowMin, timezone]);
 
   if (clubId === null || !club) {
     return (

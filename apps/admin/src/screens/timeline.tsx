@@ -303,7 +303,6 @@ export function TimelineScreen(): ReactNode {
                       style={{
                         flex: 1,
                         position: 'relative',
-                        height: '100%',
                         background: 'var(--chart-plot)',
                         border: '1px solid var(--line-1)',
                       }}

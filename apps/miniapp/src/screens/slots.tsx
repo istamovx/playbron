@@ -36,9 +36,10 @@ export function SlotsScreen(): ReactNode {
   const loadDay = useBooking((s) => s.loadDay);
   const dayLoading = useBooking((s) => s.dayLoading);
 
-  const dateKey = isoDateOf(state.day);
+  const timezone = club?.timezone ?? 'Asia/Tashkent';
+  const dateKey = isoDateOf(state.day, timezone);
   const dayBookings = useDayBookings(dateKey);
-  const nowMin = nowMinutesOfDay();
+  const nowMin = nowMinutesOfDay(timezone);
 
   const openMin = club?.opensAtMin ?? 0;
   const closeMin = club?.closesAtMin ?? 0;
@@ -57,10 +58,18 @@ export function SlotsScreen(): ReactNode {
   const days = dayOptions();
   const times = slotTimes(openMin, closeMin).filter((from) => !isPast(state.day, from, nowMin));
   const open = times.filter(
-    (from) => freeStations(stations, dayBookings, from, 1, closeMin, filter).length > 0,
+    (from) => freeStations(stations, dayBookings, from, 1, closeMin, filter, timezone).length > 0,
   );
-  const limit = maxHours(stations, dayBookings, state.start, closeMin, filter);
-  const freeNow = freeStations(stations, dayBookings, state.start, state.hours, closeMin, filter);
+  const limit = maxHours(stations, dayBookings, state.start, closeMin, filter, timezone);
+  const freeNow = freeStations(
+    stations,
+    dayBookings,
+    state.start,
+    state.hours,
+    closeMin,
+    filter,
+    timezone,
+  );
 
   const { day, start, hours, station, setDay, setStart, setHours, setStation } = state;
 
@@ -70,7 +79,8 @@ export function SlotsScreen(): ReactNode {
     const scope: SlotFilter = { room: state.room, console: state.console };
     const free = slotTimes(openMin, closeMin).filter(
       (from) =>
-        !isPast(day, from, nowMin) && freeStations(stations, dayBookings, from, 1, closeMin, scope).length > 0,
+        !isPast(day, from, nowMin) &&
+        freeStations(stations, dayBookings, from, 1, closeMin, scope, timezone).length > 0,
     );
 
     if (free.length === 0) {
@@ -83,13 +93,13 @@ export function SlotsScreen(): ReactNode {
       return;
     }
 
-    const max = maxHours(stations, dayBookings, start, closeMin, scope);
+    const max = maxHours(stations, dayBookings, start, closeMin, scope, timezone);
     if (hours > max) {
       setHours(max);
       return;
     }
 
-    const list = freeStations(stations, dayBookings, start, hours, closeMin, scope);
+    const list = freeStations(stations, dayBookings, start, hours, closeMin, scope, timezone);
     if (list.length > 0 && !list.some((item) => item.id === station)) {
       setStation((list[0] as (typeof list)[number]).id);
     } else if (list.length === 0) {
@@ -107,6 +117,7 @@ export function SlotsScreen(): ReactNode {
     openMin,
     closeMin,
     nowMin,
+    timezone,
     setStation,
     setStart,
     setHours,
@@ -223,8 +234,16 @@ export function SlotsScreen(): ReactNode {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
             {times.map((from) => {
-              const count = freeStations(stations, dayBookings, from, state.hours, closeMin, filter).length;
-              const fits = count > 0 ? 0 : maxHours(stations, dayBookings, from, closeMin, filter);
+              const count = freeStations(
+                stations,
+                dayBookings,
+                from,
+                state.hours,
+                closeMin,
+                filter,
+                timezone,
+              ).length;
+              const fits = count > 0 ? 0 : maxHours(stations, dayBookings, from, closeMin, filter, timezone);
               const on = from === state.start;
               const usable = count > 0 || fits > 0;
 

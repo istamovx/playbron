@@ -1,94 +1,65 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 /**
- * Umumiy yuklanish indikatori — "cyber" uslubda (loyiha egasining so'rovi,
- * 2026-08-16: "Web loyihaga bitta cyber loader kerak"). SystemX manbasidan
- * KELMAGAN (`primitives.tsx`dagilardan farqli, `/design-sync` bunga
- * tegmaydi) — loyihaning o'z HUD/skanerlash naqshiga (`.pb-scan`) mos
- * qilib qurilgan: burchakli aylanuvchi halqa + markazda pulslovchi nuqta.
+ * Umumiy yuklanish indikatori (loyiha egasining so'rovi, 2026-08-16).
+ * SystemX manbasidan KELMAGAN (`primitives.tsx`dagilardan farqli,
+ * `/design-sync` bunga tegmaydi).
+ *
+ * IKKINCHI versiya: birinchisi aylanuvchi HUD halqasi + burchak
+ * kvadratchalari edi — loyiha egasi rad etdi ("juda ham g'alati"). Endi
+ * loyihaning O'Z terminal tiliga suyanadi (`.pb-scan` skan chizig'i,
+ * `.pb-caret` kursori, `ProgressMeter` segmentlari): tik chiziqlardan
+ * iborat teng o'lchamli poloса bo'ylab yorug'lik yuguradi. Aylanma
+ * harakat umuman yo'q — shovqinsiz, ekran markazida tinch turadi.
  */
+
+const BARS = 7;
+
 export function CyberLoader({
-  size = 56,
+  width = 132,
   label,
   style,
 }: {
-  /** Halqa diametri (piksel). */
-  size?: number;
-  /** Ixtiyoriy matn — soat ostida, uppercase/keng oraliqli. */
+  /** Poloса kengligi (piksel). */
+  width?: number;
+  /** Ixtiyoriy matn — poloса ostida, uppercase/keng oraliqli. */
   label?: ReactNode;
   style?: CSSProperties;
 }): ReactNode {
-  const stroke = Math.max(2, Math.round(size / 20));
-
   return (
     <div
       style={{
         display: 'inline-flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 12,
+        gap: 14,
         ...style,
       }}
     >
-      <div style={{ position: 'relative', width: size, height: size }}>
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 100 100"
-          style={{ animation: 'pb-cyber-spin 1.4s linear infinite' }}
-        >
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            fill="none"
-            stroke="var(--line-2)"
-            strokeWidth={stroke}
-          />
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            fill="none"
-            stroke="var(--primary-100)"
-            strokeWidth={stroke}
-            strokeLinecap="square"
-            strokeDasharray="66 197"
-            style={{ filter: 'drop-shadow(0 0 4px var(--primary-100))' }}
-          />
-          {/* To'rt burchak — HUD nishonga o'xshash, teskari yo'nalishda aylanadi */}
-          <g style={{ transformOrigin: '50px 50px', animation: 'pb-cyber-spin-rev 2.4s linear infinite' }}>
-            {[0, 90, 180, 270].map((deg) => (
-              <rect
-                key={deg}
-                x="47"
-                y="2"
-                width="6"
-                height="6"
-                fill="var(--primary-100)"
-                transform={`rotate(${deg} 50 50)`}
-              />
-            ))}
-          </g>
-        </svg>
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'grid',
-            placeItems: 'center',
-          }}
-        >
+      <div
+        style={{
+          display: 'flex',
+          gap: 4,
+          width,
+          height: 26,
+          padding: 4,
+          border: '1px solid var(--line-2)',
+          clipPath: 'var(--clip-tr)',
+          background: 'var(--surface-inset)',
+        }}
+      >
+        {Array.from({ length: BARS }, (_, index) => (
           <span
+            key={index}
             style={{
-              width: Math.round(size * 0.14),
-              height: Math.round(size * 0.14),
+              flex: 1,
               background: 'var(--primary-100)',
-              clipPath: 'var(--clip-tr)',
-              animation: 'pb-cyber-pulse 1.1s var(--ease-in-out) infinite',
+              // Har segment navbat bilan yonadi — chapdan o'ngga yuguruvchi
+              // to'lqin. `steps()` emas, silliq: HUD emas, terminal sathi.
+              animation: `pb-loader-wave 1.1s var(--ease-in-out) ${(index * 0.11).toFixed(2)}s infinite`,
             }}
           />
-        </div>
+        ))}
       </div>
 
       {label ? (
@@ -107,16 +78,26 @@ export function CyberLoader({
   );
 }
 
-/** To'liq ekran/panel ustiga qoplaydigan holat — API kutilayotganda. */
+/**
+ * Ekranni to'ldiruvchi yuklanish holati — API kutilayotganda.
+ *
+ * `minHeight: '100%'` + `flex: 1` — loyiha egasining topilmasi
+ * (2026-08-16): avval `minHeight: 160` edi va loader kontent maydonining
+ * YUQORISIDA osilib turardi, markazda emas. Foiz `min-height` ota
+ * balandligi noaniq bo'lsa `auto`ga tushadi (`height: 100%` kabi nolga
+ * QISILMAYDI — `timeline.tsx`dagi xato aynan shundan edi), shuning uchun
+ * `60vh` ham quyi chegara sifatida qo'yiladi.
+ */
 export function CyberLoaderOverlay({ label = 'Yuklanmoqda…' }: { label?: ReactNode }): ReactNode {
   return (
     <div
       style={{
+        flex: 1,
+        minHeight: 'max(60vh, 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: 'var(--gap-panel)',
-        minHeight: 160,
       }}
     >
       <CyberLoader label={label} />

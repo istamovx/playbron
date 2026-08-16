@@ -563,28 +563,18 @@ body {
   }
 }
 
-/* `CyberLoader` (components/loader.tsx) — umumiy yuklanish indikatori. */
-@keyframes pb-cyber-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes pb-cyber-spin-rev {
-  to {
-    transform: rotate(-360deg);
-  }
-}
-
-@keyframes pb-cyber-pulse {
+/* `CyberLoader` (components/loader.tsx) — segmentlar bo'ylab yuguruvchi
+   to'lqin. Aylanma harakat YO'Q (birinchi versiyadagi HUD halqasi loyiha
+   egasi tomonidan rad etilgan, 2026-08-16). */
+@keyframes pb-loader-wave {
   0%,
   100% {
-    opacity: 1;
-    transform: scale(1);
+    opacity: 0.16;
+    transform: scaleY(0.45);
   }
   50% {
-    opacity: 0.45;
-    transform: scale(0.7);
+    opacity: 1;
+    transform: scaleY(1);
   }
 }
 
@@ -592,6 +582,13 @@ body {
   .pb-scan,
   .pb-caret {
     animation: none;
+  }
+
+  /* Loader butunlay to'xtasa "qotib qolgan" bo'lib ko'rinardi — harakat
+     o'rniga bir tekis yarim yorug'lik qoldiriladi. */
+  [style*='pb-loader-wave'] {
+    animation: none !important;
+    opacity: 0.55;
   }
 }
 

@@ -2,8 +2,9 @@
 bu yerdagi tekshiruvlar HAKAM (`docs/05-auth-redesign.md` uslubi bilan bir xil).
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -349,6 +350,29 @@ async def update_club(
     }
 
 
+async def _club_timezone(session: AsyncSession, club_id: int) -> str:
+    tz = await session.scalar(text("SELECT timezone FROM clubs WHERE id = :id"), {"id": club_id})
+    return str(tz) if tz else "Asia/Tashkent"
+
+
+def _local_day_window(local_date: Any, timezone: str) -> tuple[datetime, datetime]:
+    """`date` (yil-oy-kun, vaqt zonasisiz) — klubning O'Z vaqt zonasidagi
+    kun boshi/oxiri, timestamptz solishtirish uchun.
+
+    Avval `day.replace(hour=0, ...)` — NAIVE datetime edi. asyncpg naive
+    qiymatni `timestamptz`ga kodlaganda JARAYON (konteyner) OS vaqt
+    zonasidan foydalanadi (`.astimezone()`), bu odatda UTC — klub
+    vaqt zonasi (`Asia/Tashkent`, UTC+5) EMAS. Natija: kun oynasi 5 soat
+    siljigan, ba'zi bronlar noto'g'ri kunga tushib qolgan — mijoz bo'sh
+    deb ko'rgan slot aslida band bo'lib, `409 SLOT_TAKEN` chiqqan
+    (loyiha egasi, 2026-08-16: "mijoz sifatida bron qilolmadim, vaqt
+    tanlangan deydi"). `notify.py::format_starts_at()`dagi bilan bir xil
+    naqsh — `ZoneInfo(timezone)`.
+    """
+    day_start = datetime.combine(local_date, time.min, tzinfo=ZoneInfo(timezone))
+    return day_start, day_start + timedelta(days=1)
+
+
 async def list_day_bookings(
     session: AsyncSession, club_id: int, day: datetime
 ) -> list[dict[str, Any]]:
@@ -357,8 +381,8 @@ async def list_day_bookings(
     Frontend `freeStations` mantig'ini o'zgartirmasin deb, xom band oraliqlar
     qaytariladi — bo'sh slotni hisoblash mijoz tomonida qoladi.
     """
-    day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
+    timezone = await _club_timezone(session, club_id)
+    day_start, day_end = _local_day_window(day.date(), timezone)
 
     rows = (
         await session.execute(
@@ -394,8 +418,8 @@ async def list_timeline(
     qilingan (`CANCELLED`) bronlar chiqarib tashlanadi — ular hech qachon
     sodir bo'lmagan, jadvalda ko'rsatishning ma'nosi yo'q.
     """
-    day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
+    timezone = await _club_timezone(session, club_id)
+    day_start, day_end = _local_day_window(day.date(), timezone)
 
     rows = (
         await session.execute(

@@ -231,6 +231,46 @@ async def test_overlapping_slot_is_rejected(
 
 
 @skip_no_db
+async def test_day_bookings_uses_club_timezone_not_utc(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """01:00 Toshkent vaqtidagi bron — UTC kun chegarasi bo'yicha OLDINGI
+    kunga tushib qoladi (Toshkent UTC+5). `list_day_bookings()` naive
+    UTC chegara ishlatganda bu bron mijozning "shu kun" so'roviga
+    UMUMAN tushmas, slot yolg'ondan "bo'sh" ko'rinar edi — keyin haqiqiy
+    bron urinishida `409 SLOT_TAKEN` chiqqan (loyiha egasi, 2026-08-16:
+    "mijoz sifatida bron qilolmadim, vaqt tanlangan deydi")."""
+    engine = _owner_engine()
+    local_date = "2027-01-10"
+    # 01:00 Osiyo/Toshkent (UTC+5) == 2027-01-09T20:00:00Z
+    starts = datetime.fromisoformat(f"{local_date}T01:00:00+05:00")
+    ends = starts + timedelta(hours=1)
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "bookings"):
+            await conn.execute(
+                text(
+                    "INSERT INTO bookings (club_id, station_id, guest_name, guest_phone,"
+                    " source, status, period, hours, rate_snapshot, console_type)"
+                    " VALUES (:c, :s, 'Tungi mehmon', '+998900000000', 'STAFF', 'CONFIRMED',"
+                    " tstzrange(:starts, :ends), 1, 40000, 'ps5')"
+                ),
+                {"c": world["club"], "s": world["station"], "starts": starts, "ends": ends},
+            )
+    await core_db.dispose()
+
+    try:
+        r = await client.get(
+            f"/api/v1/clubs/{world['club']}/bookings/day", params={"date": local_date}
+        )
+        assert r.status_code == 200, r.text
+        rows = r.json()
+        assert any(row["station_id"] == world["station"] for row in rows), rows
+    finally:
+        await engine.dispose()
+
+
+@skip_no_db
 async def test_staff_creates_walkin_booking_confirmed_immediately(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

@@ -320,12 +320,19 @@ export function ManualBookingPanel({
   }, [activeStations, stationLabel]);
 
   const selectedStation = activeStations.find((s) => stationLabelOf(s) === stationLabel);
-  const needsConsoleType = selectedStation !== undefined && selectedStation.consoleType === null;
+  // Xona o'zida konsol saqlagan (eski, 0023'dan oldingi) bo'lsa ham DOIM
+  // qo'lda tanlanadi — loyiha egasining topilmasi (2026-08-16): "xonaga
+  // konsol biriktirilgan turibdi, olib tashla, qo'lda tanlasin". Xonaning
+  // eski `consoleType`si endi faqat BOSHLANG'ICH taklif (pastda), majburiy
+  // fallback sifatida ISHLATILMAYDI.
+  const needsConsoleType = selectedStation !== undefined;
 
-  // Xona almashtirilganda eski tanlov qolib ketmasin
+  // Xona almashtirilganda eski tanlov qolib ketmasin. Xonada eski
+  // `consoleType` bo'lsa u BOSHLANG'ICH qiymat sifatida qo'yiladi — xodim
+  // baribir uni Select'da ko'radi va o'zgartira oladi (majburiy emas).
   useEffect(() => {
-    setConsoleType('');
-  }, [stationLabel]);
+    setConsoleType(selectedStation?.consoleType ?? '');
+  }, [stationLabel, selectedStation?.consoleType]);
 
   const hoursNum = Number(hours);
   const ready =

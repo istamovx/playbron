@@ -234,11 +234,20 @@ function mainButton(
   const booking = useBooking.getState();
   const clubId = state.clubId;
   const stationScope = { room: state.room, console: state.console };
-  const dayBookings = clubId === null ? [] : booking.dayBookings[isoDateOf(state.day)] ?? [];
   const club = clubId === null ? null : booking.clubs.find((c) => c.id === clubId) ?? null;
+  const timezone = club?.timezone ?? 'Asia/Tashkent';
+  const dayBookings = clubId === null ? [] : booking.dayBookings[isoDateOf(state.day, timezone)] ?? [];
   const closeMin = club?.closesAtMin ?? 0;
 
-  const free = freeStations(booking.stations, dayBookings, state.start, state.hours, closeMin, stationScope);
+  const free = freeStations(
+    booking.stations,
+    dayBookings,
+    state.start,
+    state.hours,
+    closeMin,
+    stationScope,
+    timezone,
+  );
   const station = free.find((item) => item.id === state.station) ?? null;
 
   const ordersAmount = Object.entries(state.cart).reduce(
@@ -265,7 +274,7 @@ function mainButton(
         enabled: !bookingSubmitting,
         act: () => {
           if (useBooking.getState().submitting) return;
-          const iso = startInstantIso(state.day, state.start);
+          const iso = startInstantIso(state.day, state.start, timezone);
           void useBooking
             .getState()
             .submitBooking(clubId, station.id, iso, state.hours)
