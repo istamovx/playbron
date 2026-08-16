@@ -258,13 +258,21 @@ function mainButton(
   switch (state.screen) {
     case 'club':
       return { label: 'Bron qilish', act: () => state.go('slots') };
-    case 'slots':
-      return station
-        ? {
-            label: `${HM(state.start)} → ${HM(state.start + state.hours * 60)} · ${S(station.rate * state.hours)} so‘m`,
-            act: () => state.go('confirm'),
-          }
-        : { label: 'Bo‘sh vaqtni tanlang', act: () => undefined, enabled: false };
+    case 'slots': {
+      if (!station) {
+        return { label: 'Bo‘sh vaqtni tanlang', act: () => undefined, enabled: false };
+      }
+      // Konsolsiz xonada konsol tanlanmaguncha oldinga o'tkazmaymiz —
+      // aks holda server 400 `CONSOLE_TYPE_REQUIRED` qaytarardi va mijoz
+      // sababini bilmasdi (audit topilmasi, 2026-08-16).
+      if (station.consoleType === null && !state.bookingConsole) {
+        return { label: 'Konsolni tanlang', act: () => undefined, enabled: false };
+      }
+      return {
+        label: `${HM(state.start)} → ${HM(state.start + state.hours * 60)} · ${S(station.rate * state.hours)} so‘m`,
+        act: () => state.go('confirm'),
+      };
+    }
     case 'confirm':
       if (!station || clubId === null) {
         return { label: 'Xona tanlanmagan', act: () => undefined, enabled: false };
@@ -277,7 +285,14 @@ function mainButton(
           const iso = startInstantIso(state.day, state.start, timezone);
           void useBooking
             .getState()
-            .submitBooking(clubId, station.id, iso, state.hours)
+            .submitBooking(
+              clubId,
+              station.id,
+              iso,
+              state.hours,
+              // Xonada eski `consoleType` bo'lsa server o'shani ishlatadi
+              station.consoleType === null ? state.bookingConsole : undefined,
+            )
             .then((ok) => {
               if (ok) state.go('qr');
             });

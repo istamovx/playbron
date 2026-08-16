@@ -252,6 +252,44 @@ async def test_super_admin_lists_organizations(
 
 
 @skip_no_db
+async def test_super_admin_opens_org_detail(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`GET /platform/orgs/{id}` — preview modalning manbasi.
+
+    Audit topilmasi (2026-08-16): bu endpoint UMUMAN sinovdan o'tmagan
+    edi va shu sababli `memberships`/`stations` uchun `app_platform()`
+    policy'lari yo'qligi (prod'da "Xodimlar (0)" va "Stansiya 0")
+    e'tibordan chetda qolgan. `0029_platform_read_gaps.py` tuzatdi.
+    """
+    sa_h = await _login(client, SA_LOGIN)
+    r = await client.get(f"/api/v1/platform/orgs/{world['org_a']}", headers=sa_h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["org_id"] == world["org_a"]
+    assert body["owner_login"] == OWNER_A_LOGIN
+
+    clubs = body["clubs"]
+    assert any(c["club_id"] == world["club_a"] for c in clubs)
+    club_a = next(c for c in clubs if c["club_id"] == world["club_a"])
+    assert club_a["stations_count"] >= 1, "stations platform policy'si yo'q — Stansiya 0 bo'ldi"
+
+    assert any(s["login"] == OWNER_A_LOGIN for s in body["staff"]), (
+        "memberships platform policy'si yo'q — Xodimlar ro'yxati bo'sh"
+    )
+
+
+@skip_no_db
+async def test_regular_owner_cannot_open_org_detail(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    owner_h = await _login(client, OWNER_A_LOGIN)
+    r = await client.get(f"/api/v1/platform/orgs/{world['org_a']}", headers=owner_h)
+    assert r.status_code == 404, r.text
+
+
+@skip_no_db
 async def test_regular_owner_cannot_list_organizations(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

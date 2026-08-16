@@ -28,6 +28,14 @@ interface AppState {
   start: number;
   /** Tanlangan stansiya ID'si (`null` — hali yo'q). */
   station: number | null;
+  /** Bron uchun tanlangan konsol turi (`''` — hali yo'q).
+   *
+   * FILTRDAGI `console`dan FARQ QILADI: u qidiruv filtri (`ANY` bo'lishi
+   * mumkin), bu esa bronga YOZILADIGAN aniq qiymat. Xona konsolsiz
+   * (0023'dan keyingi) bo'lsa server uni MAJBURIY talab qiladi
+   * (`CONSOLE_TYPE_REQUIRED`) — audit topilmasi, 2026-08-16: shusiz
+   * yangi klublarda mijoz umuman bron qila olmasdi. */
+  bookingConsole: string;
   pay: string;
   cat: string;
   payFinal: string;
@@ -52,6 +60,7 @@ interface AppState {
   setDay: (day: number) => void;
   setStart: (start: number) => void;
   setStation: (station: number | null) => void;
+  setBookingConsole: (consoleType: string) => void;
   setPay: (pay: string) => void;
   setCat: (cat: string) => void;
   setPayFinal: (pay: string) => void;
@@ -75,11 +84,15 @@ export const useApp = create<AppState>()((set) => ({
   day: 0,
   start: 21 * 60 + 30,
   station: null,
+  bookingConsole: '',
   pay: 'Payme',
   cat: 'Ichimliklar',
   payFinal: 'Naqd',
   receipt: 'none',
-  cart: { m1: 2, m7: 1 },
+  // Savat BO'SH boshlanadi. Avval `{ m1: 2, m7: 1 }` edi — prototip
+  // qoldig'i: ilova har ochilganda savatda "2× Pepsi + 1× Lay's"
+  // oldindan turardi (audit topilmasi, 2026-08-16).
+  cart: {},
   extendMin: 0,
   notified: [],
   orders: [],
@@ -102,13 +115,14 @@ export const useApp = create<AppState>()((set) => ({
     }),
 
   setSort: (sort) => set({ sort }),
-  setClubId: (clubId) => set({ clubId, station: null }),
+  setClubId: (clubId) => set({ clubId, station: null, bookingConsole: '' }),
   setRoom: (room) => set({ room }),
   setConsole: (console) => set({ console }),
   setHours: (hours) => set({ hours }),
   setDay: (day) => set({ day }),
   setStart: (start) => set({ start }),
   setStation: (station) => set({ station }),
+  setBookingConsole: (bookingConsole) => set({ bookingConsole }),
   setPay: (pay) => set({ pay }),
   setCat: (cat) => set({ cat }),
   setPayFinal: (payFinal) => set({ payFinal }),

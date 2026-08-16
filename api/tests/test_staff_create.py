@@ -194,6 +194,60 @@ async def test_owner_creates_staff_and_they_can_sign_in(
 
 
 @skip_no_db
+async def test_owner_resets_forgotten_staff_password(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Audit topilmasi (2026-08-16): unutilgan parolni tiklash yo'li YO'Q edi.
+
+    Tiklangach eski parol ISHLAMASLIGI, yangisi ishlashi va `must_change`
+    yana `true` bo'lishi kerak (parolni ega bilgani uchun)."""
+    headers = await _auth(client, OWNER_LOGIN, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/staff", json=_payload(), headers=headers
+    )
+    assert created.status_code == 201, created.text
+    staff_id = created.json()["user_id"]
+
+    reset_password = "butunlay boshqa mustahkam parol"
+    reset = await client.post(
+        f"/api/v1/clubs/{world['club']}/staff/{staff_id}/password",
+        json={"password": reset_password},
+        headers=headers,
+    )
+    assert reset.status_code == 204, reset.text
+
+    stale = await client.post(
+        "/api/v1/auth/staff/login",
+        json={"login": "prov.kassa", "password": NEW_STAFF_PASSWORD},
+    )
+    assert stale.status_code == 401, "eski parol hali ham ishlayapti"
+
+    fresh = await client.post(
+        "/api/v1/auth/staff/login",
+        json={"login": "prov.kassa", "password": reset_password},
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["must_change_password"] is True
+
+
+@skip_no_db
+async def test_admin_cannot_reset_owner_password(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Rol shifti parol tiklashda ham amal qiladi — ADMIN egaga tegolmaydi."""
+    headers = await _auth(client, ADMIN_LOGIN, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/staff/{world['owner']}/password",
+        json={"password": "yangi mustahkam parol"},
+        headers=headers,
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "ROLE_NOT_ALLOWED"
+
+
+@skip_no_db
 async def test_owner_lists_club_staff(client: httpx.AsyncClient, world: dict[str, int]) -> None:
     headers = await _auth(client, OWNER_LOGIN, world["club"])
 

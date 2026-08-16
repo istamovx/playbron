@@ -710,6 +710,17 @@ export const updateStaffMember = async (
 export const deactivateStaffMember = (api: ApiClient, clubId: number, userId: number): Promise<void> =>
   api.delete<void>(`/clubs/${clubId}/staff/${userId}`);
 
+/** Xodimning unutilgan parolini qayta qo'yadi. Server rol shiftini
+ * majburlaydi (ADMIN egaga tegolmaydi → 403 `ROLE_NOT_ALLOWED`) va
+ * `must_change` ni yoqadi — xodim birinchi kirishda o'zgartiradi. */
+export const resetStaffPassword = (
+  api: ApiClient,
+  clubId: number,
+  userId: number,
+  password: string,
+): Promise<void> =>
+  api.post<void>(`/clubs/${clubId}/staff/${userId}/password`, { password });
+
 // ── Klub faoliyat jurnali ────────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/staff/router.py::list_club_logs`.
 // `audit_log` (CRUD) + `auth_events` (kirish/chiqish) birlashtirilgan.

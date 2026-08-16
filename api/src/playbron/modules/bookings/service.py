@@ -810,9 +810,13 @@ async def get_booking_detail(
     item_rows = (
         await session.execute(
             text(
+                # `CANCELLED` chiqarib tashlanadi — bekor qilingan buyurtma
+                # hisob tafsilotida ham ko'rinmasligi kerak (kassadagi
+                # summa bilan mos bo'lsin, `pos/service.py::_orders_total()`).
                 "SELECT oi.product_name, oi.qty, oi.price_snapshot"
                 " FROM order_items oi JOIN orders o ON o.id = oi.order_id"
                 " WHERE o.booking_id = :id AND o.club_id = :club_id"
+                "   AND o.status <> 'CANCELLED'"
                 " ORDER BY oi.id"
             ),
             {"id": booking_id, "club_id": club_id},

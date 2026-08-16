@@ -187,7 +187,12 @@ async def list_orders(session: AsyncSession, club_id: int) -> list[dict[str, Any
                 " LEFT JOIN bookings b ON b.id = o.booking_id"
                 " LEFT JOIN stations s ON s.id = b.station_id"
                 " WHERE o.club_id = :club_id"
-                "   AND (o.status <> 'DELIVERED' OR o.created_at > now() - interval '1 hour')"
+                # Yakunlangan holatlar (`DELIVERED`/`CANCELLED`) faqat
+                # so'nggi soat ichida ko'rinadi. `CANCELLED`siz butun
+                # tarixdagi bekor qilingan buyurtmalar har so'rovda
+                # tashilardi va UI'da jimgina tashlab yuborilardi.
+                "   AND (o.status NOT IN ('DELIVERED', 'CANCELLED')"
+                "        OR o.created_at > now() - interval '1 hour')"
                 " ORDER BY o.created_at DESC"
             ),
             {"club_id": club_id},
@@ -448,19 +453,32 @@ async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: in
     return row
 
 
+async def _orders_total(session: AsyncSession, *, club_id: int, booking_id: int) -> int:
+    """Bron bo'yicha bar buyurtmalari summasi — `CANCELLED`siz.
+
+    `get_bill()` va `close_bill()` AYNAN bir xil summani hisoblashi shart:
+    biri ko'rsatadi, ikkinchisi pul oladi. Avval ikkala joyda alohida
+    so'rov turardi va `CANCELLED` filtri IKKALASIDA ham yo'q edi — xodim
+    yangi buyurtmani bekor qilsa, mahsulot omborga qaytardi, LEKIN summa
+    mijoz hisobida qolardi va undan pul olinardi (audit topilmasi,
+    2026-08-16; `0028_stock_and_order_cancel.py` bilan kelib chiqqan
+    regressiya). Yagona funksiya — filtr boshqa hech qachon ajralmasin.
+    """
+    total = await session.scalar(
+        text(
+            "SELECT COALESCE(SUM(total), 0) FROM orders"
+            " WHERE booking_id = :id AND club_id = :club_id AND status <> 'CANCELLED'"
+        ),
+        {"id": booking_id, "club_id": club_id},
+    )
+    return int(total or 0)
+
+
 async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> dict[str, Any]:
     booking = await _load_open_booking(session, club_id, booking_id)
     play_amount = int(booking.rate_snapshot) * booking.hours
 
-    orders_total = (
-        await session.scalar(
-            text(
-                "SELECT COALESCE(SUM(total), 0) FROM orders"
-                " WHERE booking_id = :id AND club_id = :club_id"
-            ),
-            {"id": booking_id, "club_id": club_id},
-        )
-    ) or 0
+    orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
 
     return {
         "booking_id": booking_id,
@@ -529,16 +547,8 @@ async def close_bill(
     booking = await _load_open_booking(session, club_id, booking_id)
     play_amount = int(booking.rate_snapshot) * booking.hours
 
-    orders_total = (
-        await session.scalar(
-            text(
-                "SELECT COALESCE(SUM(total), 0) FROM orders"
-                " WHERE booking_id = :id AND club_id = :club_id"
-            ),
-            {"id": booking_id, "club_id": club_id},
-        )
-    ) or 0
-    total = play_amount + int(orders_total)
+    orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
+    total = play_amount + orders_total
 
     requires_proof = payment_method == "TRANSFER" and booking.customer_id is not None
     if requires_proof and booking.payment_proof_status != "SUBMITTED":

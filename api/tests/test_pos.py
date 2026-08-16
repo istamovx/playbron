@@ -223,6 +223,92 @@ async def test_product_stock_is_tracked_and_returned_on_cancel(
 
 
 @skip_no_db
+async def test_cancelled_order_leaves_the_bill(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Audit topilmasi (2026-08-16): bekor qilingan buyurtma summasi hisobda
+    qolib ketardi va mijozdan bekor qilingan mahsulot uchun pul olinardi."""
+    headers = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Snack", "name": "Hisob Snack", "price": 20000, "stock_qty": 5},
+        headers=headers,
+    )
+    product_id = created.json()["id"]
+
+    before = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/bill", headers=headers
+    )
+    assert before.status_code == 200, before.text
+    base_orders = before.json()["orders_amount"]
+
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": world["booking"], "items": [{"product_id": product_id, "qty": 2}]},
+        headers=headers,
+    )
+    order_id = order.json()["id"]
+
+    during = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/bill", headers=headers
+    )
+    assert during.json()["orders_amount"] == base_orders + 40000
+
+    await client.post(f"/api/v1/clubs/{world['club']}/orders/{order_id}/cancel", headers=headers)
+
+    after = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/bill", headers=headers
+    )
+    assert after.json()["orders_amount"] == base_orders, (
+        "bekor qilingan buyurtma hisobda qolib ketdi — mijozdan ortiqcha pul olinadi"
+    )
+
+    # Hisob tafsilotida ham ko'rinmasligi kerak
+    detail = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/detail", headers=headers
+    )
+    assert detail.status_code == 200, detail.text
+    assert not any(item["product_name"] == "Hisob Snack" for item in detail.json()["items"])
+
+
+@skip_no_db
+async def test_cancelled_order_is_not_counted_as_revenue(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Bekor qilingan buyurtma klub adminining tushum hisobotiga tushmasin."""
+    headers = await _staff_headers(client, world["club"])
+
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Snack", "name": "Tushum Snack", "price": 30000, "stock_qty": 5},
+        headers=headers,
+    )
+    product_id = created.json()["id"]
+
+    before = await client.get(f"/api/v1/clubs/{world['club']}/dashboard", headers=headers)
+    assert before.status_code == 200, before.text
+    base_bar = before.json()["bar_revenue_today"]
+
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": world["booking"], "items": [{"product_id": product_id, "qty": 1}]},
+        headers=headers,
+    )
+    order_id = order.json()["id"]
+
+    during = await client.get(f"/api/v1/clubs/{world['club']}/dashboard", headers=headers)
+    assert during.json()["bar_revenue_today"] == base_bar + 30000
+
+    await client.post(f"/api/v1/clubs/{world['club']}/orders/{order_id}/cancel", headers=headers)
+
+    after = await client.get(f"/api/v1/clubs/{world['club']}/dashboard", headers=headers)
+    assert after.json()["bar_revenue_today"] == base_bar, (
+        "bekor qilingan buyurtma tushumda qolib ketdi"
+    )
+
+
+@skip_no_db
 async def test_cancel_is_rejected_once_order_left_new(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

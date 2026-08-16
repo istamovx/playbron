@@ -71,8 +71,12 @@ async def _revenue_expense_for_range(
     bar = (
         await session.execute(
             text(
+                # `CANCELLED` — bekor qilingan buyurtma TUSHUM EMAS
+                # (`0028_stock_and_order_cancel.py`). Filtrsiz u "Bugungi
+                # tushum"/"Bar savdosi"da qolib ketardi.
                 "SELECT COALESCE(SUM(total), 0) FROM orders"
-                " WHERE club_id = :club_id AND created_at >= :since AND created_at < :until"
+                " WHERE club_id = :club_id AND status <> 'CANCELLED'"
+                "   AND created_at >= :since AND created_at < :until"
             ),
             {"club_id": club_id, "since": since, "until": until},
         )
@@ -256,7 +260,8 @@ async def _revenue_series(
                     SELECT date_trunc(:unit, created_at AT TIME ZONE :tz) AS bucket_local,
                            SUM(total) AS amount
                     FROM orders
-                    WHERE club_id = :club_id AND created_at >= :since AND created_at < :until
+                    WHERE club_id = :club_id AND status <> 'CANCELLED'
+                      AND created_at >= :since AND created_at < :until
                     GROUP BY 1
                 )
                 SELECT b.bucket_local, COALESCE(p.amount, 0) + COALESCE(o.amount, 0) AS amount
@@ -309,7 +314,8 @@ async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> 
                 "SELECT oi.product_name,"
                 "       SUM(oi.qty * oi.price_snapshot) AS revenue"
                 " FROM order_items oi JOIN orders o ON o.id = oi.order_id"
-                " WHERE oi.club_id = :club_id AND o.created_at >= :since AND o.created_at < :until"
+                " WHERE oi.club_id = :club_id AND o.status <> 'CANCELLED'"
+                "   AND o.created_at >= :since AND o.created_at < :until"
                 " GROUP BY oi.product_name ORDER BY revenue DESC LIMIT 5"
             ),
             {"club_id": club_id, "since": bounds.since_utc, "until": bounds.until_utc},

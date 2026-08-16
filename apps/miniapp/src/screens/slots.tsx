@@ -4,6 +4,7 @@ import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { S, dayOptions, HM } from '../mock/data';
 import {
   ANY,
+  CONSOLE_LABEL,
   DURATIONS,
   consoleTypes,
   freeStations,
@@ -70,6 +71,10 @@ export function SlotsScreen(): ReactNode {
     filter,
     timezone,
   );
+
+  // Tanlangan xona konsolsiz bo'lsa (0023'dan keyingi) — mijoz o'zi tanlaydi
+  const selectedStation = stations.find((item) => item.id === state.station);
+  const needsConsole = selectedStation !== undefined && selectedStation.consoleType === null;
 
   const { day, start, hours, station, setDay, setStart, setHours, setStation } = state;
 
@@ -348,6 +353,30 @@ export function SlotsScreen(): ReactNode {
           </div>
         )}
       </Panel>
+
+      {/* Konsolsiz (0023'dan keyingi) xonada konsolni MIJOZ tanlaydi —
+          server uni majburiy talab qiladi (`CONSOLE_TYPE_REQUIRED`).
+          Bu bo'lim bo'lmaganda yangi klublarda bron UMUMAN yuborilmasdi
+          (audit topilmasi, 2026-08-16). Xonada eski `consoleType` bo'lsa
+          server o'shani ishlatadi va bu bo'lim ko'rsatilmaydi. */}
+      {needsConsole ? (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SectionLabel hint={state.bookingConsole ? undefined : 'Tanlanishi shart'}>
+            Konsol
+          </SectionLabel>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {Object.entries(CONSOLE_LABEL).map(([id, label]) => (
+              <Pick
+                key={id}
+                on={state.bookingConsole === id}
+                onClick={() => state.setBookingConsole(id)}
+              >
+                {label}
+              </Pick>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

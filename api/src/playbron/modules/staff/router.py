@@ -324,6 +324,66 @@ async def update_staff(
     )
 
 
+class StaffPasswordIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+@router.post(
+    "/{club_id}/staff/{user_id}/password",
+    status_code=204,
+    dependencies=[Depends(require_admin)],
+)
+async def reset_staff_password(
+    body: StaffPasswordIn,
+    session: Annotated[AsyncSession, Depends(db)],
+    club_id: Annotated[int, Path()],
+    user_id: Annotated[int, Path()],
+) -> None:
+    """Xodimning parolini QAYTA qo'yadi (unutilgan parol uchun).
+
+    Audit topilmasi (2026-08-16): bu yo'l UMUMAN yo'q edi — xodim
+    parolini unutsa hisob butunlay yo'qolardi, yagona chora uni chiqarib
+    yuborib yangi login bilan yangi hisob ochish edi (eski bronlar va
+    smena tarixi bog'lanmay qolardi).
+
+    Rol shifti va `must_change = true` ni `auth_assign_password()`
+    (`0005_two_worlds_auth.py`) FUNKSIYASI o'zi majburlaydi — bu yerga
+    qo'shimcha tekshiruv YOZILMAYDI (`create_staff`dagi bilan bir xil
+    sabab: hakam bitta joyda). Funksiya `failed_count` ni ham nolga
+    qaytaradi, ya'ni bloklangan hisob shu bilan ochiladi.
+
+    Yangi parol JAVOBDA QAYTARILMAYDI: uni chaqiruvchining o'zi kiritadi
+    va allaqachon biladi. `create_staff`dan farqi shu — u yerda parolni
+    server hech qachon ko'rmagan holda ega o'zi kiritadi.
+    """
+    _assert_path_matches_header(club_id)
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT u.login, m.role FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE m.club_id = :club_id AND m.user_id = :uid AND m.status = 'active'"
+            ),
+            {"club_id": club_id, "uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Xodim topilmadi")
+
+    # Uzunlik chegarasi NISHON rolidan (`create_staff`dagi bilan bir xil)
+    password = validate(body.password, role=row.role, login=row.login)
+
+    assigned = await session.scalar(
+        text("SELECT auth_assign_password(:uid, :hash)"),
+        {"uid": user_id, "hash": await hash_password(password)},
+    )
+    if not assigned:
+        raise Forbidden("Bu xodim parolini o‘zgartirish huquqingiz yo‘q", code="ROLE_NOT_ALLOWED")
+
+    # Parolning O'ZI hech qachon jurnalga tushmaydi — faqat amal fakti
+    await log_action(action="staff_password_reset", target=row.login, club_id=club_id)
+
+
 @router.delete(
     "/{club_id}/staff/{user_id}",
     status_code=204,

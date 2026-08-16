@@ -3,6 +3,7 @@ import {
   deactivateStaffMember,
   errorText,
   listStaffMembers,
+  resetStaffPassword,
   updateStaffMember,
   type StaffMemberDto,
 } from '@playbron/api-client';
@@ -54,6 +55,14 @@ interface EditDraft {
   role: 'ADMIN' | 'STAFF';
 }
 
+/** Unutilgan parolni tiklash (audit topilmasi, 2026-08-16: bu yo'l
+ * umuman yo'q edi va parolni unutgan xodim hisobi butunlay yo'qolardi). */
+interface PasswordDraft {
+  userId: number;
+  login: string;
+  password: string;
+}
+
 /** Xodimlar — hisob ochish va rol berish (`POST /clubs/{id}/staff`). */
 export function StaffScreen(): ReactNode {
   const session = useSession((state) => state.session);
@@ -79,6 +88,11 @@ export function StaffScreen(): ReactNode {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const [passwordDraft, setPasswordDraft] = useState<PasswordDraft | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [resetDone, setResetDone] = useState<{ login: string; password: string } | null>(null);
 
   // Ikki bosqichli tasdiq — bitta bosishda chiqarib yubormaslik uchun
   // (`settings.tsx::AccountTab`dagi "boshlang'ich holatga qaytarish" bilan
@@ -201,6 +215,31 @@ export function StaffScreen(): ReactNode {
     }
   };
 
+  const submitPassword = async (): Promise<void> => {
+    if (!passwordDraft || clubId === null) return;
+    if (passwordDraft.password.length < 8) {
+      setPasswordError('Parol kamida 8 belgi bo‘lsin');
+      return;
+    }
+
+    setPasswordSubmitting(true);
+    setPasswordError(null);
+    try {
+      await resetStaffPassword(api, clubId, passwordDraft.userId, passwordDraft.password);
+      // Yangi parol shu yerda KO'RSATILADI: uni xodimga aytish kerak,
+      // server esa uni boshqa hech qachon qaytarmaydi.
+      setResetDone({ login: passwordDraft.login, password: passwordDraft.password });
+      setPasswordDraft(null);
+      toast.success('Parol yangilandi');
+    } catch (cause) {
+      const message = errorText(cause);
+      setPasswordError(message);
+      toast.error(message);
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
   const activeCount = staff.filter((s) => s.status === 'active').length;
 
   return (
@@ -223,6 +262,25 @@ export function StaffScreen(): ReactNode {
               <FieldChip label="Parol" value={created.password} />
             </div>
             <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
+              Yopish
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
+
+      {resetDone ? (
+        <Panel title="Parol tiklandi" notch glow>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <StatusLine
+              tone="warn"
+              icon="key"
+              parts={['Bu parol faqat SHU YERDA ko‘rinadi', 'Xodimga hozir bering']}
+            />
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <FieldChip label="Login" value={resetDone.login} />
+              <FieldChip label="Yangi parol" value={resetDone.password} />
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setResetDone(null)}>
               Yopish
             </Button>
           </div>
@@ -290,6 +348,60 @@ export function StaffScreen(): ReactNode {
                 onClick={() => {
                   setDraft(null);
                   setError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={passwordDraft !== null}
+        onClose={() => {
+          setPasswordDraft(null);
+          setPasswordError(null);
+        }}
+        title="Parolni tiklash"
+        variant="center"
+      >
+        {passwordDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <StatusLine
+              tone="neutral"
+              icon="key"
+              parts={[
+                `Login: ${passwordDraft.login}`,
+                'Xodim birinchi kirishda o‘zi almashtiradi',
+              ]}
+            />
+            <TextField
+              label="Yangi parol"
+              value={passwordDraft.password}
+              onChange={(value) => setPasswordDraft({ ...passwordDraft, password: value })}
+              icon="lock"
+              type="text"
+            />
+
+            {passwordError ? <StatusLine tone="danger" icon="error" parts={passwordError} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={passwordSubmitting}
+                onClick={() => void submitPassword()}
+              >
+                {passwordSubmitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={passwordSubmitting}
+                onClick={() => {
+                  setPasswordDraft(null);
+                  setPasswordError(null);
                 }}
               >
                 Bekor
@@ -445,6 +557,23 @@ export function StaffScreen(): ReactNode {
                             userId: row.userId,
                             firstName: row.firstName,
                             role: row.role === 'ADMIN' ? 'ADMIN' : 'STAFF',
+                          });
+                        }}
+                      />
+                    ) : null}
+                    {canEdit(row) ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="key"
+                        title="Parolni tiklash"
+                        onClick={() => {
+                          setPasswordError(null);
+                          setResetDone(null);
+                          setPasswordDraft({
+                            userId: row.userId,
+                            login: row.login,
+                            password: randomPassword(),
                           });
                         }}
                       />

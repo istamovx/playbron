@@ -45,6 +45,10 @@ interface BookingState {
     stationId: number,
     startsAtIso: string,
     hours: number,
+    /** Xona konsolsiz (0023'dan keyingi) bo'lsa MAJBURIY — aks holda
+     * server 400 `CONSOLE_TYPE_REQUIRED` qaytaradi (audit topilmasi,
+     * 2026-08-16: yangi klublarda mijoz umuman bron qila olmasdi). */
+    consoleType?: string,
   ) => Promise<boolean>;
   clearSubmitError: () => void;
 
@@ -97,13 +101,14 @@ export const useBooking = create<BookingState>()((set) => ({
   submitting: false,
   submitError: null,
   lastBooking: null,
-  submitBooking: async (clubId, stationId, startsAtIso, hours) => {
+  submitBooking: async (clubId, stationId, startsAtIso, hours, consoleType) => {
     set({ submitting: true, submitError: null });
     try {
       const booking = await createCustomerBooking(api, clubId, {
         stationId,
         startsAt: startsAtIso,
         hours,
+        consoleType,
       });
       set({ submitting: false, lastBooking: booking });
       return true;
