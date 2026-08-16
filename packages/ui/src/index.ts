@@ -8,3 +8,4 @@ export * from './components/wordmark';
 export * from './components/time';
 export * from './components/modal';
 export * from './components/toast';
+export * from './components/loader';

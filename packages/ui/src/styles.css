@@ -563,6 +563,38 @@ body {
   }
 }
 
+/* `CyberLoader` (components/loader.tsx) — umumiy yuklanish indikatori. */
+@keyframes pb-cyber-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pb-cyber-spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes pb-cyber-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-scan,
+  .pb-caret {
+    animation: none;
+  }
+}
+
 /* Brauzer avtoto'ldirishi maydonni oq qilib yuboradi va DS ranglarini buzadi.
    `background-clip: text` foni faqat harf ostida qoladi — ya'ni ko'rinmaydi,
    matn rangi esa `-webkit-text-fill-color` orqali qaytariladi. Uzoq `transition`
