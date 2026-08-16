@@ -83,7 +83,10 @@ export function DashboardScreen(): ReactNode {
                         {list.length} xona
                       </span>
                     </div>
-                    <ProgressMeter percent={share} />
+                    <ProgressMeter
+                      percent={share}
+                      tip={() => `${floor}-qavat · ${list.length}/${rooms.length} xona (${Math.round(share)}%)`}
+                    />
                     <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
                       {kinds.join(' · ')} — {consoles.map(consoleLabel).join(', ')}
                     </span>

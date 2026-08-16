@@ -232,6 +232,9 @@ export function ExpensesScreen(): ReactNode {
                 <ProgressMeter
                   percent={total === 0 ? 0 : (amount / total) * 100}
                   color="var(--red-100)"
+                  tip={() =>
+                    `${cat} · ${S(amount)} so‘m (${total === 0 ? 0 : Math.round((amount / total) * 100)}%)`
+                  }
                 />
               </div>
             ))}

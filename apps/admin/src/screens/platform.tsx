@@ -118,7 +118,13 @@ export function PlatformScreen(): ReactNode {
             />
           </div>
           <div className="ds-chart">
-            <ActivityBars bars={TREND_DAYS} values={trendValues} labels={ticks} height={64} />
+            <ActivityBars
+              bars={TREND_DAYS}
+              values={trendValues}
+              labels={ticks}
+              height={264}
+              tip={(value, index) => `${shortDate(days[index] as string)} · ${Math.round(value)} bron`}
+            />
           </div>
         </div>
       </Panel>

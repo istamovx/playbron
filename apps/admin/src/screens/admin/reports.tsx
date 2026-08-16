@@ -1,4 +1,4 @@
-import { Panel, ProgressMeter, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
+import { ActivityBars, Panel, ProgressMeter, SegmentedControl, StatTile, StatusLine } from '@playbron/ui';
 import { useState, type ReactNode } from 'react';
 
 import {
@@ -27,7 +27,6 @@ export function ReportsScreen(): ReactNode {
   const totals = totalsFor(period, periodExpenses);
 
   const series = seriesFor(period, config.bars);
-  const peak = Math.max(...series);
   const total = series.reduce((sum, value) => sum + value, 0);
   const margin = totals.revenue === 0 ? 0 : (totals.profit / totals.revenue) * 100;
 
@@ -67,48 +66,14 @@ export function ReportsScreen(): ReactNode {
 
       <Panel title={`Tushum dinamikasi · ${config.label}`} notch brackets>
         {/* Ustunlar barqaror: bir xil davr har safar bir xil grafikni beradi */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
-          {series.map((value, index) => {
-            const share = value / peak;
-            return (
-              <span
-                key={index}
-                className="pb-bar"
-                title={`${S(Math.round(totals.revenue * (value / total)))} so‘m`}
-                style={{
-                  flex: 1,
-                  minWidth: 2,
-                  height: `${share * 100}%`,
-                  background:
-                    share > 0.92
-                      ? 'var(--purple-100)'
-                      : share > 0.75
-                        ? 'var(--primary-100)'
-                        : share > 0.55
-                          ? 'var(--primary-300)'
-                          : share > 0.35
-                            ? 'var(--primary-500)'
-                            : 'var(--primary-700)',
-                  boxShadow: share > 0.92 ? 'var(--glow-violet-sm)' : undefined,
-                  animationDelay: `${Math.min(index * 22, 700)}ms`,
-                }}
-              />
-            );
-          })}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 8,
-            font: 'var(--type-data-xs)',
-            color: 'var(--text-dim)',
-          }}
-        >
-          {(PERIOD_LABELS[period] ?? []).map((label) => (
-            <span key={label}>{label}</span>
-          ))}
+        <div className="ds-chart">
+          <ActivityBars
+            bars={series.length}
+            values={series}
+            labels={PERIOD_LABELS[period] ?? []}
+            height={120}
+            tip={(value) => `${S(Math.round(totals.revenue * (value / total)))} so‘m`}
+          />
         </div>
       </Panel>
 
@@ -163,6 +128,7 @@ export function ReportsScreen(): ReactNode {
                         ? (row.revenue / topProducts[0].revenue) * 100
                         : 0
                     }
+                    tip={() => `${row.product.name} · ${S(row.revenue)}`}
                   />
                 </div>
               ))}
@@ -220,7 +186,11 @@ function Breakdown({
           {S(amount)} · {percent.toFixed(0)}%
         </span>
       </div>
-      <ProgressMeter percent={percent} color={color} />
+      <ProgressMeter
+        percent={percent}
+        color={color}
+        tip={() => `${label} · ${S(amount)} (${percent.toFixed(0)}%)`}
+      />
     </div>
   );
 }

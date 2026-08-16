@@ -246,8 +246,8 @@ export function SidebarNav({
         padding: '14px 10px',
       }}
     >
-      <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
-        {brand ? <div style={{ padding: '0 4px' }}>{brand}</div> : null}
+      <div style={{ display: 'grid', gap: 28, minWidth: 0 }}>
+        {brand ? <div style={{ padding: '6px 4px 0' }}>{brand}</div> : null}
 
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 2 }}>
           {items.map((item) => {
@@ -444,7 +444,7 @@ export function UserMenu({
                   display: 'block',
                   width: '100%',
                   textAlign: 'left',
-                  padding: '8px 10px',
+                  padding: '11px 10px',
                   font: 'var(--type-control)',
                   color: 'var(--fg-2)',
                   background: 'transparent',

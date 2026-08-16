@@ -247,11 +247,17 @@ export function Money({ value, currency = false }: { value: Sum; currency?: bool
 export function ProgressMeter({
   percent,
   color = 'var(--primary-100)',
+  tip,
 }: {
   percent: number;
   color?: string;
+  /** Sichqoncha tekkanda ko'rsatiladigan matn. Berilmasa tooltip chiqmaydi
+   * (`ActivityBars`dagi bilan bir xil naqsh). */
+  tip?: () => string;
 }): ReactNode {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const [hover, setHover] = useState(false);
+  const tipText = tip && hover ? tip() : null;
 
   return (
     <div
@@ -259,11 +265,46 @@ export function ProgressMeter({
       aria-valuenow={clamped}
       aria-valuemin={0}
       aria-valuemax={100}
-      style={{ height: 3, background: 'var(--chart-track)', position: 'relative', overflow: 'hidden' }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        height: 3,
+        background: 'var(--chart-track)',
+        position: 'relative',
+        overflow: tipText !== null ? 'visible' : 'hidden',
+        cursor: tip ? 'default' : undefined,
+      }}
     >
+      {tipText !== null ? (
+        <span
+          style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            left: `${clamped}%`,
+            transform: 'translateX(-50%)',
+            padding: '4px 8px',
+            background: 'var(--surface-raised)',
+            border: '1px solid var(--line-2)',
+            clipPath: 'var(--clip-tr)',
+            boxShadow: 'var(--shadow-pop)',
+            font: 'var(--type-data)',
+            color: 'var(--text-title)',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          {tipText}
+        </span>
+      ) : null}
       <div
         className="pb-fill"
-        style={{ position: 'absolute', inset: '0 auto 0 0', width: `${clamped}%`, background: color }}
+        style={{
+          position: 'absolute',
+          inset: '0 auto 0 0',
+          width: `${clamped}%`,
+          background: color,
+        }}
       />
     </div>
   );
