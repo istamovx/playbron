@@ -275,7 +275,7 @@ export function App(): ReactNode {
             <div style={{ height: 1, width: 14, background: 'var(--line-3)' }} />
           </div>
 
-          {session.role !== 'SUPER_ADMIN' && active !== 'shift' ? (
+          {session.role === 'STAFF' && active !== 'shift' ? (
             <div style={{ padding: 'var(--gap-block) var(--gutter) 0', flex: 'none' }}>
               <ShiftReminderBanner clubId={activeClubId} onOpenShift={() => go('shift')} />
             </div>

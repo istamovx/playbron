@@ -95,6 +95,30 @@ export class ApiClient {
     return this.request<T>(path, { ...options, method: 'DELETE' });
   }
 
+  /** To'lov cheki kabi ikkilik (rasm) javoblar uchun — `request()`dagi
+   * `parse()` har doim JSON deb hisoblaydi, bu yerda mos emas. */
+  async getBlob(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<Blob> {
+    const session = options?.anonymous ? null : await this.freshSession();
+    const response = await this.send(path, { ...options, method: 'GET' }, session);
+
+    if (response.status === 401 && !options?.anonymous) {
+      const renewed = await this.refresh();
+      if (!renewed) {
+        this.signOut();
+        throw await toError(response);
+      }
+      const retried = await this.send(path, { ...options, method: 'GET' }, renewed);
+      if (!retried.ok) {
+        if (retried.status === 401) this.signOut();
+        throw await toError(retried);
+      }
+      return retried.blob();
+    }
+
+    if (!response.ok) throw await toError(response);
+    return response.blob();
+  }
+
   // ── ichki ─────────────────────────────────────────────────────────────
 
   private async send(

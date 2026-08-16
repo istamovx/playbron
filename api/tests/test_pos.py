@@ -260,3 +260,141 @@ async def test_live_board_shows_occupied_station(
     station = next(s for s in r.json() if s["id"] == world["station"])
     assert station["booking_id"] == world["booking"]
     assert station["guest_label"] == "Mehmon"
+
+
+# ── To'lov cheki — o'tkazma + botga ulangan mijoz (reja #37) ───────────────
+
+
+@pytest_asyncio.fixture
+async def customer_booking(world: dict[str, int]) -> AsyncIterator[int]:
+    """`world["booking"]` guest (customer_id YO'Q) — chek oqimi FAQAT
+    botga ulangan (MINIAPP) mijoz uchun ishlaydi, shuning uchun alohida."""
+    engine = _owner_engine()
+    booking_id: int | None = None
+    customer_id: int | None = None
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "users", "bookings"):
+            customer_id = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, telegram_id, status, first_name)"
+                    " VALUES ('customer', 900000301, 'active', 'Chek Sinov') RETURNING id"
+                )
+            )
+            # `world["booking"]` bilan bir xil stansiyada, lekin UZOQ
+            # kelajakda — `bookings_no_overlap` EXCLUDE bilan to'qnashmasin.
+            starts = datetime.now(UTC) + timedelta(hours=5)
+            ends = starts + timedelta(hours=1)
+            booking_id = await conn.scalar(
+                text(
+                    "INSERT INTO bookings (club_id, station_id, customer_id, source, status,"
+                    " period, hours, rate_snapshot, console_type)"
+                    " VALUES (:c, :s, :u, 'MINIAPP', 'CONFIRMED',"
+                    " tstzrange(:starts, :ends), 1, 40000, 'ps5') RETURNING id"
+                ),
+                {
+                    "c": world["club"],
+                    "s": world["station"],
+                    "u": customer_id,
+                    "starts": starts,
+                    "ends": ends,
+                },
+            )
+
+    yield int(booking_id)
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "users", "bookings"):
+            await conn.execute(text("DELETE FROM bookings WHERE id = :i"), {"i": booking_id})
+            await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": customer_id})
+    await engine.dispose()
+
+
+@skip_no_db
+async def test_transfer_close_requests_proof_then_confirms(
+    client: httpx.AsyncClient, world: dict[str, int], customer_booking: int
+) -> None:
+    headers = await _staff_headers(client, world["club"])
+
+    # 1-chaqiruv — hisob YOPILMAYDI, chek so'raladi
+    first = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{customer_booking}/close",
+        json={"payment_method": "TRANSFER", "paid_amount": 40000},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["awaiting_proof"] is True
+    assert body["payment_proof_status"] == "PENDING"
+
+    # Hali ochiq — ikkinchi urinish ham "awaiting" qaytaradi (spam yubormaydi)
+    again_pending = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{customer_booking}/close",
+        json={"payment_method": "TRANSFER", "paid_amount": 40000},
+        headers=headers,
+    )
+    assert again_pending.status_code == 200
+    assert again_pending.json()["awaiting_proof"] is True
+
+    # Mijoz botga rasm yuboradi — SQL funksiyasi orqali simulyatsiya
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text("SELECT * FROM bot_submit_payment_proof(900000301, 'sinov-file-id')")
+            )
+        ).first()
+        assert row is not None
+        assert row.booking_id == customer_booking
+    await engine.dispose()
+
+    # Endi xodim "Yopish" bossa — bu TASDIQLASH, hisob yopiladi
+    confirmed = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{customer_booking}/close",
+        json={"payment_method": "TRANSFER", "paid_amount": 40000},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["awaiting_proof"] is False
+    assert confirmed.json()["payment_proof_status"] == "CONFIRMED"
+
+    proof = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{customer_booking}/payment-proof",
+        headers=headers,
+    )
+    # Haqiqiy Telegram file_id emas (sinov qiymati) — tarmoq/token yo'q
+    # muhitda 404 kutiladi, lekin endpointning o'zi mavjud va ishlaydi
+    assert proof.status_code in (200, 404)
+
+
+@skip_no_db
+async def test_transfer_close_on_guest_booking_closes_immediately(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`customer_id` yo'q (guest/staff bron) — botga murojaat qilib
+    bo'lmaydi, TRANSFER ham DARHOL yopiladi (eski xatti-harakat)."""
+    headers = await _staff_headers(client, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/close",
+        json={"payment_method": "TRANSFER", "paid_amount": 40000},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["awaiting_proof"] is False
+    assert r.json()["payment_proof_status"] is None
+
+
+@skip_no_db
+async def test_payment_proof_bot_ignores_unknown_and_no_pending(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        unknown = (
+            await conn.execute(
+                text("SELECT * FROM bot_submit_payment_proof(999999999, 'x')")
+            )
+        ).first()
+        assert unknown is None
+    await engine.dispose()

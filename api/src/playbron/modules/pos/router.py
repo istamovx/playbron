@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context
-from playbron.core.errors import Forbidden
+from playbron.core import context, telegram_api
+from playbron.core.config import settings
+from playbron.core.errors import Forbidden, NotFound
 from playbron.deps import db, require_admin, require_staff
 from playbron.modules.pos import service
 
@@ -19,6 +20,10 @@ def _assert_path_matches_header(club_id: int) -> None:
     active = context.current().club_id
     if active is None or int(active) != int(club_id):
         raise Forbidden("Faol klub mos kelmadi", code="CLUB_MISMATCH")
+
+
+def _bot_token() -> str:
+    return settings.bot_token.get_secret_value()
 
 
 # ── Sxemalar ──────────────────────────────────────────────────────────────
@@ -86,6 +91,11 @@ class BillOut(BaseModel):
     play_amount: int
     orders_amount: int
     total: int
+    # Reja #37 (2026-08-16) — o'tkazma + botga ulangan mijoz: chek talab
+    # qilinadi. `True` bo'lsa hisob HALI YOPILMAGAN, kassa `Kutilmoqda`
+    # holatini ko'rsatsin.
+    awaiting_proof: bool = False
+    payment_proof_status: str | None = None
 
 
 class CloseBillIn(BaseModel):
@@ -266,6 +276,32 @@ async def close_bill(
         paid_amount=body.paid_amount,
     )
     return BillOut(**row)
+
+
+@router.get(
+    "/{club_id}/bookings/{booking_id}/payment-proof",
+    dependencies=[Depends(require_staff)],
+)
+async def payment_proof(
+    club_id: Annotated[int, Path()],
+    booking_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> Response:
+    """To'lov cheki — web Kassa'da ko'rsatish uchun (reja #37).
+
+    Rasm bazada saqlanmaydi (faqat Telegram `file_id`) — TOKEN frontendga
+    hech qachon chiqmasin deb backend proxy qiladi (`core/telegram_api.py::
+    download_file()`).
+    """
+    _assert_path_matches_header(club_id)
+    file_id = await service.get_payment_proof_file_id(
+        session, club_id=club_id, booking_id=booking_id
+    )
+    downloaded = await telegram_api.download_file(_bot_token(), file_id)
+    if downloaded is None:
+        raise NotFound("Chekni yuklab bo'lmadi")
+    content, content_type = downloaded
+    return Response(content=content, media_type=content_type)
 
 
 # ── Live board ────────────────────────────────────────────────────────────

@@ -115,3 +115,36 @@ async def answer_callback_query(
     if text:
         payload["text"] = text
     await call(token, "answerCallbackQuery", payload)
+
+
+async def download_file(token: str, file_id: str) -> tuple[bytes, str] | None:
+    """To'lov chekini ko'rsatish uchun (reja #37, 2026-08-16): rasm bazada
+    saqlanmaydi, faqat Telegram `file_id`. Frontend hech qachon Telegram
+    fayl URL'ini to'g'ridan olmaydi — u TOKENNI o'z ichiga oladi
+    (`https://api.telegram.org/file/bot<TOKEN>/...`); shuning uchun backend
+    proxy qiladi: shu yerda yuklab olib, baytlarni o'zi qaytaradi.
+
+    `(bytes, content_type)` yoki xato/topilmasa `None`.
+    """
+    if not token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            meta = await client.get(f"{API}/bot{token}/getFile", params={"file_id": file_id})
+            meta_body: dict[str, Any] = meta.json()
+            if not meta_body.get("ok"):
+                log.warning("getFile rad etildi: %s", meta_body.get("description"))
+                return None
+            file_path = meta_body.get("result", {}).get("file_path")
+            if not isinstance(file_path, str) or not file_path:
+                return None
+
+            resp = await client.get(f"{API}/file/bot{token}/{file_path}")
+            if resp.status_code != 200:
+                log.warning("Fayl yuklanmadi: %s", resp.status_code)
+                return None
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+            return resp.content, content_type
+    except httpx.HTTPError:
+        log.warning("download_file amalga oshmadi", exc_info=True)
+        return None

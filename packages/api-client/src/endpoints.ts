@@ -889,6 +889,10 @@ export interface BillDto {
   playAmount: number;
   ordersAmount: number;
   total: number;
+  /** O'tkazma + botga ulangan mijoz — hisob HALI YOPILMAGAN, chek
+   * kutilmoqda (reja #37, `pos/service.py::close_bill()`). */
+  awaitingProof: boolean;
+  paymentProofStatus: 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | null;
 }
 
 const fromBillApi = (row: {
@@ -896,11 +900,15 @@ const fromBillApi = (row: {
   play_amount: number;
   orders_amount: number;
   total: number;
+  awaiting_proof?: boolean;
+  payment_proof_status?: 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | null;
 }): BillDto => ({
   bookingId: row.booking_id,
   playAmount: row.play_amount,
   ordersAmount: row.orders_amount,
   total: row.total,
+  awaitingProof: row.awaiting_proof ?? false,
+  paymentProofStatus: row.payment_proof_status ?? null,
 });
 
 export const getBill = async (
@@ -926,6 +934,14 @@ export const closeBill = async (
   );
   return fromBillApi(row);
 };
+
+/** To'lov cheki rasmi — backend Telegram'dan proxy qilib beradi (token
+ * frontendga hech qachon chiqmaydi, reja #37). */
+export const getPaymentProofBlob = (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+): Promise<Blob> => api.getBlob(`/clubs/${clubId}/bookings/${bookingId}/payment-proof`);
 
 export interface LiveStationDto {
   id: number;

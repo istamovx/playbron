@@ -349,8 +349,13 @@ async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: in
     row = (
         await session.execute(
             text(
-                "SELECT id, hours, rate_snapshot, status, closed_at"
-                " FROM bookings WHERE id = :id AND club_id = :club_id"
+                "SELECT b.id, b.hours, b.rate_snapshot, b.status, b.closed_at,"
+                "       b.customer_id, b.payment_proof_status, s.code AS station_code,"
+                "       c.name AS club_name"
+                " FROM bookings b"
+                " JOIN stations s ON s.id = b.station_id"
+                " JOIN clubs c ON c.id = b.club_id"
+                " WHERE b.id = :id AND b.club_id = :club_id"
             ),
             {"id": booking_id, "club_id": club_id},
         )
@@ -383,7 +388,38 @@ async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> d
         "play_amount": play_amount,
         "orders_amount": int(orders_total),
         "total": play_amount + int(orders_total),
+        "awaiting_proof": booking.payment_proof_status == "PENDING",
+        "payment_proof_status": booking.payment_proof_status,
     }
+
+
+_PAYMENT_PROOF_TEXT = (
+    "💳 {club} — {station} hisobi uchun o'tkazma kvitansiyasini (skrinshot yoki"
+    " rasm) shu yerga yuboring. Xodim tekshirib, hisobni yopadi."
+)
+
+
+async def _request_payment_proof(session: AsyncSession, booking: Any) -> None:
+    """Reja #37 (loyiha egasi, 2026-08-16) — mijozga bot orqali chek so'raladi.
+    Best-effort: xato bo'lsa ham hisob yopish oqimini to'xtatmaydi."""
+    from playbron.core import telegram_api
+    from playbron.core.config import settings
+
+    token = settings.bot_token.get_secret_value()
+    if not token or booking.customer_id is None:
+        return
+    tg_id = (
+        await session.execute(
+            text("SELECT telegram_id FROM users WHERE id = :id"), {"id": booking.customer_id}
+        )
+    ).scalar_one_or_none()
+    if tg_id is None:
+        return
+    await telegram_api.send_message(
+        token,
+        int(tg_id),
+        _PAYMENT_PROOF_TEXT.format(club=booking.club_name, station=booking.station_code),
+    )
 
 
 async def close_bill(
@@ -395,6 +431,17 @@ async def close_bill(
     payment_method: str,
     paid_amount: int,
 ) -> dict[str, Any]:
+    """O'tkazma + botga ulangan mijoz — chek talab qilinadi (reja #37):
+
+    1-chaqiruv (`payment_proof_status IS NULL`): hisob YOPILMAYDI, mijozga
+       chek so'raladi, `PENDING`.
+    Mijoz botga rasm yuborsa (`bot/customer.py`): `SUBMITTED`.
+    2-chaqiruv (`payment_proof_status == 'SUBMITTED'`): bu ENDI tasdiqlash —
+       hisob yopiladi, `CONFIRMED`.
+
+    Guest/staff bron (`customer_id IS NULL`) — botga murojaat qilib
+    bo'lmaydi, TRANSFER ham DARHOL yopiladi (eski xatti-harakat).
+    """
     if payment_method not in ("CASH", "TRANSFER"):
         raise AppError("To'lov turi noto'g'ri", code="PAYMENT_METHOD_INVALID")
     if paid_amount < 0:
@@ -412,17 +459,38 @@ async def close_bill(
             {"id": booking_id, "club_id": club_id},
         )
     ) or 0
+    total = play_amount + int(orders_total)
 
+    requires_proof = payment_method == "TRANSFER" and booking.customer_id is not None
+    if requires_proof and booking.payment_proof_status != "SUBMITTED":
+        if booking.payment_proof_status is None:
+            await session.execute(
+                text("UPDATE bookings SET payment_proof_status = 'PENDING' WHERE id = :id"),
+                {"id": booking_id},
+            )
+            await _request_payment_proof(session, booking)
+        return {
+            "booking_id": booking_id,
+            "play_amount": play_amount,
+            "orders_amount": int(orders_total),
+            "total": total,
+            "awaiting_proof": True,
+            "payment_proof_status": booking.payment_proof_status or "PENDING",
+        }
+
+    final_proof_status = "CONFIRMED" if requires_proof else None
     await session.execute(
         text(
             "UPDATE bookings SET closed_at = :now, payment_method = :method,"
-            " paid_amount = :amount, closed_by = :staff WHERE id = :id"
+            " paid_amount = :amount, closed_by = :staff, payment_proof_status = :proof"
+            " WHERE id = :id"
         ),
         {
             "now": datetime.now(UTC),
             "method": payment_method,
             "amount": paid_amount,
             "staff": closed_by,
+            "proof": final_proof_status,
             "id": booking_id,
         },
     )
@@ -434,8 +502,27 @@ async def close_bill(
         "booking_id": booking_id,
         "play_amount": play_amount,
         "orders_amount": int(orders_total),
-        "total": play_amount + int(orders_total),
+        "total": total,
+        "awaiting_proof": False,
+        "payment_proof_status": final_proof_status,
     }
+
+
+async def get_payment_proof_file_id(session: AsyncSession, *, club_id: int, booking_id: int) -> str:
+    """Web Kassa'da chekni ko'rsatish uchun — `router.py`da Telegram'dan
+    yuklab, proxy qilinadi (token frontendga chiqmaydi)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT payment_proof_file_id FROM bookings"
+                " WHERE id = :id AND club_id = :club_id"
+            ),
+            {"id": booking_id, "club_id": club_id},
+        )
+    ).first()
+    if row is None or row.payment_proof_file_id is None:
+        raise NotFound("Chek hali yuborilmagan")
+    return str(row.payment_proof_file_id)
 
 
 # ── Live board ───────────────────────────────────────────────────────────

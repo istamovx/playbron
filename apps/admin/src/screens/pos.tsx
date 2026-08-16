@@ -2,6 +2,7 @@ import {
   closeBill,
   errorText,
   getBill,
+  getPaymentProofBlob,
   listOpenBookings,
   type BillDto,
   type OpenBookingDto,
@@ -66,6 +67,16 @@ export function PosScreen(): ReactNode {
       .catch((cause: unknown) => toast.error(errorText(cause)));
   }, [clubId, selected]);
 
+  // Mijoz chek yuborganini xodim kutmasdan bilsin (reja #37) — "javob
+  // kutilmoqda" holatida holat har 5 soniyada avtomatik qayta tekshiriladi.
+  useEffect(() => {
+    if (clubId === null || selected === null || bill?.paymentProofStatus !== 'PENDING') return;
+    const timer = setInterval(() => {
+      void getBill(api, clubId, selected.id).then(setBill);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [clubId, selected, bill?.paymentProofStatus]);
+
   const submit = async (): Promise<void> => {
     if (clubId === null || selected === null || bill === null) return;
     setClosing(true);
@@ -75,6 +86,13 @@ export function PosScreen(): ReactNode {
         paymentMethod: payment,
         paidAmount: bill.total,
       });
+      if (result.awaitingProof) {
+        // O'tkazma + botga ulangan mijoz — hisob HALI OCHIQ, chek
+        // kutilmoqda (reja #37). Kartochka ro'yxatidan ham chiqarilmaydi.
+        setBill(result);
+        toast.success('Mijozga chek so‘raldi — javob kutilmoqda');
+        return;
+      }
       setClosedSummary({ station: selected.stationCode, bill: result });
       setSelectedId(null);
       setBill(null);
@@ -88,6 +106,22 @@ export function PosScreen(): ReactNode {
       setClosing(false);
     }
   };
+
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+
+  useEffect(() => {
+    setProofUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return null;
+    });
+    if (clubId === null || selected === null || bill?.paymentProofStatus !== 'SUBMITTED') return;
+    setProofLoading(true);
+    void getPaymentProofBlob(api, clubId, selected.id)
+      .then((blob) => setProofUrl(URL.createObjectURL(blob)))
+      .catch((cause: unknown) => toast.error(errorText(cause)))
+      .finally(() => setProofLoading(false));
+  }, [clubId, selected, bill?.paymentProofStatus]);
 
   // Card grid o'rniga jadval (loyiha egasining topilmasi, 2026-08-16):
   // hisoblar soni o'zgarganda auto-fit grid layout buzilardi.
@@ -225,13 +259,21 @@ export function PosScreen(): ReactNode {
                     <div
                       key={option.id}
                       role="button"
-                      tabIndex={0}
-                      onClick={() => setPayment(option.id)}
+                      tabIndex={bill.paymentProofStatus ? -1 : 0}
+                      onClick={() => {
+                        if (!bill.paymentProofStatus) setPayment(option.id);
+                      }}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') setPayment(option.id);
+                        if (
+                          !bill.paymentProofStatus &&
+                          (event.key === 'Enter' || event.key === ' ')
+                        ) {
+                          setPayment(option.id);
+                        }
                       }}
                       style={{
-                        cursor: 'pointer',
+                        cursor: bill.paymentProofStatus ? 'default' : 'pointer',
+                        opacity: bill.paymentProofStatus && !on ? 0.5 : 1,
                         minHeight: 'var(--control-h-lg)',
                         display: 'flex',
                         alignItems: 'center',
@@ -250,6 +292,35 @@ export function PosScreen(): ReactNode {
                 })}
               </div>
 
+              {bill.paymentProofStatus === 'PENDING' ? (
+                <StatusLine
+                  tone="warn"
+                  icon="hourglass_top"
+                  parts={['Mijozga chek so‘raldi — javob kutilmoqda']}
+                />
+              ) : null}
+
+              {bill.paymentProofStatus === 'SUBMITTED' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
+                  <StatusLine tone="ok" icon="mark_email_read" parts={['Chek keldi — tekshiring']} />
+                  {proofLoading ? (
+                    <StatusLine tone="neutral" icon="hourglass_empty" parts={['Yuklanmoqda…']} />
+                  ) : proofUrl ? (
+                    <img
+                      src={proofUrl}
+                      alt="To‘lov cheki"
+                      style={{
+                        width: '100%',
+                        maxHeight: 320,
+                        objectFit: 'contain',
+                        border: '1px solid var(--line-2)',
+                        background: 'var(--surface-field)',
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
               {error ? <StatusLine tone="danger" icon="error" parts={[error]} /> : null}
 
               <Button
@@ -257,11 +328,17 @@ export function PosScreen(): ReactNode {
                 size="lg"
                 notch
                 block
-                icon="lock"
-                disabled={closing}
+                icon={bill.paymentProofStatus === 'SUBMITTED' ? 'check_circle' : 'lock'}
+                disabled={closing || bill.paymentProofStatus === 'PENDING'}
                 onClick={() => void submit()}
               >
-                {closing ? 'Yopilmoqda…' : 'Hisobni yopish'}
+                {closing
+                  ? 'Yopilmoqda…'
+                  : bill.paymentProofStatus === 'SUBMITTED'
+                    ? 'Tasdiqlash va yopish'
+                    : bill.paymentProofStatus === 'PENDING'
+                      ? 'Javob kutilmoqda…'
+                      : 'Hisobni yopish'}
               </Button>
             </div>
           ) : closedSummary ? (

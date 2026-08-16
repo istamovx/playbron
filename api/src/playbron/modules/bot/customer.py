@@ -53,8 +53,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "type_name": "Ismingizni yozing:",
         "bad_name": "Ism 2 dan 64 belgigacha bo‘lsin. Qaytadan yozing:",
         "ask_phone": (
-            "{name}, tanishdik. Endi telefon raqamingizni yuboring —"
-            " pastdagi tugma orqali."
+            "{name}, tanishdik. Endi telefon raqamingizni yuboring — pastdagi tugma orqali."
         ),
         "share": "📱 Raqamimni yuborish",
         "foreign": "Bu boshqa odamning raqami. Pastdagi tugma orqali o‘z raqamingizni yuboring.",
@@ -64,6 +63,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "done": "Tayyor, {name}! Endi ilovani ochib klub tanlashingiz mumkin.",
         "open": "🎮 Ilovani ochish",
         "already": "Siz allaqachon ro‘yxatdan o‘tgansiz. Ilovani oching:",
+        "proof_received": "✅ Chek qabul qilindi — xodim tekshirib, hisobni yopadi.",
     },
     "ru": {
         "ask_name": "Здравствуйте! Вас зовут {name}?",
@@ -72,8 +72,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "type_name": "Напишите ваше имя:",
         "bad_name": "Имя должно быть от 2 до 64 символов. Напишите ещё раз:",
         "ask_phone": (
-            "{name}, приятно познакомиться. Теперь отправьте номер"
-            " телефона — кнопкой ниже."
+            "{name}, приятно познакомиться. Теперь отправьте номер телефона — кнопкой ниже."
         ),
         "share": "📱 Отправить мой номер",
         "foreign": "Это номер другого человека. Отправьте свой номер кнопкой ниже.",
@@ -83,6 +82,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "done": "Готово, {name}! Теперь можно открыть приложение и выбрать клуб.",
         "open": "🎮 Открыть приложение",
         "already": "Вы уже зарегистрированы. Откройте приложение:",
+        "proof_received": "✅ Чек получен — сотрудник проверит и закроет счёт.",
     },
 }
 
@@ -143,9 +143,7 @@ async def _seen_before(update_id: Any) -> bool:
     telefon o'zgarishini ikki marta qayta ishlardi."""
     if update_id is None:
         return False
-    stored = await redis_client().set(
-        f"tg:upd:customer:{update_id}", "1", ex=DEDUPE_TTL, nx=True
-    )
+    stored = await redis_client().set(f"tg:upd:customer:{update_id}", "1", ex=DEDUPE_TTL, nx=True)
     return not stored
 
 
@@ -207,9 +205,7 @@ async def _log_event(event: str, telegram_id: int, detail: dict[str, Any]) -> No
         async with AppSession() as session, session.begin():
             await set_telegram_scope(session, telegram_id)
             await session.execute(
-                sql(
-                    "INSERT INTO auth_events (event, detail) VALUES (:e, CAST(:d AS jsonb))"
-                ),
+                sql("INSERT INTO auth_events (event, detail) VALUES (:e, CAST(:d AS jsonb))"),
                 {"e": event, "d": json.dumps(detail)},
             )
     except Exception:
@@ -295,7 +291,9 @@ async def _handle_text(sender: dict[str, Any], chat_id: int, body: str) -> None:
         name = str(state.get("draft") or "")
     elif body == _t(lang, "change"):
         await telegram_api.send_message(
-            _token(), chat_id, _t(lang, "type_name"),
+            _token(),
+            chat_id,
+            _t(lang, "type_name"),
             reply_markup=telegram_api.remove_keyboard(),
         )
         return
@@ -337,7 +335,9 @@ async def _handle_contact(message: dict[str, Any], sender: dict[str, Any], chat_
 
         key = "bad_phone" if result.reason == contact_check.REASON_BAD_PHONE else "foreign"
         await telegram_api.send_message(
-            _token(), chat_id, _t(lang, key),
+            _token(),
+            chat_id,
+            _t(lang, key),
             reply_markup=telegram_api.contact_keyboard(_t(lang, "share")),
         )
         return
@@ -346,6 +346,70 @@ async def _handle_contact(message: dict[str, Any], sender: dict[str, Any], chat_
     await _save_phone(telegram_id, result.phone)
     await _log_event("phone_verified", telegram_id, {"source": "bot"})
     await _send_open_app(chat_id, lang, str(state.get("name") or ""), first_time=True)
+
+
+async def _handle_photo(sender: dict[str, Any], chat_id: int, photos: list[Any]) -> None:
+    """Reja #37 (loyiha egasi, 2026-08-16) — mijoz to'lov o'tkazma chekini
+    (skrinshot) yuboradi. Telegram bir nechta o'lchamda yuboradi — ENG
+    KATTASI olinadi (aniqroq ko'rinsin).
+
+    `bot_staff_context()` bilan bir xil naqsh (`0022`): SECURITY DEFINER
+    funksiya webhook'ning RLS kontekstsiz ekanligini o'z ichida hal qiladi.
+    Kutilayotgan (`PENDING`) chek yo'q mijoz uchun funksiya bo'sh qaytadi —
+    bot indamaydi (spam bo'lmasin, chunki oddiy rasm yuborish odatiy holat).
+    """
+    telegram_id = int(sender["id"])
+    lang = _lang(sender)
+    if not photos:
+        return
+    largest = max(photos, key=lambda p: p.get("file_size") or 0)
+    file_id = largest.get("file_id")
+    if not isinstance(file_id, str):
+        return
+
+    async with AppSession() as session, session.begin():
+        row = (
+            await session.execute(
+                sql("SELECT * FROM bot_submit_payment_proof(:tg, :fid)"),
+                {"tg": telegram_id, "fid": file_id},
+            )
+        ).first()
+
+    if row is None:
+        return
+
+    await telegram_api.send_message(_token(), chat_id, _t(lang, "proof_received"))
+    await _notify_staff_proof_submitted(
+        club_id=row.club_id, club_name=row.club_name, station_code=row.station_code
+    )
+
+
+async def _notify_staff_proof_submitted(*, club_id: int, club_name: str, station_code: str) -> None:
+    """Xodim buni webdagi Kassa'da ham ko'radi — bu faqat tezroq bilsin
+    degan qo'shimcha (best-effort, `bookings/notify.py::notify_staff_new_
+    booking()` bilan bir xil `booking_notify_targets()` funksiyasidan)."""
+    from playbron.core.config import settings
+
+    admin_token = settings.admin_bot_token.get_secret_value() or _token()
+    try:
+        async with AppSession() as session, session.begin():
+            rows = (
+                await session.execute(
+                    sql("SELECT chat_id FROM booking_notify_targets(:club_id)"),
+                    {"club_id": club_id},
+                )
+            ).all()
+    except Exception:  # noqa: BLE001
+        log.warning("booking_notify_targets so'rovi muvaffaqiyatsiz", exc_info=True)
+        return
+
+    text_body = (
+        f"🧾 To'lov cheki keldi — {club_name}\n"
+        f"Xona: {station_code}\n\n"
+        "Kassa bo'limida tekshirib, hisobni yoping."
+    )
+    for (chat_id,) in rows:
+        await telegram_api.send_message(admin_token, chat_id, text_body)
 
 
 async def handle_update(update: dict[str, Any]) -> None:
@@ -371,6 +435,11 @@ async def handle_update(update: dict[str, Any]) -> None:
 
         if "contact" in message:
             await _handle_contact(message, sender, chat_id)
+            return
+
+        photo = message.get("photo")
+        if isinstance(photo, list):
+            await _handle_photo(sender, chat_id, photo)
             return
 
         body = message.get("text")
