@@ -1,66 +1,275 @@
 import {
+  createExpense,
+  errorText,
+  listExpenses,
+  updateExpense,
+  type ExpenseDto,
+} from '@playbron/api-client';
+import {
   Button,
   EntityTable,
+  Modal,
   Panel,
   ProgressMeter,
   Select,
   StatTile,
   StatusLine,
+  Tag,
   TextField,
+  toast,
 } from '@playbron/ui';
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
-import { EXPENSE_CATS, type Expense } from '../../mock/club';
+import { api } from '../../lib/api';
+import { EXPENSE_CATS, EXPENSES_INIT, type Expense as LegacyExpense } from '../../mock/club';
 import { S } from '../../mock/data';
-import { nextId, useClub } from '../../store/club';
-import { FormGrid, Labeled, RowActions, today } from './parts';
+import { useSession } from '../../store/session';
+import { useClub } from '../../store/club';
+import { FormGrid, Labeled } from './parts';
 
-const EMPTY: Expense = { id: '', date: '', cat: EXPENSE_CATS[0] as string, amount: 0, note: '' };
+/**
+ * Xarajatlar — kommunal, ijara, maosh va boshqalar.
+ *
+ * Reja #18 (2026-08-16): ekran to'liq `useClub()` mock do'konidan
+ * (`playbron.club` localStorage) real backendga o'tkazildi
+ * (`api/src/playbron/modules/finance/*`, `0020_expenses.py`). Dashboard
+ * va Hisobot hali eski mock `expenses`dan foydalanadi — ular reja #22da
+ * navbatda (`docs/00-audit.md`dagi bosqichma-bosqich ko'chirish naqshi,
+ * `dashboard.tsx`dagi klub ish vaqti bilan bir xil).
+ */
 
-const DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
+const MIGRATION_DONE_IDS_KEY = 'playbron.expenses.migrated.ids';
 
-const FULL: CSSProperties = { width: '100%' };
+/**
+ * Modul darajasidagi qulf — komponent instansiyasiga EMAS, JS moduliga
+ * bog'liq, shuning uchun React StrictMode'ning dev rejimidagi sinxron
+ * mount→cleanup→qayta-mount tsiklida HAM saqlanib qoladi (`useRef` esa
+ * ikkala chaqiruvda ham "yangi" bo'lib ko'rinadi — aynan shu sabab jonli
+ * sinovda ikki baravar yozuv topildi, 2026-08-16). `clubId` bo'yicha —
+ * foydalanuvchi sahifani qayta yuklamay boshqa klubga o'tsa ham ishlashi
+ * uchun. `localStorage`dagi progres esa haqiqiy sahifa qayta
+ * yuklanishlari orasida qo'riqlaydi.
+ */
+const migrationClaimedThisLoad = new Set<number>();
 
-/** Xarajatlar — kommunal, ijara, maosh va boshqalar. */
+function readMigratedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(MIGRATION_DONE_IDS_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markMigrated(id: string): void {
+  const ids = readMigratedIds();
+  ids.add(id);
+  localStorage.setItem(MIGRATION_DONE_IDS_KEY, JSON.stringify([...ids]));
+}
+
+interface Draft {
+  id: number | null;
+  spentOn: string;
+  category: string;
+  amount: string;
+  note: string;
+  status: 'active' | 'archived';
+}
+
+function todayIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+const EMPTY_DRAFT: Draft = {
+  id: null,
+  spentOn: todayIso(),
+  category: EXPENSE_CATS[0] as string,
+  amount: '',
+  note: '',
+  status: 'active',
+};
+
+/** Eski `DD-MM-YYYY`dan ISO (`YYYY-MM-DD`)ga — noto'g'ri shakl bo'lsa `null`. */
+function ddmmyyyyToIso(raw: string): string | null {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(raw);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+/** Foydalanuvchi HECH QACHON tegmagan asl seed qatormi (`EXPENSES_INIT`dan
+ * bittasi bilan aynan bir xil) — bunday qatorlar KO'CHIRILMAYDI, aks holda
+ * har bir yangi klubga soxta "Avgust ijarasi" kabi yozuvlar tushib qolardi. */
+function isUntouchedSeed(row: LegacyExpense): boolean {
+  const original = EXPENSES_INIT.find((seed) => seed.id === row.id);
+  if (!original) return false;
+  return (
+    original.date === row.date &&
+    original.cat === row.cat &&
+    original.amount === row.amount &&
+    original.note === row.note
+  );
+}
+
 export function ExpensesScreen(): ReactNode {
-  const expenses = useClub((state) => state.expenses);
-  const saveExpense = useClub((state) => state.saveExpense);
-  const removeExpense = useClub((state) => state.removeExpense);
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
 
-  const [draft, setDraft] = useState<Expense | null>(null);
+  const [expenses, setExpenses] = useState<ExpenseDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const total = expenses.reduce((sum, row) => sum + row.amount, 0);
-  const byCat = expenses.reduce<Record<string, number>>((acc, row) => {
-    acc[row.cat] = (acc[row.cat] ?? 0) + row.amount;
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setExpenses(await listExpenses(api, clubId));
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // LocalStorage'dan bazaga ko'chirish — "hech qachon qo'shilgan ma'lumot
+  // yo'qolmasligi kerak" talabi (loyiha egasi, 2026-08-16). Faqat
+  // FOYDALANUVCHI qo'shgan/tahrirlagan qatorlar (`isUntouchedSeed` orqali
+  // soxta seed'dan ajratiladi). Har bir qator ID'si ALOHIDA "ko'chirildi"
+  // deb belgilanadi (bitta umumiy bayroq EMAS) — sahifa ko'chirish
+  // yarim yo'lda uzilib qolsa (foydalanuvchi yopib yuborsa), keyingi
+  // ochilishda faqat QOLGAN qatorlar qayta urinadi, na takrorlanadi
+  // (allaqachon ko'chirilganlar o'tkazib yuboriladi), na yo'qoladi.
+  useEffect(() => {
+    if (clubId === null || migrationClaimedThisLoad.has(clubId)) return;
+    migrationClaimedThisLoad.add(clubId);
+
+    const done = readMigratedIds();
+    const legacy = useClub
+      .getState()
+      .expenses.filter((row) => !isUntouchedSeed(row) && !done.has(row.id));
+    if (legacy.length === 0) return;
+
+    // Effekt tozalovchisi (unmount) orqali BEKOR QILINMAYDI — StrictMode
+    // dev rejimida React effektni sinxron mount→cleanup→qayta-mount
+    // qiladi, bu YOLG'ON "bekor qilish" signalini berardi va tsiklni
+    // yarim yo'lda to'xtatib, qolgan qatorlarni HECH QACHON ko'chirmay
+    // qoldirardi (jonli sinovda TOPILGAN ikkinchi xato, 2026-08-16).
+    // `migrationClaimedThisLoad` yuqorida allaqachon takroriy ishga
+    // tushishning oldini oladi — shu yetarli, alohida bekor qilish shart
+    // emas: bu bir martalik fon ko'chirish, komponent holatiga bog'liq
+    // emas.
+    void (async () => {
+      let migrated = 0;
+      let failed = 0;
+      for (const row of legacy) {
+        const spentOn = ddmmyyyyToIso(row.date);
+        if (spentOn === null) {
+          failed += 1;
+          continue;
+        }
+        try {
+          await createExpense(api, clubId, {
+            spentOn,
+            category: row.cat,
+            amount: row.amount,
+            note: row.note.trim() || null,
+          });
+          markMigrated(row.id);
+          migrated += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (migrated > 0) {
+        toast.success(`${migrated} ta eski xarajat ko‘chirildi`);
+        await reload();
+      }
+      if (failed > 0) {
+        toast.error(`${failed} ta eski xarajatni ko‘chirib bo‘lmadi — qo‘lda tekshiring`);
+      }
+    })();
+  }, [clubId, reload]);
+
+  const activeExpenses = expenses.filter((row) => row.status === 'active');
+  const total = activeExpenses.reduce((sum, row) => sum + row.amount, 0);
+  const byCat = activeExpenses.reduce<Record<string, number>>((acc, row) => {
+    acc[row.category] = (acc[row.category] ?? 0) + row.amount;
     return acc;
   }, {});
   const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const biggest = catRows[0];
   const utilities = (byCat['Elektr'] ?? 0) + (byCat['Suv'] ?? 0) + (byCat['Internet'] ?? 0);
 
-  // Yangi yozuv tepada — sanani teskari tartibda solishtiramiz
-  const sorted = [...expenses].sort((a, b) => {
-    const left = DATE_RE.exec(a.date);
-    const right = DATE_RE.exec(b.date);
-    if (!left || !right) return 0;
-    return `${right[3]}${right[2]}${right[1]}`.localeCompare(`${left[3]}${left[2]}${left[1]}`);
-  });
-
-  const submit = (): void => {
-    if (!draft) return;
-    if (!DATE_RE.test(draft.date)) {
-      setError('Sana DD-MM-YYYY shaklida bo‘lishi kerak');
+  const submit = async (): Promise<void> => {
+    if (!draft || clubId === null) return;
+    const amount = Number(draft.amount);
+    if (!draft.spentOn) {
+      setError('Sanani tanlang');
       return;
     }
-    if (draft.amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       setError('Summa 0 dan katta bo‘lsin');
       return;
     }
 
-    saveExpense({ ...draft, id: draft.id || nextId('e'), note: draft.note.trim() });
-    setDraft(null);
+    setSubmitting(true);
     setError(null);
+    try {
+      if (draft.id === null) {
+        await createExpense(api, clubId, {
+          spentOn: draft.spentOn,
+          category: draft.category,
+          amount,
+          note: draft.note.trim() || null,
+        });
+        toast.success('Xarajat qo‘shildi');
+      } else {
+        await updateExpense(api, clubId, draft.id, {
+          spentOn: draft.spentOn,
+          category: draft.category,
+          amount,
+          note: draft.note.trim() || null,
+          status: draft.status,
+        });
+        toast.success('Xarajat yangilandi');
+      }
+      setDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleArchive = async (row: ExpenseDto): Promise<void> => {
+    if (clubId === null) return;
+    try {
+      await updateExpense(api, clubId, row.id, {
+        spentOn: row.spentOn,
+        category: row.category,
+        amount: row.amount,
+        note: row.note,
+        status: row.status === 'active' ? 'archived' : 'active',
+      });
+      toast.success(row.status === 'active' ? 'Arxivlandi' : 'Qayta tiklandi');
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    }
   };
 
   return (
@@ -74,8 +283,80 @@ export function ExpensesScreen(): ReactNode {
           unit={biggest ? `${S(biggest[1])} so‘m` : ''}
           icon="pie_chart"
         />
-        <StatTile label="Yozuvlar" value={String(expenses.length)} unit="ta" icon="receipt_long" />
+        <StatTile label="Yozuvlar" value={String(activeExpenses.length)} unit="ta" icon="receipt_long" />
       </div>
+
+      <Modal
+        open={draft !== null}
+        onClose={() => {
+          setDraft(null);
+          setError(null);
+        }}
+        title={draft?.id === null ? 'Xarajat qo‘shish' : 'Xarajatni tahrirlash'}
+        variant="drawer"
+      >
+        {draft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <FormGrid>
+              <TextField
+                label="Sana"
+                type="date"
+                value={draft.spentOn}
+                onChange={(value) => setDraft({ ...draft, spentOn: value })}
+                icon="event"
+              />
+              <Labeled label="Modda">
+                <Select
+                  value={draft.category}
+                  items={[...new Set([draft.category, ...EXPENSE_CATS])]}
+                  onChange={(value) => setDraft({ ...draft, category: value })}
+                  style={{ width: '100%' }}
+                />
+              </Labeled>
+              <TextField
+                label="Summa"
+                value={draft.amount}
+                onChange={(value) => setDraft({ ...draft, amount: value })}
+                icon="payments"
+                inputMode="numeric"
+                placeholder="250 000"
+              />
+              <TextField
+                label="Izoh"
+                value={draft.note}
+                onChange={(value) => setDraft({ ...draft, note: value })}
+                icon="notes"
+                placeholder="Ixtiyoriy izoh"
+                onSubmitKey={() => void submit()}
+              />
+            </FormGrid>
+
+            {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
+
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                notch
+                icon="check"
+                disabled={submitting}
+                onClick={() => void submit()}
+              >
+                {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={submitting}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       <div className="ds-split" style={{ alignItems: 'start' }}>
         <Panel
@@ -83,87 +364,39 @@ export function ExpensesScreen(): ReactNode {
           notch
           brackets
           action={
-            draft ? null : (
-              <Button
-                variant="primary"
-                size="sm"
-                icon="add"
-                onClick={() => setDraft({ ...EMPTY, date: today() })}
-              >
-                Xarajat qo‘shish
-              </Button>
-            )
-          }
-        >
-          {draft ? (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--gap-block)',
-                marginBottom: 'var(--gap-panel)',
+            <Button
+              variant="primary"
+              size="sm"
+              icon="add"
+              onClick={() => {
+                setError(null);
+                setDraft(EMPTY_DRAFT);
               }}
             >
-              <FormGrid>
-                <TextField
-                  label="Sana"
-                  value={draft.date}
-                  onChange={(value) => setDraft({ ...draft, date: value })}
-                  icon="event"
-                />
-                <Labeled label="Modda">
-                  <Select
-                    value={draft.cat}
-                    items={EXPENSE_CATS}
-                    onChange={(value) => setDraft({ ...draft, cat: value })}
-                    style={FULL}
-                  />
-                </Labeled>
-                <TextField
-                  label="Summa"
-                  value={String(draft.amount)}
-                  onChange={(value) => setDraft({ ...draft, amount: Number(value) || 0 })}
-                  icon="payments"
-                  inputMode="numeric"
-                />
-                <TextField
-                  label="Izoh"
-                  value={draft.note}
-                  onChange={(value) => setDraft({ ...draft, note: value })}
-                  icon="notes"
-                  onSubmitKey={submit}
-                />
-              </FormGrid>
-
-              {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-
-              <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
-                <Button variant="primary" notch icon="check" onClick={submit}>
-                  Saqlash
-                </Button>
-                <Button variant="ghost" onClick={() => setDraft(null)}>
-                  Bekor
-                </Button>
-              </div>
-            </div>
-          ) : null}
+              Xarajat qo‘shish
+            </Button>
+          }
+        >
+          {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
 
           <EntityTable
-            rows={sorted}
-            rowKey={(row) => row.id}
-            empty="Xarajat kiritilmagan"
+            rows={expenses}
+            rowKey={(row) => String(row.id)}
+            empty={loading ? 'Yuklanmoqda…' : 'Xarajat kiritilmagan'}
             columns={[
               {
                 key: 'date',
                 header: 'Sana',
                 render: (row) => (
-                  <span style={{ font: 'var(--type-data)', whiteSpace: 'nowrap' }}>{row.date}</span>
+                  <span style={{ font: 'var(--type-data)', whiteSpace: 'nowrap' }}>
+                    {row.spentOn}
+                  </span>
                 ),
               },
               {
                 key: 'cat',
                 header: 'Modda',
-                render: (row) => <span style={{ color: 'var(--text-title)' }}>{row.cat}</span>,
+                render: (row) => <span style={{ color: 'var(--text-title)' }}>{row.category}</span>,
               },
               {
                 key: 'note',
@@ -187,17 +420,43 @@ export function ExpensesScreen(): ReactNode {
                 ),
               },
               {
+                key: 'status',
+                header: 'Holat',
+                render: (row) => (
+                  <Tag tone={row.status === 'active' ? 'success' : 'neutral'}>
+                    {row.status === 'active' ? 'Faol' : 'Arxiv'}
+                  </Tag>
+                ),
+              },
+              {
                 key: 'actions',
                 header: '',
                 align: 'right',
                 render: (row) => (
-                  <RowActions
-                    onEdit={() => {
-                      setDraft(row);
-                      setError(null);
-                    }}
-                    onRemove={() => removeExpense(row.id)}
-                  />
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon="edit"
+                      onClick={() => {
+                        setError(null);
+                        setDraft({
+                          id: row.id,
+                          spentOn: row.spentOn,
+                          category: row.category,
+                          amount: String(row.amount),
+                          note: row.note ?? '',
+                          status: row.status,
+                        });
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={row.status === 'active' ? 'archive' : 'unarchive'}
+                      onClick={() => void toggleArchive(row)}
+                    />
+                  </div>
                 ),
               },
             ]}
@@ -244,7 +503,7 @@ export function ExpensesScreen(): ReactNode {
             <StatusLine
               tone="neutral"
               icon="insights"
-              parts={['Xarajatlar hisobotdagi foydadan ayiriladi', 'Oylik ro‘yxat asos qilinadi']}
+              parts={['Xarajatlar hisobotdagi foydadan ayiriladi', 'Faqat faol yozuvlar hisoblanadi']}
             />
           </div>
         </Panel>

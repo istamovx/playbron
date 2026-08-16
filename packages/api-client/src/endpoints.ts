@@ -816,6 +816,97 @@ export const listLiveStations = async (
   }));
 };
 
+// ── Xarajatlar ───────────────────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/finance/router.py`, `0020_expenses.py`.
+// Faqat OWNER/ADMIN (STAFF'ga ochiq emas — mahsulotdan farqi shu).
+
+export interface ExpenseDto {
+  id: number;
+  /** ISO sana (`YYYY-MM-DD`). */
+  spentOn: string;
+  category: string;
+  amount: number;
+  note: string | null;
+  status: 'active' | 'archived';
+  createdByName: string | null;
+  createdAt: string;
+}
+
+interface ExpenseApi {
+  id: number;
+  spent_on: string;
+  category: string;
+  amount: number;
+  note: string | null;
+  status: string;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+const fromExpenseApi = (row: ExpenseApi): ExpenseDto => ({
+  id: row.id,
+  spentOn: row.spent_on,
+  category: row.category,
+  amount: row.amount,
+  note: row.note,
+  status: row.status === 'archived' ? 'archived' : 'active',
+  createdByName: row.created_by_name,
+  createdAt: row.created_at,
+});
+
+export const listExpenses = async (api: ApiClient, clubId: number): Promise<ExpenseDto[]> => {
+  const rows = await api.get<ExpenseApi[]>(`/clubs/${clubId}/expenses`);
+  return rows.map(fromExpenseApi);
+};
+
+export interface ExpenseCreateIn {
+  spentOn: string;
+  category: string;
+  amount: number;
+  note?: string | null;
+}
+
+export const createExpense = async (
+  api: ApiClient,
+  clubId: number,
+  body: ExpenseCreateIn,
+): Promise<ExpenseDto> => {
+  const row = await api.post<ExpenseApi>(`/clubs/${clubId}/expenses`, {
+    spent_on: body.spentOn,
+    category: body.category,
+    amount: body.amount,
+    note: body.note ?? null,
+  });
+  return fromExpenseApi(row);
+};
+
+export interface ExpenseUpdateIn {
+  spentOn: string;
+  category: string;
+  amount: number;
+  note?: string | null;
+  status: 'active' | 'archived';
+}
+
+export const updateExpense = async (
+  api: ApiClient,
+  clubId: number,
+  expenseId: number,
+  body: ExpenseUpdateIn,
+): Promise<ExpenseDto> => {
+  const row = await api.request<ExpenseApi>(`/clubs/${clubId}/expenses/${expenseId}`, {
+    method: 'PATCH',
+    body: {
+      spent_on: body.spentOn,
+      category: body.category,
+      amount: body.amount,
+      note: body.note ?? null,
+      status: body.status,
+    },
+  });
+  return fromExpenseApi(row);
+};
+
 // ── Platforma (super admin) ─────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/platform/router.py`. Faqat o'qish,
 // cross-tenant — `docs/06-super-admin.md` §3, kichik kesim

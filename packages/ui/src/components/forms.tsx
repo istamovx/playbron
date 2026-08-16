@@ -168,7 +168,7 @@ export function TextField({
 }: {
   value: string;
   onChange?: (value: string) => void;
-  type?: 'text' | 'password' | 'tel' | 'number';
+  type?: 'text' | 'password' | 'tel' | 'number' | 'date';
   placeholder?: string;
   label?: string;
   icon?: string;
