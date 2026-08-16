@@ -536,6 +536,9 @@ export const updateStaffMember = async (
   };
 };
 
+export const deactivateStaffMember = (api: ApiClient, clubId: number, userId: number): Promise<void> =>
+  api.delete<void>(`/clubs/${clubId}/staff/${userId}`);
+
 // ── Klub faoliyat jurnali ────────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/staff/router.py::list_club_logs`.
 // `audit_log` (CRUD) + `auth_events` (kirish/chiqish) birlashtirilgan.

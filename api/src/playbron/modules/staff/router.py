@@ -324,6 +324,49 @@ async def update_staff(
     )
 
 
+@router.delete(
+    "/{club_id}/staff/{user_id}",
+    status_code=204,
+    dependencies=[Depends(require_admin)],
+)
+async def deactivate_staff(
+    session: Annotated[AsyncSession, Depends(db)],
+    club_id: Annotated[int, Path()],
+    user_id: Annotated[int, Path()],
+) -> None:
+    """Xodimni klubdan chiqaradi — `memberships.status='removed'` (qattiq
+    o'chirish emas, `list_staff`/`list_club_logs` tarix uchun qator qoladi).
+
+    Rol shifti — RLS'ning O'ZI orqali (`memberships_write_owner`/
+    `memberships_write_admin`, `0007`): OWNER klubdagi istalgan
+    OWNER-bo'lmagan qatorni yozadi, ADMIN esa faqat `role='STAFF'`
+    qatorni — bu yerda ROL o'zgarmayapti (faqat `status`), shuning
+    uchun alohida SECURITY DEFINER shart emas (`update_staff`dan farqli).
+    O'z-o'zini chiqarib yuborish esa RLS'da cheklanmagan — shuning uchun
+    bu yerda ANIQ tekshiriladi.
+    """
+    _assert_path_matches_header(club_id)
+
+    if context.current().user_id == user_id:
+        raise AppError("O‘zingizni chiqarib yubora olmaysiz", code="SELF_DEACTIVATE_FORBIDDEN")
+
+    row = (
+        await session.execute(
+            text(
+                "UPDATE memberships SET status = 'removed'"
+                " WHERE club_id = :club_id AND user_id = :uid"
+                "   AND status = 'active' AND role <> 'OWNER'"
+                " RETURNING user_id"
+            ),
+            {"club_id": club_id, "uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Xodim topilmadi")
+
+    await log_action(action="staff_deactivated", target=str(user_id), club_id=club_id)
+
+
 async def _log_event(
     session: AsyncSession, event: str, club_id: int, detail: dict[str, Any]
 ) -> None:

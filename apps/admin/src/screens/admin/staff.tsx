@@ -1,5 +1,6 @@
 import {
   createStaffMember,
+  deactivateStaffMember,
   errorText,
   listStaffMembers,
   updateStaffMember,
@@ -74,6 +75,12 @@ export function StaffScreen(): ReactNode {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Ikki bosqichli tasdiq — bitta bosishda chiqarib yubormaslik uchun
+  // (`settings.tsx::AccountTab`dagi "boshlang'ich holatga qaytarish" bilan
+  // bir xil naqsh).
+  const [confirmRemoveId, setConfirmRemoveId] = useState<number | null>(null);
+  const [removingId, setRemovingId] = useState<number | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
     if (clubId === null) return;
@@ -163,6 +170,30 @@ export function StaffScreen(): ReactNode {
       toast.error(message);
     } finally {
       setEditSubmitting(false);
+    }
+  };
+
+  // RLS'ning o'zi (`memberships_write_owner`/`_admin`, `0007`) shu ceilingni
+  // majburlaydi — bu yerdagi tekshiruv ham faqat tugmani yashirish uchun.
+  // O'z-o'zini chiqarib yuborish alohida server tekshiruvi bilan bloklangan
+  // (`SELF_DEACTIVATE_FORBIDDEN`), shu yerda ham oldindan yashiriladi.
+  const canRemove = (row: StaffMemberDto): boolean => {
+    if (row.userId === session?.userId) return false;
+    return canEdit(row);
+  };
+
+  const remove = async (userId: number): Promise<void> => {
+    if (clubId === null) return;
+    setRemovingId(userId);
+    try {
+      await deactivateStaffMember(api, clubId, userId);
+      setConfirmRemoveId(null);
+      toast.success('Xodim chiqarildi');
+      await reload();
+    } catch (cause) {
+      toast.error(errorText(cause));
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -374,22 +405,57 @@ export function StaffScreen(): ReactNode {
               key: 'actions',
               header: '',
               align: 'right',
-              render: (row) =>
-                canEdit(row) ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon="edit"
-                    onClick={() => {
-                      setEditError(null);
-                      setEditDraft({
-                        userId: row.userId,
-                        firstName: row.firstName,
-                        role: row.role === 'ADMIN' ? 'ADMIN' : 'STAFF',
-                      });
-                    }}
-                  />
-                ) : null,
+              render: (row) => {
+                if (confirmRemoveId === row.userId) {
+                  return (
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={removingId === row.userId}
+                        onClick={() => void remove(row.userId)}
+                      >
+                        {removingId === row.userId ? 'Chiqarilmoqda…' : 'Tasdiqlash'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={removingId === row.userId}
+                        onClick={() => setConfirmRemoveId(null)}
+                      >
+                        Bekor
+                      </Button>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    {canEdit(row) ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="edit"
+                        onClick={() => {
+                          setEditError(null);
+                          setEditDraft({
+                            userId: row.userId,
+                            firstName: row.firstName,
+                            role: row.role === 'ADMIN' ? 'ADMIN' : 'STAFF',
+                          });
+                        }}
+                      />
+                    ) : null}
+                    {canRemove(row) ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="person_remove"
+                        onClick={() => setConfirmRemoveId(row.userId)}
+                      />
+                    ) : null}
+                  </div>
+                );
+              },
             },
           ]}
         />
