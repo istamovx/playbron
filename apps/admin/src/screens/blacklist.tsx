@@ -1,21 +1,27 @@
-import { Button, EntityTable, NO_SHOW_MIN, Panel, StatusLine, Tag } from '@playbron/ui';
+import { EntityTable, NO_SHOW_MIN, Panel, StatusLine } from '@playbron/ui';
 import type { ReactNode } from 'react';
 
-import { useBoard } from '../store/board';
+/**
+ * Qora ro'yxat — `PlayBron Xodim.dc.html` QORA RO'YXAT bo'limi.
+ *
+ * Reja #32 (2026-08-16, loyiha egasi): "hech qayerda seed qolmasin" —
+ * ekran to'liq soxta mijoz ro'yxati (3 ta bloklangan, 4 ta kuzatuvda,
+ * oylik statistika) bilan edi, HECH QANDAY real backend yo'q edi (no-show
+ * kuzatuvi, bloklash — hali qurilmagan funksiya, `docs`da rejalashtirilgan
+ * xolos). Soxta ma'lumot ko'rsatishdan ko'ra — bo'sh, halol holat.
+ *
+ * `useBoard().nsMarked` orqali ishlaydigan "jonli demo" ham olib
+ * tashlandi: hech qanday ekranda uni `true` qiladigan amal yo'q edi
+ * (o'lik ulanish).
+ */
 
-/** Qora ro'yxat — `PlayBron Xodim.dc.html` QORA RO'YXAT bo'limi. */
-const BLOCKED = [
-  { name: 'Rustam Xolmatov', phone: '+998 90 411-70-25', n: 3, reason: 'Ketma-ket 3 marta kelmadi', at: '2026-07-22' },
-  { name: 'Sanjar Umarov', phone: '+998 93 118-40-19', n: 4, reason: 'VIP xona bron qilib kelmadi', at: '2026-06-30' },
-  { name: 'Islom Tosheov', phone: '+998 88 902-16-33', n: 3, reason: 'Xodim bilan janjal · no-show', at: '2026-06-11' },
-];
-
-const WATCH = [
-  { name: 'Kamron Halilov', phone: '+998 95 220-14-08', n: 2 },
-  { name: 'Doston Ravshanov', phone: '+998 99 350-88-04', n: 2 },
-  { name: 'Mansur Ergashev', phone: '+998 91 604-22-77', n: 1 },
-  { name: 'Ozod Sattorov', phone: '+998 94 771-30-52', n: 1 },
-];
+interface BlockedRow {
+  name: string;
+  phone: string;
+  n: number;
+  reason: string;
+  at: string;
+}
 
 const RULES = [
   { n: '1', text: `Bron boshlanganidan ${NO_SHOW_MIN} daqiqa o‘tsa xona "Kelmadi?" holatiga o‘tadi va xodim qo‘lda tasdiqlaydi.` },
@@ -25,48 +31,17 @@ const RULES = [
   { n: '5', text: 'Blokni faqat klub egasi olib tashlaydi, har bir amal audit log’ga yoziladi.' },
 ];
 
-const NS_STATS = [
-  { k: 'No-show', v: '9', tone: 'var(--red-100)' },
-  { k: 'Yo‘qolgan soat', v: '17.5', tone: 'var(--text-title)' },
-  { k: 'Ushlab qolingan to‘lov', v: '214 000', tone: 'var(--secondary-500)' },
-  { k: 'Yangi blok', v: '1', tone: 'var(--yellow-100)' },
-];
-
 export function BlacklistScreen(): ReactNode {
-  const nsMarked = useBoard((state) => state.nsMarked);
-
-  const watchList = nsMarked ? WATCH.filter((item) => item.name !== 'Kamron Halilov') : WATCH;
-  const blocked = [
-    ...(nsMarked
-      ? [
-          {
-            name: 'Kamron Halilov',
-            phone: '+998 95 220-14-08',
-            n: 3,
-            reason: '3-no-show · 6-xona 19:50',
-            at: '2026-08-12',
-            fresh: true,
-          },
-        ]
-      : []),
-    ...BLOCKED,
-  ];
+  const blocked: BlockedRow[] = [];
 
   return (
     <div className="pb-split-wide" style={{ alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
-        {nsMarked ? (
-          <StatusLine
-            tone="danger"
-            icon="person_off"
-            parts={[
-              'Kamron Halilov qora ro‘yxatga qo‘shildi',
-              '3-no-show',
-              'Bron to‘lovi 25 000 klubda qoldi',
-              '6-xona bo‘shatildi',
-            ]}
-          />
-        ) : null}
+        <StatusLine
+          tone="neutral"
+          icon="hourglass_empty"
+          parts={['No-show kuzatuvi hali ishga tushirilmagan', 'Tez orada qo‘shiladi']}
+        />
 
         <Panel title={`Qora ro‘yxat (${blocked.length})`} notch brackets>
           {/* `EntityTable` telefonda o'zi kartaga aylanadi — alohida tartib kerak emas */}
@@ -120,77 +95,8 @@ export function BlacklistScreen(): ReactNode {
                   </span>
                 ),
               },
-              {
-                key: 'actions',
-                header: '',
-                align: 'right',
-                render: () => (
-                  <Button variant="ghost" size="sm" icon="lock_open">
-                    Blokdan olish
-                  </Button>
-                ),
-              },
             ]}
           />
-        </Panel>
-
-        <Panel title={`Kuzatuvda (${watchList.length})`} notch>
-          <div
-            style={{
-              display: 'grid',
-              minWidth: 0,
-              gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))',
-              gap: 'var(--gap-panel)',
-            }}
-          >
-            {watchList.map((item) => (
-              <div
-                key={item.name}
-                style={{
-                  padding: 'var(--card-pad)',
-                  background: 'var(--surface-card)',
-                  border: '1px solid var(--line-1)',
-                  clipPath: 'var(--clip-tr)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--gap-tight)',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      font: 'var(--type-section)',
-                      color: 'var(--text-title)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {item.name}
-                  </span>
-                  <Tag tone={item.n === 2 ? 'danger' : 'amber'}>{`${item.n} / 3`}</Tag>
-                </div>
-                <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {item.phone}
-                </span>
-                <span
-                  style={{
-                    font: 'var(--type-body-sm)',
-                    color: item.n === 2 ? 'var(--red-100)' : 'var(--yellow-100)',
-                  }}
-                >
-                  {item.n === 2 ? 'Keyingi no-show — avtomatik blok' : 'To‘liq summa oldindan olinadi'}
-                </span>
-              </div>
-            ))}
-          </div>
         </Panel>
       </div>
 
@@ -217,38 +123,6 @@ export function BlacklistScreen(): ReactNode {
                 <span style={{ font: 'var(--type-body-sm)', color: 'var(--text-body)' }}>
                   {rule.text}
                 </span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Bu oyda" notch>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {NS_STATS.map((stat) => (
-              <div
-                key={stat.k}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  minHeight: 'var(--field-h)',
-                  padding: '4px 10px',
-                  background: 'var(--surface-field)',
-                  border: '1px solid var(--line-1)',
-                }}
-              >
-                <span
-                  style={{
-                    font: 'var(--type-label)',
-                    letterSpacing: 'var(--ls-label)',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-label)',
-                  }}
-                >
-                  {stat.k}
-                </span>
-                <span style={{ font: 'var(--type-data)', color: stat.tone }}>{stat.v}</span>
               </div>
             ))}
           </div>

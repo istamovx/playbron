@@ -218,14 +218,18 @@ export interface NavItem {
   count?: number;
 }
 
+// `count` badge'lari ATAYLAB yo'q — avval qattiq kodlangan (5, 3) sonlar
+// hech qanday real ma'lumotga bog'liq emas edi (loyiha egasining topilmasi,
+// 2026-08-16, reja #34). Noto'g'ri son ko'rsatishdan ko'ra — umuman
+// ko'rsatmaslik.
 export const NAV_STAFF: NavItem[] = [
   { id: 'live', icon: 'grid_view', label: 'Live board' },
   { id: 'timeline', icon: 'calendar_view_week', label: 'Timeline' },
-  { id: 'orders', icon: 'receipt_long', label: 'Buyurtmalar', count: 5 },
+  { id: 'orders', icon: 'receipt_long', label: 'Buyurtmalar' },
   { id: 'bookings', icon: 'event_available', label: 'Bronlar' },
   { id: 'pos', icon: 'point_of_sale', label: 'Kassa' },
   { id: 'shift', icon: 'savings', label: 'Smena' },
-  { id: 'blacklist', icon: 'person_off', label: 'Qora ro‘yxat', count: 3 },
+  { id: 'blacklist', icon: 'person_off', label: 'Qora ro‘yxat' },
 ];
 
 // Bronlar — faqat xodim (`NAV_STAFF`) ishlaydi. Klub admini kunlik bron
