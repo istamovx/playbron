@@ -945,6 +945,47 @@ async def cancel_confirmed_booking(
             reason=clean_reason,
         )
 
+async def customer_stats(session: AsyncSession, customer_id: int) -> dict[str, int]:
+    """Mijoz profili statistikasi — REAL bronlardan hisoblanadi.
+
+    Avval `miniapp/mock/data.ts::PROFILE_STATS` qotirilgan edi (18 seans /
+    41 soat / 1 bekor / 0 kelmagan) va HAR BIR foydalanuvchida bir xil
+    ko'rinardi (loyiha egasining so'rovi, 2026-08-16: "mijoz rolida seed
+    va mock data qolib ketgan").
+
+    "Kelmagan" (no-show) ATAYLAB YO'Q: bunday kuzatuv hali qurilmagan
+    (`blacklist.tsx`, reja #32) — soxta nol ko'rsatishdan ko'ra maydonni
+    umuman bermaslik. `sessions`/`hours` faqat YAKUNLANGAN (o'tib ketgan)
+    tasdiqlangan bronlar bo'yicha: hali boshlanmagan bron "o'ynalgan
+    soat" emas.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT"
+                "   count(*) FILTER ("
+                "     WHERE status = 'CONFIRMED' AND upper(period) <= now()"
+                "   ) AS sessions,"
+                "   COALESCE(sum(hours) FILTER ("
+                "     WHERE status = 'CONFIRMED' AND upper(period) <= now()"
+                "   ), 0) AS hours,"
+                "   count(*) FILTER (WHERE status = 'CANCELLED') AS cancelled,"
+                "   count(*) FILTER ("
+                "     WHERE status = 'CONFIRMED' AND upper(period) > now()"
+                "   ) AS upcoming"
+                " FROM bookings WHERE customer_id = :customer_id"
+            ),
+            {"customer_id": customer_id},
+        )
+    ).one()
+    return {
+        "sessions": int(row.sessions),
+        "hours": int(row.hours),
+        "cancelled": int(row.cancelled),
+        "upcoming": int(row.upcoming),
+    }
+
+
 async def list_customer_bookings(session: AsyncSession, customer_id: int) -> list[dict[str, Any]]:
     rows = (
         await session.execute(

@@ -460,19 +460,16 @@ export const MY_BOOKINGS = [
   { club: 'Respawn Zone · 2-xona', when: '28-07-2026  22:00 → 00:00', code: '451204', amount: '0 so‘m', status: 'Bekor qilingan', acc: 'var(--fg-4)', ln: 'var(--line-1)', cancellable: false },
 ];
 
-/** Profil statistikasi — yopilgan seanslardan yig'iladi. */
-export const PROFILE_STATS = [
-  { label: 'Seanslar', value: '18' },
-  { label: 'O‘ynagan soat', value: '41' },
-  { label: 'Bekor qilingan', value: '1' },
-  { label: 'Kelmagan', value: '0' },
-];
+// `PROFILE_STATS` OLIB TASHLANDI (2026-08-16, loyiha egasi: "mijoz rolida
+// seed va mock data qolib ketgan") — qotirilgan "18 seans / 41 soat" HAR BIR
+// foydalanuvchida bir xil ko'rinardi. Endi `GET /me/stats` real bronlardan
+// hisoblaydi (`bookings/service.py::customer_stats()`).
 
-/** O'tkazma uchun klub rekvizitlari. */
-export const CARD_FIELDS = [
-  { k: 'Karta', v: '8600 1234 5678 9012', tone: 'var(--text-title)' },
-  { k: 'Egasi', v: 'NEON ARENA MCHJ', tone: 'var(--text-body)' },
-];
+// `CARD_FIELDS` OLIB TASHLANDI (2026-08-16). O'ylab topilgan karta raqami
+// (`8600 1234 5678 9012`, `NEON ARENA MCHJ`) HAR QANDAY klubda ko'rsatilardi
+// — mijoz haqiqatan shu raqamga pul o'tkazib yuborishi mumkin edi. Klubning
+// haqiqiy rekvizitlari uchun `clubs` jadvalida ustun HALI YO'Q, shuning
+// uchun ekran endi ochiq "rekvizitlar hali sozlanmagan" holatini ko'rsatadi.
 
 export const CASH_NOTE =
   'Chiqishda kassaga naqd to‘laysiz. Xodim hisobni yopgach Telegram‘ga tasdiq keladi.';

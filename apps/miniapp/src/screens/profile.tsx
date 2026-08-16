@@ -7,9 +7,11 @@ import {
   StatusLine,
   TextField,
 } from '@playbron/ui';
-import { useState, type ReactNode } from 'react';
+import { getMyStats, type MyStatsDto } from '@playbron/api-client';
+import { useEffect, useState, type ReactNode } from 'react';
 
-import { LANGS, PROFILE_STATS } from '../mock/data';
+import { api } from '../lib/api';
+import { LANGS } from '../mock/data';
 import { useProfile } from '../store/app';
 
 type Section = 'personal' | 'notify' | 'ui' | 'exit';
@@ -29,10 +31,38 @@ export function ProfileScreen(): ReactNode {
   const state = useProfile();
   const profile = state.profile;
   const [open, setOpen] = useState<Section | null>(null);
+  // Ko'rsatkichlar REAL bronlardan (`GET /me/stats`). Avval
+  // `mock/data.ts::PROFILE_STATS` qotirilgan edi va HAR BIR foydalanuvchida
+  // bir xil "18 seans / 41 soat" ko'rinardi (loyiha egasining topilmasi,
+  // 2026-08-16: "mijoz rolida seed va mock data qolib ketgan").
+  const [stats, setStats] = useState<MyStatsDto | null>(null);
   // «Chiqish» ochiladigan bo'lim emas — bosilishi bilan profildan chiqadi
   const expandable = (id: Section): boolean => id !== 'exit';
 
+  useEffect(() => {
+    let cancelled = false;
+    void getMyStats(api)
+      .then((data) => {
+        if (!cancelled) setStats(data);
+      })
+      .catch(() => {
+        // Tarmoq xatosi — plitalar ko'rsatilmaydi (soxta nol emas)
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!profile) return null;
+
+  const statTiles = stats
+    ? [
+        { label: 'Seanslar', value: String(stats.sessions) },
+        { label: 'O‘ynagan soat', value: String(stats.hours) },
+        { label: 'Kutilmoqda', value: String(stats.upcoming) },
+        { label: 'Bekor qilingan', value: String(stats.cancelled) },
+      ]
+    : [];
 
   const registered = new Date(profile.registeredAt);
   const since = `${String(registered.getDate()).padStart(2, '0')}-${String(registered.getMonth() + 1).padStart(2, '0')}-${registered.getFullYear()}`;
@@ -81,9 +111,11 @@ export function ProfileScreen(): ReactNode {
         </div>
       </Panel>
 
-      {/* Ikki qatorli yorliq bo'lsa ham raqamlar bir sathda turadi */}
+      {/* Ikki qatorli yorliq bo'lsa ham raqamlar bir sathda turadi.
+          Ko'rsatkichlar hali yuklanmagan bo'lsa panel UMUMAN chizilmaydi —
+          soxta nol ko'rsatishdan ko'ra ko'rsatmaslik. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap-tight)' }}>
-        {PROFILE_STATS.map((stat) => (
+        {statTiles.map((stat) => (
           <div
             key={stat.label}
             style={{

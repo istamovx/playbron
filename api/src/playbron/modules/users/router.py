@@ -135,3 +135,25 @@ async def my_bookings(
 ) -> list[MyBookingOut]:
     rows = await bookings_service.list_customer_bookings(session, context.current().user_id)
     return [MyBookingOut(**r) for r in rows]
+
+
+class MyStatsOut(BaseModel):
+    """Mijoz profili ko'rsatkichlari — REAL bronlardan.
+
+    "Kelmagan" (no-show) maydoni ATAYLAB YO'Q — bunday kuzatuv hali
+    qurilmagan (reja #32), soxta nol ko'rsatishning ma'nosi yo'q.
+    """
+
+    sessions: int
+    hours: int
+    cancelled: int
+    upcoming: int
+
+
+@router.get("/me/stats", response_model=MyStatsOut)
+async def my_stats(
+    session: Annotated[AsyncSession, Depends(db)],
+    _: Annotated[None, Depends(require_customer_token)],
+) -> MyStatsOut:
+    data = await bookings_service.customer_stats(session, context.current().user_id)
+    return MyStatsOut(**data)

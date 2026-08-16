@@ -469,6 +469,18 @@ export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> =>
   }));
 };
 
+/** Mijoz profili ko'rsatkichlari — REAL bronlardan (`/me/stats`).
+ * "Kelmagan" (no-show) maydoni YO'Q: bunday kuzatuv hali qurilmagan. */
+export interface MyStatsDto {
+  sessions: number;
+  hours: number;
+  cancelled: number;
+  upcoming: number;
+}
+
+export const getMyStats = (api: ApiClient): Promise<MyStatsDto> =>
+  api.get<MyStatsDto>('/me/stats');
+
 export const confirmBooking = (api: ApiClient, clubId: number, bookingId: number): Promise<void> =>
   api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/confirm`);
 

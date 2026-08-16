@@ -3,7 +3,6 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import {
   BONUS_POINTS,
-  CARD_FIELDS,
   CASH_NOTE,
   SESSION_ROOM,
   SESSION_START,
@@ -128,8 +127,18 @@ export function BillScreen(): ReactNode {
               gap: 'var(--gap-block)',
             }}
           >
+            {/* Klubning HAQIQIY to'lov rekvizitlari uchun `clubs` jadvalida
+                ustun hali yo'q. Avval bu yerda o'ylab topilgan karta raqami
+                turardi va u HAR QANDAY klubda ko'rsatilardi — mijoz begona
+                (mavjud bo'lmagan) hisobga pul o'tkazishi mumkin edi. */}
+            <StatusLine
+              tone="warn"
+              icon="info"
+              parts={['To‘lov rekvizitlari hali sozlanmagan', 'Xodimdan so‘rang']}
+            />
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {[...CARD_FIELDS, { k: 'Summa', v: S(bill.total), tone: 'var(--text-title)' }].map(
+              {[{ k: 'Summa', v: S(bill.total), tone: 'var(--text-title)' }].map(
                 (field) => (
                   <div
                     key={field.k}
