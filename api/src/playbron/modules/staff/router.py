@@ -50,6 +50,20 @@ class StaffMemberOut(BaseModel):
     status: str
 
 
+class ActivityLogOut(BaseModel):
+    """`audit_log` (CRUD) + `auth_events` (kirish/chiqish) birlashtirilgan
+    ko'rinishi — klub egasi/admini o'z klubi bo'yicha."""
+
+    id: str
+    at: str
+    source: str
+    event: str
+    target: str | None
+    actor_name: str | None
+    actor_login: str | None
+    detail: dict[str, Any] | None
+
+
 def _assert_path_matches_header(club_id: int) -> None:
     """Yo'ldagi `club_id` va `X-Club-Id` bir xil bo'lishi shart.
 
@@ -91,6 +105,63 @@ async def list_staff(
     return [
         StaffMemberOut(
             user_id=r.id, login=r.login, first_name=r.first_name, role=r.role, status=r.status
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/{club_id}/logs",
+    response_model=list[ActivityLogOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_club_logs(
+    session: Annotated[AsyncSession, Depends(db)],
+    club_id: Annotated[int, Path()],
+    limit: int = 100,
+) -> list[ActivityLogOut]:
+    """Klub faoliyat jurnali — `audit_log` (CRUD) + `auth_events`
+    (kirish/chiqish) birlashtirilgan, so'nggidan boshlab.
+
+    RLS'ning o'zi ikkalasini ham `club_id = app_club_id() AND
+    app_club_role IN ('OWNER','ADMIN')` bilan cheklaydi (`0005_two_
+    worlds_auth.py`) — bu yerdagi `WHERE club_id = :club_id` faqat
+    ikkinchi qatlam, RLS allaqachon boshqa klub qatorini ko'rsatmaydi.
+    """
+    _assert_path_matches_header(club_id)
+    limit = max(1, min(limit, 200))
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT * FROM ("
+                "  SELECT 'audit' AS source, a.id, a.at, a.action AS event, a.target,"
+                "         u.first_name AS actor_name, u.login AS actor_login, a.after AS detail"
+                "  FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id"
+                "  WHERE a.club_id = :club_id"
+                "  UNION ALL"
+                "  SELECT 'auth' AS source, e.id, e.at, e.event,"
+                "         CAST(NULL AS varchar(128)) AS target,"
+                "         u.first_name AS actor_name, u.login AS actor_login, e.detail"
+                "  FROM auth_events e LEFT JOIN users u ON u.id = e.user_id"
+                "  WHERE e.club_id = :club_id"
+                ") combined"
+                " ORDER BY at DESC"
+                " LIMIT :limit"
+            ),
+            {"club_id": club_id, "limit": limit},
+        )
+    ).all()
+    return [
+        ActivityLogOut(
+            id=f"{r.source}:{r.id}",
+            at=r.at.isoformat(),
+            source=r.source,
+            event=r.event,
+            target=r.target,
+            actor_name=r.actor_name,
+            actor_login=r.actor_login,
+            detail=r.detail,
         )
         for r in rows
     ]

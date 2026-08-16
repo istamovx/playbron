@@ -28,6 +28,7 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   platform: '/platform',
   'platform-clubs': '/platform/clubs',
   'platform-report': '/platform/report',
+  'platform-logs': '/platform/logs',
   'platform-settings': '/platform/settings',
 };
 

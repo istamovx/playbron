@@ -2,12 +2,14 @@ import {
   createStation,
   errorText,
   getClub,
+  listClubLogs,
   listStationsForManagement,
   pollTelegramLink,
   publishClub,
   startTelegramLink,
   updateClub,
   updateStation,
+  type ActivityLogDto,
   type StationDto,
   type TelegramLinkStatus,
 } from '@playbron/api-client';
@@ -33,14 +35,17 @@ import { useClub } from '../../store/club';
 import { ROLE_LABEL, remainingText, useSession } from '../../store/session';
 import { FormGrid, Labeled, parseHm } from './parts';
 
-const TABS = ['Hisob', 'Klub ma’lumoti', 'Xonalar'];
+const TABS = ['Hisob', 'Klub ma’lumoti', 'Xonalar', 'Jurnal'];
 const FULL: CSSProperties = { width: '100%' };
 
 /**
- * Sozlamalar — klub adminining shaxsiy hisobi + klub ma'lumoti + xonalar.
+ * Sozlamalar — klub adminining shaxsiy hisobi + klub ma'lumoti + xonalar
+ * + faoliyat jurnali.
  *
  * Avval "Klub ma'lumoti" alohida nav bo'limi edi (`club-info.tsx`) — loyiha
- * egasining so'rovi bilan shu yerga ko'chirildi (2026-08-16).
+ * egasining so'rovi bilan shu yerga ko'chirildi (2026-08-16). "Jurnal" —
+ * shu kuni qo'shilgan yana bir so'rov: "klub egasiga o'zi va xodimlar
+ * logini ko'rsin".
  */
 export function SettingsScreen(): ReactNode {
   const [tab, setTab] = useState(TABS[0] as string);
@@ -54,6 +59,7 @@ export function SettingsScreen(): ReactNode {
       {tab === 'Hisob' ? <AccountTab /> : null}
       {tab === 'Klub ma’lumoti' ? <ClubGeneralTab /> : null}
       {tab === 'Xonalar' ? <StationsTab /> : null}
+      {tab === 'Jurnal' ? <LogTab /> : null}
     </div>
   );
 }
@@ -844,5 +850,128 @@ function StationsTab(): ReactNode {
         />
       </Panel>
     </>
+  );
+}
+
+// ─────────────────────────── jurnal ───────────────────────────
+
+const LOG_LABEL: Record<string, string> = {
+  staff_created: 'Xodim qo‘shildi',
+  product_created: 'Mahsulot qo‘shildi',
+  product_updated: 'Mahsulot o‘zgartirildi',
+  station_created: 'Xona qo‘shildi',
+  station_updated: 'Xona o‘zgartirildi',
+  club_updated: 'Klub ma’lumoti o‘zgartirildi',
+  staff_login: 'Kirdi',
+  logout: 'Chiqdi',
+};
+
+function logLabel(event: string): string {
+  return LOG_LABEL[event] ?? event;
+}
+
+function formatLogAt(iso: string): string {
+  return new Date(iso).toLocaleString('uz-UZ', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function logDetailSummary(row: ActivityLogDto): string {
+  if (!row.detail) return '—';
+  const parts = Object.entries(row.detail)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
+/**
+ * Klub faoliyat jurnali — xodim/mahsulot/xona/klub o'zgarishlari
+ * (`audit_log`) + kirish/chiqish (`auth_events`) bitta ro'yxatda,
+ * so'nggidan boshlab. RLS o'zi shu klubga cheklaydi.
+ */
+function LogTab(): ReactNode {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
+
+  const [rows, setRows] = useState<ActivityLogDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setRows(await listClubLogs(api, clubId));
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return (
+    <Panel title={`Jurnal (${rows.length})`} notch brackets>
+      {loadError ? <StatusLine tone="danger" icon="error" parts={[loadError]} /> : null}
+
+      <EntityTable
+        rows={rows}
+        rowKey={(row) => row.id}
+        empty={loading ? 'Yuklanmoqda…' : 'Hozircha yozuv yo‘q'}
+        columns={[
+          {
+            key: 'at',
+            header: 'Vaqt',
+            render: (row) => (
+              <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', whiteSpace: 'nowrap' }}>
+                {formatLogAt(row.at)}
+              </span>
+            ),
+          },
+          {
+            key: 'event',
+            header: 'Amal',
+            render: (row) => (
+              <Tag tone={row.source === 'auth' ? 'neutral' : 'violet'}>{logLabel(row.event)}</Tag>
+            ),
+          },
+          {
+            key: 'actor',
+            header: 'Kim',
+            render: (row) => (
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                <span style={{ color: 'var(--text-title)' }}>{row.actorName ?? '—'}</span>
+                <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                  {row.actorLogin ?? '—'}
+                </span>
+              </span>
+            ),
+          },
+          {
+            key: 'target',
+            header: 'Nishon',
+            render: (row) => row.target ?? '—',
+          },
+          {
+            key: 'detail',
+            header: 'Tafsilot',
+            render: (row) => (
+              <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                {logDetailSummary(row)}
+              </span>
+            ),
+          },
+        ]}
+      />
+    </Panel>
   );
 }

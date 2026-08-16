@@ -208,6 +208,7 @@ export type ScreenId =
   | 'platform'
   | 'platform-clubs'
   | 'platform-report'
+  | 'platform-logs'
   | 'platform-settings';
 
 export interface NavItem {
@@ -242,6 +243,7 @@ export const NAV_SUPER_ADMIN: NavItem[] = [
   { id: 'platform', icon: 'hub', label: 'Platforma' },
   { id: 'platform-clubs', icon: 'storefront', label: 'Klublar' },
   { id: 'platform-report', icon: 'analytics', label: 'Hisobot' },
+  { id: 'platform-logs', icon: 'history', label: 'Jurnal' },
   { id: 'platform-settings', icon: 'settings', label: 'Sozlamalar' },
 ];
 
@@ -264,6 +266,7 @@ export const TITLES: Record<ScreenId, [string, string[]]> = {
   platform: ['Platforma', ['Barcha tashkilotlar', 'Cross-tenant, faqat o‘qish']],
   'platform-clubs': ['Klublar', ['Barcha tashkilotlar', 'Qo‘lda qo‘shish va to‘lov']],
   'platform-report': ['Hisobot', ['Platforma tushumi', 'Kunlik — yillik kesim']],
+  'platform-logs': ['Jurnal', ['Platforma darajasidagi amallar']],
   'platform-settings': ['Sozlamalar', ['Super admin hisobi']],
 };
 

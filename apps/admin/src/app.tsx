@@ -23,6 +23,7 @@ import { LiveBoardScreen } from './screens/live-board';
 import { OrdersScreen } from './screens/orders';
 import { PlatformScreen } from './screens/platform';
 import { PlatformClubsScreen } from './screens/platform-clubs';
+import { PlatformLogsScreen } from './screens/platform-logs';
 import { PlatformReportScreen } from './screens/platform-report';
 import { PlatformSettingsScreen } from './screens/platform-settings';
 import { PosScreen } from './screens/pos';
@@ -293,6 +294,7 @@ export function App(): ReactNode {
             {active === 'platform' ? <PlatformScreen /> : null}
             {active === 'platform-clubs' ? <PlatformClubsScreen /> : null}
             {active === 'platform-report' ? <PlatformReportScreen /> : null}
+            {active === 'platform-logs' ? <PlatformLogsScreen /> : null}
             {active === 'platform-settings' ? <PlatformSettingsScreen /> : null}
           </main>
         </div>

@@ -8,7 +8,7 @@ O'qish marshrutlari `platform_db` ga bog'liq (`deps.py`) — ichida
 (`platform_write_db`) — platforma-xos yozish, `0016_platform_org_admin.py`.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, Field
@@ -154,3 +154,23 @@ async def financial_report(
 ) -> FinancialReportOut:
     data = await service.get_financial_report(session, period=period)
     return FinancialReportOut(**data)
+
+
+class PlatformLogOut(BaseModel):
+    id: str
+    at: str
+    action: str
+    target: str | None
+    org_id: int | None
+    actor_name: str | None
+    actor_login: str | None
+    detail: dict[str, Any] | None
+
+
+@router.get("/logs", response_model=list[PlatformLogOut])
+async def platform_logs(
+    session: Annotated[AsyncSession, Depends(platform_db)],
+    limit: int = 100,
+) -> list[PlatformLogOut]:
+    rows = await service.list_platform_logs(session, limit=max(1, min(limit, 200)))
+    return [PlatformLogOut(**row) for row in rows]

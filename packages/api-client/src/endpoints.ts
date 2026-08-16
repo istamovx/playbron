@@ -506,6 +506,50 @@ export const createStaffMember = async (
   };
 };
 
+// ── Klub faoliyat jurnali ────────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/staff/router.py::list_club_logs`.
+// `audit_log` (CRUD) + `auth_events` (kirish/chiqish) birlashtirilgan.
+
+export interface ActivityLogDto {
+  id: string;
+  at: string;
+  source: 'audit' | 'auth';
+  event: string;
+  target: string | null;
+  actorName: string | null;
+  actorLogin: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+export const listClubLogs = async (
+  api: ApiClient,
+  clubId: number,
+  limit = 100,
+): Promise<ActivityLogDto[]> => {
+  const rows = await api.get<
+    Array<{
+      id: string;
+      at: string;
+      source: 'audit' | 'auth';
+      event: string;
+      target: string | null;
+      actor_name: string | null;
+      actor_login: string | null;
+      detail: Record<string, unknown> | null;
+    }>
+  >(`/clubs/${clubId}/logs`, { query: { limit } });
+  return rows.map((row) => ({
+    id: row.id,
+    at: row.at,
+    source: row.source,
+    event: row.event,
+    target: row.target,
+    actorName: row.actor_name,
+    actorLogin: row.actor_login,
+    detail: row.detail,
+  }));
+};
+
 // ── POS: mahsulot, buyurtma, kassa, live board ─────────────────────────────
 // Manba: `api/src/playbron/modules/pos/router.py`. Mijozga ochiq emas —
 // faqat xodim.
@@ -963,6 +1007,47 @@ export const getPlatformReport = async (
     totalRevenue: row.total_revenue,
     totalOrganizations: row.total_organizations,
   };
+};
+
+// ── Platforma: faoliyat jurnali ─────────────────────────────────────────
+// Manba: `api/src/playbron/modules/platform/router.py::platform_logs`.
+// Faqat PLATFORMA darajasidagi amallar (tashkilot yaratish, to'lov) —
+// bitta klub ICHIDAGI amallar `listClubLogs`da, klub egasining o'zida.
+
+export interface PlatformLogDto {
+  id: string;
+  at: string;
+  action: string;
+  target: string | null;
+  orgId: number | null;
+  actorName: string | null;
+  actorLogin: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+export const listPlatformLogs = async (api: ApiClient, limit = 100): Promise<PlatformLogDto[]> => {
+  const rows = await api.get<
+    Array<{
+      id: string;
+      at: string;
+      action: string;
+      target: string | null;
+      org_id: number | null;
+      actor_name: string | null;
+      actor_login: string | null;
+      detail: Record<string, unknown> | null;
+    }>
+  >('/platform/logs', { query: { limit } });
+  return rows.map((row) => ({
+    id: row.id,
+    at: row.at,
+    action: row.action,
+    target: row.target,
+    orgId: row.org_id,
+    actorName: row.actor_name,
+    actorLogin: row.actor_login,
+    detail: row.detail,
+  }));
 };
 
 // ── Me ────────────────────────────────────────────────────────────────────

@@ -340,3 +340,42 @@ async def get_financial_report(session: AsyncSession, *, period: Period) -> dict
         "total_revenue": int(total_revenue or 0),
         "total_organizations": int(total_orgs or 0),
     }
+
+
+async def list_platform_logs(session: AsyncSession, *, limit: int) -> list[dict[str, Any]]:
+    """Platforma darajasidagi amallar — `club_id IS NULL` qatorlar
+    (tashkilot yaratish, to'lov yozish). Bitta klub ICHIDAGI amallar
+    (xodim/mahsulot/xona) BU YERDA emas — ular klub egasi/adminining
+    o'z jurnalida (`staff/router.py::list_club_logs`), "o'ziga hos
+    loglar" talabini shu ikkiga ajratish bilan qanoatlantiradi
+    (loyiha egasining so'rovi, 2026-08-16).
+
+    `audit_log_platform_read` policy'si (`0018_platform_log_read.py`)
+    shart — undan oldin `app_platform()` uchun o'qish policy'si yo'q
+    edi, GRANT bor bo'lsa ham (`[[playbron-grant-vs-rls-blind-spot]]`).
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT a.id, a.at, a.action, a.target, a.org_id,"
+                "       u.first_name AS actor_name, u.login AS actor_login, a.after"
+                " FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id"
+                " WHERE a.club_id IS NULL"
+                " ORDER BY a.at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return [
+        {
+            "id": f"audit:{row.id}",
+            "at": row.at.isoformat(),
+            "action": row.action,
+            "target": row.target,
+            "org_id": row.org_id,
+            "actor_name": row.actor_name,
+            "actor_login": row.actor_login,
+            "detail": row.after,
+        }
+        for row in rows
+    ]
