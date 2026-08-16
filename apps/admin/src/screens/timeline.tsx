@@ -276,7 +276,7 @@ export function TimelineScreen(): ReactNode {
                 {stations.map((station) => (
                   <div
                     key={station.id}
-                    style={{ display: 'flex', alignItems: 'center', minHeight: 'var(--control-h-lg)' }}
+                    style={{ display: 'flex', minHeight: 'var(--control-h-lg)' }}
                   >
                     <div
                       style={{
@@ -284,7 +284,9 @@ export function TimelineScreen(): ReactNode {
                         flex: 'none',
                         display: 'flex',
                         flexDirection: 'column',
+                        justifyContent: 'center',
                         gap: 2,
+                        padding: '4px 0',
                       }}
                     >
                       <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
