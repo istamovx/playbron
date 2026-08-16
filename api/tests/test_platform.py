@@ -359,6 +359,67 @@ async def test_super_admin_records_payment_and_sees_it_in_report(
 
 
 @skip_no_db
+async def test_payment_updates_org_plan_and_expiry_in_list(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """To'lov qo'shilgandan keyin "Klublar" ro'yxatida TARIF va AMAL
+    QILISH MUDDATI ko'rinishi kerak (`0017_platform_org_plan.py`)."""
+    sa_h = await _login(client, SA_LOGIN)
+
+    before = await client.get("/api/v1/platform/orgs", headers=sa_h)
+    assert before.status_code == 200, before.text
+    row_before = next(row for row in before.json() if row["org_id"] == world["org_a"])
+    assert row_before["plan_code"] is None
+    assert row_before["last_payment_amount"] is None
+    assert row_before["plan_expires_at"] is None
+
+    paid = await client.post(
+        f"/api/v1/platform/orgs/{world['org_a']}/payments",
+        json={"amount": 350000, "plan_code": "platinium", "period_months": 3},
+        headers=sa_h,
+    )
+    assert paid.status_code == 201, paid.text
+    paid_at = datetime.fromisoformat(paid.json()["paid_at"])
+
+    after = await client.get("/api/v1/platform/orgs", headers=sa_h)
+    assert after.status_code == 200, after.text
+    row_after = next(row for row in after.json() if row["org_id"] == world["org_a"])
+    assert row_after["plan_code"] == "platinium"
+    assert row_after["last_payment_amount"] == 350000
+    assert row_after["last_payment_at"] is not None
+    assert row_after["plan_expires_at"] is not None
+
+    expires_at = datetime.fromisoformat(row_after["plan_expires_at"])
+    # Postgres `interval '1 month'` — kalendar oyi qo'shadi (kun/soat aynan
+    # saqlanadi), `timedelta(days=...)` bilan emas — 3 oy qo'shib solishtiramiz.
+    expected_month = paid_at.month - 1 + 3
+    expected = paid_at.replace(year=paid_at.year + expected_month // 12, month=expected_month % 12 + 1)
+    assert abs((expires_at - expected).total_seconds()) < 60
+
+
+@skip_no_db
+async def test_payment_without_plan_code_leaves_org_plan_untouched(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Tarifsiz (bir martalik) to'lov — `organizations.plan_code`ni
+    o'zgartirmasligi kerak, faqat to'lov tarixiga qo'shiladi."""
+    sa_h = await _login(client, SA_LOGIN)
+
+    r = await client.post(
+        f"/api/v1/platform/orgs/{world['org_b']}/payments",
+        json={"amount": 120000, "note": "bir martalik"},
+        headers=sa_h,
+    )
+    assert r.status_code == 201, r.text
+
+    rows = await client.get("/api/v1/platform/orgs", headers=sa_h)
+    row_b = next(row for row in rows.json() if row["org_id"] == world["org_b"])
+    assert row_b["plan_code"] is None
+    assert row_b["last_payment_amount"] == 120000
+    assert row_b["plan_expires_at"] is None
+
+
+@skip_no_db
 async def test_report_rejects_unknown_period(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

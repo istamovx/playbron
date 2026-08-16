@@ -130,6 +130,10 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
     bo'lmasligi mumkin emas aslida (`auth_owner_signup` ikkalasini birga
     yaratadi), lekin himoya sifatida qoldiriladi — bittasi buzilib
     qolsa butun ro'yxat yo'qolmaydi.
+
+    `LEFT JOIN LATERAL platform_payments` — so'nggi to'lov qatori.
+    "Amal qilish muddati" alohida ustun sifatida saqlanmaydi, shu
+    yerda `paid_at + period_months` sifatida hisoblanadi (`0017`).
     """
     rows = (
         await session.execute(
@@ -141,10 +145,18 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
                 "       (SELECT count(*) FROM stations s WHERE s.club_id = c.id) AS stations_count,"
                 "       (SELECT count(*) FROM bookings b"
                 "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
-                "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d"
+                "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d,"
+                "       lp.amount AS last_payment_amount, lp.paid_at AS last_payment_at,"
+                "       CASE WHEN lp.period_months IS NOT NULL"
+                "            THEN lp.paid_at + (lp.period_months * interval '1 month')"
+                "            ELSE NULL END AS plan_expires_at"
                 " FROM organizations o"
                 " JOIN users u ON u.id = o.owner_user_id"
                 " LEFT JOIN clubs c ON c.org_id = o.id"
+                " LEFT JOIN LATERAL ("
+                "     SELECT amount, paid_at, period_months FROM platform_payments pp"
+                "      WHERE pp.org_id = o.id ORDER BY pp.paid_at DESC LIMIT 1"
+                " ) lp ON true"
                 " ORDER BY o.created_at DESC"
             )
         )
@@ -163,6 +175,9 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
             "club_status": row.club_status,
             "stations_count": int(row.stations_count or 0),
             "bookings_30d": int(row.bookings_30d or 0),
+            "last_payment_amount": row.last_payment_amount,
+            "last_payment_at": row.last_payment_at.isoformat() if row.last_payment_at else None,
+            "plan_expires_at": row.plan_expires_at.isoformat() if row.plan_expires_at else None,
         }
         for row in rows
     ]
@@ -228,6 +243,17 @@ async def record_payment(
             },
         )
     ).one()
+
+    # Tarif tanlangan bo'lsa — tashkilotning joriy tarifi ham yangilanadi
+    # ("Klublar" jadvalidagi TARIF ustuni). `organizations_platform_write`
+    # policy'si (`0017`) shu yozuvga ruxsat beradi — GRANT `0001`dan bor edi,
+    # RLS yetishmayotgan edi.
+    if plan_code is not None:
+        await session.execute(
+            text("UPDATE organizations SET plan_code = :plan WHERE id = :org"),
+            {"plan": plan_code, "org": org_id},
+        )
+
     return {
         "id": row.id,
         "org_id": row.org_id,

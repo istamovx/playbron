@@ -59,6 +59,9 @@ class OrgOut(BaseModel):
     club_status: str | None
     stations_count: int
     bookings_30d: int
+    last_payment_amount: int | None
+    last_payment_at: str | None
+    plan_expires_at: str | None
 
 
 @router.get("/orgs", response_model=list[OrgOut])

@@ -49,6 +49,16 @@ function planSelectLabel(code: string | null): string {
   return (idx >= 0 ? PLAN_LABELS[idx] : undefined) ?? PLAN_LABELS[0] ?? 'Yo‘q';
 }
 
+/** `bookings.tsx::formatClock` bilan bir xil naqsh — kichik yordamchi, alohida modul emas. */
+function formatExpiry(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('uz-UZ', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 interface CreateDraft {
   firstName: string;
   clubName: string;
@@ -510,6 +520,22 @@ export function PlatformClubsScreen(): ReactNode {
                   {row.planCode ? (PLAN_DISPLAY[row.planCode] ?? row.planCode) : '—'}
                 </span>
               ),
+            },
+            {
+              key: 'expires',
+              header: 'Amal qilish muddati',
+              render: (row) => {
+                if (!row.planExpiresAt) {
+                  return <span style={{ color: 'var(--text-dim)' }}>—</span>;
+                }
+                const expired = new Date(row.planExpiresAt).getTime() < Date.now();
+                return (
+                  <Tag tone={expired ? 'danger' : 'neutral'}>
+                    {expired ? 'Tugagan · ' : ''}
+                    {formatExpiry(row.planExpiresAt)}
+                  </Tag>
+                );
+              },
             },
             {
               key: 'stations',

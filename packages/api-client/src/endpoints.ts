@@ -812,6 +812,11 @@ export interface PlatformOrgDto {
   clubStatus: string | null;
   stationsCount: number;
   bookings30d: number;
+  /** So'nggi qo'lda kiritilgan to'lov summasi — hech qachon to'lanmagan bo'lsa `null`. */
+  lastPaymentAmount: number | null;
+  lastPaymentAt: string | null;
+  /** `so'nggi to'lov + necha oy` — backendda hisoblanadi, ustun sifatida saqlanmaydi. */
+  planExpiresAt: string | null;
 }
 
 interface PlatformOrgApi {
@@ -827,6 +832,9 @@ interface PlatformOrgApi {
   club_status: string | null;
   stations_count: number;
   bookings_30d: number;
+  last_payment_amount: number | null;
+  last_payment_at: string | null;
+  plan_expires_at: string | null;
 }
 
 const fromPlatformOrgApi = (row: PlatformOrgApi): PlatformOrgDto => ({
@@ -842,6 +850,9 @@ const fromPlatformOrgApi = (row: PlatformOrgApi): PlatformOrgDto => ({
   clubStatus: row.club_status,
   stationsCount: row.stations_count,
   bookings30d: row.bookings_30d,
+  lastPaymentAmount: row.last_payment_amount,
+  lastPaymentAt: row.last_payment_at,
+  planExpiresAt: row.plan_expires_at,
 });
 
 export const listPlatformOrgs = async (api: ApiClient): Promise<PlatformOrgDto[]> => {
