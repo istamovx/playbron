@@ -16,8 +16,9 @@ from urllib.parse import urlencode
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import null_actor_refs
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from playbron.core.config import settings
 from playbron.main import app
@@ -108,18 +109,27 @@ async def club_owner() -> AsyncIterator[dict[str, int]]:
 
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+        await null_actor_refs(conn, ids["user"])
         await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": ids["user"]})
     await engine.dispose()
+
+
+async def _wipe_client_user(conn: AsyncConnection) -> None:
+    stale_id = await conn.scalar(
+        text("SELECT id FROM users WHERE telegram_id = :t"), {"t": CLIENT_TG}
+    )
+    await null_actor_refs(conn, stale_id)
+    await conn.execute(text("DELETE FROM users WHERE telegram_id = :t"), {"t": CLIENT_TG})
 
 
 @pytest_asyncio.fixture
 async def clean_client_user() -> AsyncIterator[None]:
     engine = _owner_engine()
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM users WHERE telegram_id = :t"), {"t": CLIENT_TG})
+        await _wipe_client_user(conn)
     yield
     async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM users WHERE telegram_id = :t"), {"t": CLIENT_TG})
+        await _wipe_client_user(conn)
     await engine.dispose()
 
 

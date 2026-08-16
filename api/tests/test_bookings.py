@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import purge_audit_actor, rls_bypass
+from conftest import null_actor_refs, purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -137,6 +137,10 @@ async def world() -> AsyncIterator[dict[str, int]]:
             await purge_audit_actor(conn, ids["owner"], customer_id)
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+            # Oldingi uzilgan yurishdan qolgan "yetim" qatorlar (boshqa
+            # `club_id`) bo'lsa — `DELETE FROM users`dan OLDIN so'nggi qadam
+            # (`conftest.py::null_actor_refs`).
+            await null_actor_refs(conn, ids["owner"], customer_id)
             await conn.execute(
                 text("DELETE FROM users WHERE login = :l AND kind = 'staff'"), {"l": OWNER_LOGIN}
             )
@@ -427,6 +431,7 @@ async def test_owner_publishes_draft_club_with_station(client: httpx.AsyncClient
                 await conn.execute(
                     text("DELETE FROM organizations WHERE id = :o"), {"o": ids["org"]}
                 )
+                await null_actor_refs(conn, ids.get("owner"))
                 await conn.execute(
                     text("DELETE FROM users WHERE login = 'pub.owner' AND kind = 'staff'")
                 )
@@ -477,7 +482,9 @@ async def test_owner_updates_club_info(client: httpx.AsyncClient, world: dict[st
 
 
 @skip_no_db
-async def test_club_maps_url_must_be_https(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+async def test_club_maps_url_must_be_https(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
     staff_h = await _staff_headers(client, world["club"])
     r = await client.patch(
         f"/api/v1/clubs/{world['club']}",

@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import null_actor_refs
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -81,6 +82,7 @@ async def staff_user() -> AsyncIterator[int]:
     yield int(user_id)
 
     async with engine.begin() as conn:
+        await null_actor_refs(conn, user_id)
         await conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
     await engine.dispose()
 

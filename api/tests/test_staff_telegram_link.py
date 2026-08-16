@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import null_actor_refs, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -132,6 +132,11 @@ async def world() -> AsyncIterator[dict[str, int]]:
                 text("DELETE FROM staff_telegram WHERE user_id = :u"), {"u": ids["owner"]}
             )
             await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+            customer_id = await conn.scalar(
+                text("SELECT id FROM users WHERE telegram_id = :tg AND kind = 'customer'"),
+                {"tg": CUSTOMER_TG},
+            )
+            await null_actor_refs(conn, ids["owner"], customer_id)
             await conn.execute(
                 text("DELETE FROM users WHERE login = :l AND kind = 'staff'"), {"l": OWNER_LOGIN}
             )

@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+from conftest import null_actor_refs
 from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -58,6 +59,7 @@ async def account() -> AsyncIterator[int]:
 
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM super_admins WHERE user_id = :uid"), {"uid": user_id})
+        await null_actor_refs(conn, user_id)
         await conn.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
     await engine.dispose()
 

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+from conftest import null_actor_refs
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
@@ -97,6 +98,7 @@ async def seeded() -> AsyncIterator[dict[str, int]]:
             text("DELETE FROM organizations WHERE id = ANY(:ids)"),
             {"ids": [ids["org_a"], ids["org_b"]]},
         )
+        await null_actor_refs(conn, ids["user_a"], ids["user_b"])
         await conn.execute(
             text("DELETE FROM users WHERE id = ANY(:ids)"),
             {"ids": [ids["user_a"], ids["user_b"]]},

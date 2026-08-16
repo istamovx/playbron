@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from conftest import purge_audit_actor, rls_bypass
+from conftest import null_actor_refs, purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
@@ -142,6 +142,7 @@ async def world() -> AsyncIterator[dict[str, int]]:
                     " (SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'hard.%')"
                 )
             )
+            await null_actor_refs(conn, *stale_ids)
             await conn.execute(
                 text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'hard.%'")
             )

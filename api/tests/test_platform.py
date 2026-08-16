@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import purge_audit_actor, rls_bypass
+from conftest import null_actor_refs, purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -179,6 +179,7 @@ async def world() -> AsyncIterator[dict[str, int]]:
                                 {"a": ids["org_a"], "b": ids["org_b"]})
             await conn.execute(text("DELETE FROM super_admins WHERE user_id = :u"),
                                 {"u": ids["sa_user"]})
+            await null_actor_refs(conn, ids["sa_user"], ids["owner_a"], ids["owner_b"])
             await conn.execute(
                 text(
                     "DELETE FROM users WHERE login IN (:sa, :a, :b) AND kind = 'staff'"
@@ -322,6 +323,7 @@ async def test_super_admin_creates_org_manually(
                     ),
                     {"l": login},
                 )
+                await null_actor_refs(conn, new_owner_id)
                 await conn.execute(text("DELETE FROM users WHERE login = :l"), {"l": login})
         await engine.dispose()
 
@@ -400,7 +402,9 @@ async def test_payment_updates_org_plan_and_expiry_in_list(
     # Postgres `interval '1 month'` — kalendar oyi qo'shadi (kun/soat aynan
     # saqlanadi), `timedelta(days=...)` bilan emas — 3 oy qo'shib solishtiramiz.
     expected_month = paid_at.month - 1 + 3
-    expected = paid_at.replace(year=paid_at.year + expected_month // 12, month=expected_month % 12 + 1)
+    expected = paid_at.replace(
+        year=paid_at.year + expected_month // 12, month=expected_month % 12 + 1
+    )
     assert abs((expires_at - expected).total_seconds()) < 60
 
 

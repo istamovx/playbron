@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import purge_audit_actor, rls_bypass
+from conftest import null_actor_refs, purge_audit_actor, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -142,6 +142,7 @@ async def world() -> AsyncIterator[dict[str, int]]:
             await conn.execute(text("DELETE FROM products WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+            await null_actor_refs(conn, ids["owner"])
             await conn.execute(
                 text("DELETE FROM users WHERE login = :l AND kind = 'staff'"), {"l": OWNER_LOGIN}
             )

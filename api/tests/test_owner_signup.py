@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from conftest import null_actor_refs
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -78,6 +79,15 @@ async def clean() -> AsyncIterator[None]:
                     " (SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%')"
                 )
             )
+            stale_ids = [
+                row[0]
+                for row in (
+                    await conn.execute(
+                        text("SELECT id FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%'")
+                    )
+                ).all()
+            ]
+            await null_actor_refs(conn, *stale_ids)
             await conn.execute(
                 text("DELETE FROM users WHERE kind = 'staff' AND login LIKE 'sgn.%'")
             )

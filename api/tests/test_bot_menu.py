@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-from conftest import rls_bypass
+from conftest import null_actor_refs, rls_bypass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -139,6 +139,7 @@ async def club_graph() -> AsyncIterator[dict[str, int]]:
             await conn.execute(text("DELETE FROM memberships WHERE club_id = :c"), {"c": club_id})
             await conn.execute(text("DELETE FROM clubs WHERE id = :c"), {"c": club_id})
             await conn.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": org_id})
+            await null_actor_refs(conn, owner_id, staff_id)
             await conn.execute(
                 text("DELETE FROM users WHERE id IN (:o, :s)"), {"o": owner_id, "s": staff_id}
             )
