@@ -6,7 +6,7 @@ import {
   type BillDto,
   type OpenBookingDto,
 } from '@playbron/api-client';
-import { Button, Icon, Panel, StatusLine, toast } from '@playbron/ui';
+import { Button, EntityTable, Icon, Panel, StatusLine, toast, type Column } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -89,75 +89,65 @@ export function PosScreen(): ReactNode {
     }
   };
 
+  // Card grid o'rniga jadval (loyiha egasining topilmasi, 2026-08-16):
+  // hisoblar soni o'zgarganda auto-fit grid layout buzilardi.
+  const openColumns: Column<OpenBookingDto>[] = [
+    {
+      key: 'station',
+      header: 'Xona',
+      render: (booking) => (
+        <button
+          type="button"
+          onClick={() => setSelectedId(booking.id)}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            font: 'var(--type-control)',
+            color: booking.id === selectedId ? 'var(--text-accent)' : 'var(--text-title)',
+          }}
+        >
+          {booking.stationCode}
+        </button>
+      ),
+    },
+    {
+      key: 'guest',
+      header: 'Mijoz',
+      render: (booking) => booking.guestLabel ?? 'Mijoz',
+    },
+    {
+      key: 'time',
+      header: 'Vaqt',
+      render: (booking) => `${formatClock(booking.startsAt)} → ${formatClock(booking.endsAt)}`,
+    },
+    {
+      key: 'select',
+      header: '',
+      align: 'right',
+      render: (booking) => (
+        <Button
+          variant={booking.id === selectedId ? 'primary' : 'ghost'}
+          size="sm"
+          onClick={() => setSelectedId(booking.id)}
+        >
+          {booking.id === selectedId ? 'Tanlangan' : 'Tanlash'}
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="ds-split" style={{ alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
         <Panel title={`Ochiq hisoblar (${open.length})`} notch brackets>
-          {open.length === 0 ? (
-            <div
-              style={{
-                border: '1px dashed var(--line-2)',
-                padding: 18,
-                textAlign: 'center',
-                font: 'var(--type-body-sm)',
-                color: 'var(--text-dim)',
-              }}
-            >
-              Ochiq hisob yo‘q
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
-                gap: 'var(--gap-tight)',
-              }}
-            >
-              {open.map((booking) => {
-                const on = booking.id === selectedId;
-                return (
-                  <div
-                    key={booking.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedId(booking.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') setSelectedId(booking.id);
-                    }}
-                    style={{
-                      cursor: 'pointer',
-                      padding: 'var(--card-pad)',
-                      background: on ? 'var(--surface-selected)' : 'var(--surface-card)',
-                      border: `1px solid ${on ? 'var(--primary-100)' : 'var(--line-1)'}`,
-                      clipPath: 'var(--clip-tr)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                      minWidth: 0,
-                    }}
-                  >
-                    <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
-                      {booking.stationCode}
-                    </span>
-                    <span
-                      style={{
-                        font: 'var(--type-body-sm)',
-                        color: 'var(--text-muted)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {booking.guestLabel ?? 'Mijoz'}
-                    </span>
-                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                      {`${formatClock(booking.startsAt)} → ${formatClock(booking.endsAt)}`}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <EntityTable<OpenBookingDto>
+            columns={openColumns}
+            rows={open}
+            rowKey={(booking) => String(booking.id)}
+            empty="Ochiq hisob yo‘q"
+          />
         </Panel>
       </div>
 

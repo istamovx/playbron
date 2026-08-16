@@ -1,4 +1,5 @@
-import { Icon, SidebarNav, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
+import { getCurrentShift } from '@playbron/api-client';
+import { Button, Icon, SidebarNav, StatusLine, ToastHost, UserMenu, Wordmark, useMedia } from '@playbron/ui';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
@@ -30,6 +31,7 @@ import { PosScreen } from './screens/pos';
 import { ShiftScreen } from './screens/shift';
 import { LoginScreen } from './screens/login';
 import { TimelineScreen } from './screens/timeline';
+import { api } from './lib/api';
 import { pathOf, screenOf } from './routes';
 import { useBoard, useClock, useNow } from './store/board';
 import { useSession } from './store/session';
@@ -273,6 +275,12 @@ export function App(): ReactNode {
             <div style={{ height: 1, width: 14, background: 'var(--line-3)' }} />
           </div>
 
+          {session.role !== 'SUPER_ADMIN' && active !== 'shift' ? (
+            <div style={{ padding: 'var(--gap-block) var(--gutter) 0', flex: 'none' }}>
+              <ShiftReminderBanner clubId={activeClubId} onOpenShift={() => go('shift')} />
+            </div>
+          ) : null}
+
           <main
             style={{
               flex: 1,
@@ -319,6 +327,60 @@ export function App(): ReactNode {
           onClose={() => setDrawer(false)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Kun boshlanganda smena ochish esidan chiqib qolishi mumkin (loyiha
+ * egasining topilmasi, 2026-08-16) — smena hali ochilmagan bo'lsa header
+ * ostida doimiy eslatma. `clubId` yo'q (sessiya hali sinxronlanmagan)
+ * holatda hech narsa ko'rsatilmaydi.
+ */
+function ShiftReminderBanner({
+  clubId,
+  onOpenShift,
+}: {
+  clubId: number | null;
+  onOpenShift: () => void;
+}): ReactNode {
+  const [needsShift, setNeedsShift] = useState(false);
+
+  useEffect(() => {
+    if (clubId === null) return;
+    let cancelled = false;
+    void getCurrentShift(api, clubId)
+      .then((shift) => {
+        if (!cancelled) setNeedsShift(shift === null);
+      })
+      .catch(() => {
+        // Tarmoq xatosi — eslatma ko'rsatilmaydi, keyingi ekran o'zi xato beradi
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId]);
+
+  if (!needsShift) return null;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 'var(--gap-block)',
+        flexWrap: 'wrap',
+        padding: '8px 12px',
+        background: 'var(--surface-panel-quiet)',
+        border: '1px solid var(--amber-400)',
+        clipPath: 'var(--clip-tr)',
+      }}
+    >
+      <StatusLine tone="warn" icon="schedule" parts={['Smena hali ochilmagan']} />
+      <Button variant="ghost" size="sm" icon="lock_open" onClick={onOpenShift}>
+        Smenani ochish
+      </Button>
     </div>
   );
 }
