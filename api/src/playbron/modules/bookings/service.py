@@ -394,6 +394,54 @@ async def list_day_bookings(
     ]
 
 
+async def list_timeline(
+    session: AsyncSession, club_id: int, day: datetime
+) -> list[dict[str, Any]]:
+    """Kunlik jadval — har stansiya, shu kundagi barcha bron, mehmon ismi
+    va stansiya ma'lumoti bilan boyitilgan.
+
+    `list_day_bookings()`dan FARQI: bu yerda faqat xom oraliq emas, to'liq
+    ko'rsatish ma'lumoti qaytadi (`timeline.tsx` — xodim ekrani). Bekor
+    qilingan (`CANCELLED`) bronlar chiqarib tashlanadi — ular hech qachon
+    sodir bo'lmagan, jadvalda ko'rsatishning ma'nosi yo'q.
+    """
+    day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT b.id, b.station_id, s.code AS station_code, s.room_label,"
+                "       s.console_type, lower(b.period) AS starts_at,"
+                "       upper(b.period) AS ends_at, b.status, b.closed_at IS NOT NULL AS closed,"
+                "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label"
+                " FROM bookings b"
+                " JOIN stations s ON s.id = b.station_id"
+                " LEFT JOIN users u ON u.id = b.customer_id"
+                " WHERE b.club_id = :club_id AND b.status <> 'CANCELLED'"
+                "   AND b.period && tstzrange(:day_start, :day_end)"
+                " ORDER BY s.code, starts_at"
+            ),
+            {"club_id": club_id, "day_start": day_start, "day_end": day_end},
+        )
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "station_id": r.station_id,
+            "station_code": r.station_code,
+            "room_label": r.room_label,
+            "console_type": r.console_type,
+            "starts_at": r.starts_at.isoformat(),
+            "ends_at": r.ends_at.isoformat(),
+            "status": r.status,
+            "closed": bool(r.closed),
+            "guest_label": r.guest_label,
+        }
+        for r in rows
+    ]
+
+
 async def _load_club_and_station(
     session: AsyncSession, club_id: int, station_id: int
 ) -> tuple[Any, Any]:

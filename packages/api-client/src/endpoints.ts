@@ -327,6 +327,55 @@ export const listDayBookings = async (
   }));
 };
 
+export interface TimelineBookingDto {
+  id: number;
+  stationId: number;
+  stationCode: string;
+  roomLabel: string;
+  consoleType: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  closed: boolean;
+  guestLabel: string | null;
+}
+
+interface TimelineBookingApi {
+  id: number;
+  station_id: number;
+  station_code: string;
+  room_label: string;
+  console_type: string;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  closed: boolean;
+  guest_label: string | null;
+}
+
+/** `timeline.tsx` — xodim uchun kunlik jadval, mehmon ismi bilan boyitilgan. */
+export const listTimeline = async (
+  api: ApiClient,
+  clubId: number,
+  date: string,
+): Promise<TimelineBookingDto[]> => {
+  const rows = await api.get<TimelineBookingApi[]>(`/clubs/${clubId}/bookings/timeline`, {
+    query: { date },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    stationId: row.station_id,
+    stationCode: row.station_code,
+    roomLabel: row.room_label,
+    consoleType: row.console_type,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status,
+    closed: row.closed,
+    guestLabel: row.guest_label,
+  }));
+};
+
 export interface CustomerBookingIn {
   stationId: number;
   startsAt: string;

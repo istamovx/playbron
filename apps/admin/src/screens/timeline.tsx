@@ -1,23 +1,36 @@
-import { NO_SHOW_MIN, Panel, SegmentedControl, useNarrow } from '@playbron/ui';
-import type { ReactNode } from 'react';
-
 import {
-  DAY_END,
-  DAY_ITEMS,
-  DAY_START,
-  HM,
-  TOMORROW,
-  YESTERDAY,
-  consoleLabel,
-  liveStations,
-  type DayId,
-  type MockStation,
-} from '../mock/data';
-import { useBoard, useNow } from '../store/board';
+  errorText,
+  listLiveStations,
+  listTimeline,
+  type LiveStationDto,
+  type TimelineBookingDto,
+} from '@playbron/api-client';
+import { Panel, SegmentedControl, StatusLine, useNarrow } from '@playbron/ui';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+
+import { api } from '../lib/api';
+import { DAY_END, DAY_ITEMS, DAY_START, HM, consoleLabel, type DayId } from '../mock/data';
+import { useNow } from '../store/board';
+import { useSession } from '../store/session';
+
+/**
+ * Kunlik gantt — `PlayBron Xodim.dc.html` TIMELINE bo'limi.
+ *
+ * Reja #33 (2026-08-16, loyiha egasi): to'liq mock (`ST`, `YESTERDAY`,
+ * `TOMORROW` — soxta mijoz, soxta bron) edi, HAQIQIY `GET /clubs/{id}/
+ * bookings/timeline`ga (`bookings/service.py::list_timeline`) ko'chirildi
+ * — stansiya ro'yxati (`listLiveStations`, allaqachon real) + shu kunning
+ * haqiqiy bronlari.
+ *
+ * "Kelmadi" (no-show) rangi OLIB TASHLANDI: bunday kuzatuv hali qurilmagan
+ * (reja #32, `blacklist.tsx`). "Overtime" esa HAQIQIY hisoblanadi (bugungi
+ * hisob yopilmagan bo'lsa va vaqti o'tgan bo'lsa) — bu real ma'lumotdan
+ * kelib chiqadi, soxta emas.
+ */
 
 const LEGEND = [
   { k: 'Band', c: 'var(--primary-100)' },
-  { k: 'Rezerv', c: 'var(--yellow-100)' },
+  { k: 'Kutilmoqda', c: 'var(--yellow-100)' },
   { k: 'Tugagan', c: 'var(--fg-4)' },
   { k: 'Overtime', c: 'var(--red-100)' },
   { k: 'Hozir', c: 'var(--red-100)' },
@@ -46,21 +59,115 @@ interface Bar {
   time: string;
 }
 
-/** Kunlik gantt — `PlayBron Xodim.dc.html` TIMELINE bo'limi. */
+function offsetOf(iso: string, dayStart: number): number {
+  return (new Date(iso).getTime() - dayStart) / 60000;
+}
+
+function barsForStation(
+  bookings: TimelineBookingDto[],
+  stationId: number,
+  dayStartMs: number,
+  nowMin: number,
+  isToday: boolean,
+): Bar[] {
+  const bars: Bar[] = [];
+  for (const b of bookings) {
+    if (b.stationId !== stationId) continue;
+    const from = offsetOf(b.startsAt, dayStartMs);
+    const to = offsetOf(b.endsAt, dayStartMs);
+    if (!visible(from, to)) continue;
+
+    const overtime = isToday && !b.closed && b.status === 'CONFIRMED' && to < nowMin;
+    const pending = b.status === 'PENDING';
+    const label = (b.guestLabel ?? 'Mijoz').split(' ')[0] ?? 'Mijoz';
+
+    bars.push({
+      left: pos(from),
+      width: wide(from, to),
+      bg: overtime
+        ? 'rgba(255,80,93,.10)'
+        : b.closed
+          ? 'rgba(255,255,255,.05)'
+          : pending
+            ? 'rgba(237,176,126,.14)'
+            : 'rgba(87,0,255,.20)',
+      line: overtime
+        ? 'var(--red-100)'
+        : b.closed
+          ? 'var(--line-2)'
+          : pending
+            ? 'var(--yellow-100)'
+            : 'var(--primary-100)',
+      name: overtime ? `${label} · Overtime` : label,
+      time: `${HM(Math.max(0, from))}–${HM(Math.max(0, to))}`,
+    });
+  }
+  return bars;
+}
+
+/** Tanlangan kun ("Kecha"/"Bugun"/"Ertaga") — `YYYY-MM-DD` (brauzer mahalliy vaqti). */
+function dateFor(day: DayId): { iso: string; startMs: number } {
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+  const offset = day === 'Kecha' ? -1 : day === 'Ertaga' ? 1 : 0;
+  base.setDate(base.getDate() + offset);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    iso: `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`,
+    startMs: base.getTime(),
+  };
+}
+
 export function TimelineScreen(): ReactNode {
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
   const now = useNow();
   const nowMin = now / 60;
   const narrow = useNarrow();
-  const state = useBoard();
-  const live = liveStations(state.nsMarked, state.closedRooms, state.extended);
 
+  const [day, setDay] = useState<DayId>('Bugun');
+  const [stations, setStations] = useState<LiveStationDto[]>([]);
+  const [bookings, setBookings] = useState<TimelineBookingDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const { iso } = dateFor(day);
+      const [liveStations, timeline] = await Promise.all([
+        listLiveStations(api, clubId),
+        listTimeline(api, clubId, iso),
+      ]);
+      setStations(liveStations);
+      setBookings(timeline);
+    } catch (cause) {
+      setLoadError(errorText(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId, day]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const { startMs: dayStartMs } = dateFor(day);
   const ticks = Array.from({ length: 17 }, (_, hour) => `${((hour * 60) / SPAN * 100).toFixed(2)}%`);
   const hourCols = Array.from({ length: 16 }, (_, hour) => String((10 + hour) % 24).padStart(2, '0'));
-  // Kechasi 02:00 dan keyin va 10:00 gacha joriy vaqt shkaladan tashqarida
   const nowInWindow = nowMin >= DAY_START && nowMin <= DAY_END;
   const nowOvernight = nowMin + 24 * 60 <= DAY_END;
   const nowVisible = nowInWindow || nowOvernight;
   const nowLeft = `${((((nowOvernight ? nowMin + 24 * 60 : nowMin) - DAY_START) / SPAN) * 100).toFixed(2)}%`;
+
+  if (loading && stations.length === 0) {
+    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+  }
+  if (loadError && stations.length === 0) {
+    return <StatusLine tone="danger" icon="error" parts={[loadError]} />;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
@@ -73,7 +180,7 @@ export function TimelineScreen(): ReactNode {
           flexWrap: 'wrap',
         }}
       >
-        <SegmentedControl brackets items={[...DAY_ITEMS]} value={state.day} onChange={state.setDay} />
+        <SegmentedControl brackets items={[...DAY_ITEMS]} value={day} onChange={(v) => setDay(v as DayId)} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--gap-block)', flexWrap: 'wrap' }}>
           {LEGEND.map((item) => (
@@ -97,231 +204,144 @@ export function TimelineScreen(): ReactNode {
       </div>
 
       <Panel title="Kunlik jadval" notch brackets>
-        <div className="ds-scroll-x">
-          <div style={{ minWidth: 820 }}>
-            <div
-              style={{
-                display: 'flex',
-                paddingLeft: 78,
-                borderBottom: '1px solid var(--line-1)',
-                paddingBottom: 6,
-                marginBottom: 8,
-              }}
-            >
-              {hourCols.map((hour) => (
-                <span
-                  key={hour}
-                  style={{
-                    flex: 1,
-                    font: 'var(--type-data-xs)',
-                    color: 'var(--text-dim)',
-                    textAlign: 'left',
-                  }}
-                >
-                  {hour}
-                </span>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {live.map((station) => (
-                <div key={station.id} style={{ display: 'flex', alignItems: 'center', height: 34 }}>
-                  <div
-                    style={{
-                      width: 78,
-                      flex: 'none',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                    }}
-                  >
-                    <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
-                      {station.code}
-                    </span>
-                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                      {consoleLabel(station.cons)}
-                    </span>
-                  </div>
-
-                  <div
+        {stations.length === 0 ? (
+          <StatusLine tone="neutral" icon="meeting_room" parts="Xona qo‘shilmagan" />
+        ) : (
+          <div className="ds-scroll-x">
+            <div style={{ minWidth: 820 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  paddingLeft: 78,
+                  borderBottom: '1px solid var(--line-1)',
+                  paddingBottom: 6,
+                  marginBottom: 8,
+                }}
+              >
+                {hourCols.map((hour) => (
+                  <span
+                    key={hour}
                     style={{
                       flex: 1,
-                      position: 'relative',
-                      height: '100%',
-                      background: 'var(--chart-plot)',
-                      border: '1px solid var(--line-1)',
+                      font: 'var(--type-data-xs)',
+                      color: 'var(--text-dim)',
+                      textAlign: 'left',
                     }}
                   >
-                    {ticks.map((tick) => (
-                      <div
-                        key={tick}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          bottom: 0,
-                          width: 1,
-                          background: 'var(--grid-line)',
-                          left: tick,
-                        }}
-                      />
-                    ))}
+                    {hour}
+                  </span>
+                ))}
+              </div>
 
-                    {(state.day === 'Bugun'
-                      ? barsFor(station, now, nowMin)
-                      : barsForDay(station.id, state.day as DayId)
-                    ).map((bar, index) => (
-                      <div
-                        key={`${bar.name}-${index}`}
-                        title={`${bar.name} · ${bar.time}`}
-                        style={{
-                          position: 'absolute',
-                          top: 4,
-                          bottom: 4,
-                          left: bar.left,
-                          width: bar.width,
-                          background: bar.bg,
-                          border: `1px solid ${bar.line}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '0 7px',
-                          gap: 6,
-                          overflow: 'hidden',
-                          cursor: 'pointer',
-                          clipPath: 'var(--clip-tr)',
-                        }}
-                      >
-                        <span
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {stations.map((station) => (
+                  <div key={station.id} style={{ display: 'flex', alignItems: 'center', height: 34 }}>
+                    <div
+                      style={{
+                        width: 78,
+                        flex: 'none',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                      }}
+                    >
+                      <span style={{ font: 'var(--type-control)', color: 'var(--text-title)' }}>
+                        {station.code}
+                      </span>
+                      <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
+                        {consoleLabel(station.consoleType)}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        flex: 1,
+                        position: 'relative',
+                        height: '100%',
+                        background: 'var(--chart-plot)',
+                        border: '1px solid var(--line-1)',
+                      }}
+                    >
+                      {ticks.map((tick) => (
+                        <div
+                          key={tick}
                           style={{
-                            font: 'var(--type-control)',
-                            color: 'var(--text-title)',
-                            whiteSpace: 'nowrap',
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            width: 1,
+                            background: 'var(--grid-line)',
+                            left: tick,
                           }}
-                        >
-                          {bar.name}
-                        </span>
-                        {/* Telefonda bandga faqat ism sig'adi — vaqt tooltipda qoladi */}
-                        {narrow ? null : (
-                          <span
+                        />
+                      ))}
+
+                      {barsForStation(bookings, station.id, dayStartMs, nowMin, day === 'Bugun').map(
+                        (bar, index) => (
+                          <div
+                            key={`${bar.name}-${index}`}
+                            title={`${bar.name} · ${bar.time}`}
                             style={{
-                              font: 'var(--type-data-xs)',
-                              color: 'var(--text-muted)',
-                              whiteSpace: 'nowrap',
+                              position: 'absolute',
+                              top: 4,
+                              bottom: 4,
+                              left: bar.left,
+                              width: bar.width,
+                              background: bar.bg,
+                              border: `1px solid ${bar.line}`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '0 7px',
+                              gap: 6,
+                              overflow: 'hidden',
+                              cursor: 'pointer',
+                              clipPath: 'var(--clip-tr)',
                             }}
                           >
-                            {bar.time}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                            <span
+                              style={{
+                                font: 'var(--type-control)',
+                                color: 'var(--text-title)',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {bar.name}
+                            </span>
+                            {narrow ? null : (
+                              <span
+                                style={{
+                                  font: 'var(--type-data-xs)',
+                                  color: 'var(--text-muted)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {bar.time}
+                              </span>
+                            )}
+                          </div>
+                        ),
+                      )}
 
-                    {nowVisible && state.day === 'Bugun' ? (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: -3,
-                          bottom: -3,
-                          width: 1,
-                          background: 'var(--red-100)',
-                          left: nowLeft,
-                        }}
-                      />
-                    ) : null}
+                      {nowVisible && day === 'Bugun' ? (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: -3,
+                            bottom: -3,
+                            width: 1,
+                            background: 'var(--red-100)',
+                            left: nowLeft,
+                          }}
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </Panel>
     </div>
   );
-}
-
-/** Kecha va ertaga — o'z bronlari, joriy vaqt chizig'isiz. */
-function barsForDay(stationId: number, day: DayId): Bar[] {
-  const source = day === 'Kecha' ? YESTERDAY : TOMORROW;
-
-  return source
-    .filter((entry) => entry.station === stationId && visible(entry.from, entry.to))
-    .map((entry) => ({
-      left: pos(entry.from),
-      width: wide(entry.from, entry.to),
-      bg:
-        entry.kind === 'noshow'
-          ? 'rgba(255,80,93,.10)'
-          : entry.kind === 'booked'
-            ? 'rgba(87,0,255,.20)'
-            : 'rgba(255,255,255,.05)',
-      line:
-        entry.kind === 'noshow'
-          ? 'var(--red-100)'
-          : entry.kind === 'booked'
-            ? 'var(--primary-100)'
-            : 'var(--line-2)',
-      name: entry.kind === 'noshow' ? 'Kelmadi' : entry.guest,
-      time: `${HM(entry.from)}–${HM(entry.to)}`,
-    }));
-}
-
-function barsFor(station: MockStation, now: number, nowMin: number): Bar[] {
-  const bars: Bar[] = [];
-
-  for (const [from, to, name] of station.hist) {
-    if (!visible(from, to)) continue;
-    bars.push({
-      left: pos(from),
-      width: wide(from, to),
-      bg: 'rgba(255,255,255,.05)',
-      line: 'var(--line-2)',
-      name,
-      time: `${HM(from)}–${HM(to)}`,
-    });
-  }
-
-  if (station.status === 'MAINTENANCE') {
-    bars.push({
-      left: '0%',
-      width: '100%',
-      bg: 'rgba(255,80,93,.06)',
-      line: 'var(--line-1)',
-      name: 'Ta’mirda',
-      time: station.note ?? '',
-    });
-  }
-
-  if (
-    (station.status === 'OCCUPIED' || station.status === 'RESERVED') &&
-    visible(station.a, station.b)
-  ) {
-    const late = station.status === 'RESERVED' && now - station.a * 60 > NO_SHOW_MIN * 60;
-    bars.push({
-      left: pos(station.a),
-      width: wide(station.a, station.b),
-      bg: late
-        ? 'rgba(255,80,93,.10)'
-        : station.status === 'RESERVED'
-          ? 'rgba(237,176,126,.14)'
-          : 'rgba(87,0,255,.20)',
-      line: late
-        ? 'var(--red-100)'
-        : station.status === 'RESERVED'
-          ? 'var(--yellow-100)'
-          : 'var(--primary-100)',
-      name: late ? 'Kelmadi?' : ((station.guest ?? '').split(' ')[0] ?? ''),
-      time: `${HM(station.a)}–${HM(station.b)}`,
-    });
-
-    if (station.status === 'OCCUPIED' && nowMin > station.b) {
-      bars.push({
-        left: pos(station.b),
-        width: wide(station.b, nowMin),
-        bg: 'rgba(255,80,93,.18)',
-        line: 'var(--red-100)',
-        name: 'Overtime',
-        time: `+${Math.round(nowMin - station.b)} daq`,
-      });
-    }
-  }
-
-  return bars;
 }

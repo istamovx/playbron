@@ -290,6 +290,43 @@ async def list_day_bookings(
     return [DayBookingOut(**r) for r in rows]
 
 
+class TimelineBookingOut(BaseModel):
+    id: int
+    station_id: int
+    station_code: str
+    room_label: str
+    console_type: str
+    starts_at: str
+    ends_at: str
+    status: str
+    closed: bool
+    guest_label: str | None
+
+
+@router.get(
+    "/{club_id}/bookings/timeline",
+    response_model=list[TimelineBookingOut],
+    dependencies=[Depends(require_staff)],
+)
+async def timeline(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+    date: Annotated[str, Query(description="YYYY-MM-DD, klub vaqt zonasida")],
+) -> list[TimelineBookingOut]:
+    """`timeline.tsx` — xodim uchun kunlik jadval, mehmon ismi va stansiya
+    ma'lumoti bilan (`list_day_bookings` mijoz bo'sh-slot hisobiga
+    mo'ljallangan, bu yerga mos emas — xom oraliq qaytaradi, mehmon ismi
+    yo'q)."""
+    _assert_path_matches_header(club_id)
+    try:
+        day = datetime.fromisoformat(date)
+    except ValueError as exc:
+        raise BadRequest("Sana YYYY-MM-DD ko'rinishida bo'lsin", code="DATE_INVALID") from exc
+
+    rows = await service.list_timeline(session, club_id, day)
+    return [TimelineBookingOut(**r) for r in rows]
+
+
 # ── Mijoz ─────────────────────────────────────────────────────────────────
 
 
