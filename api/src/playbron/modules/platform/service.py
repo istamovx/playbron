@@ -19,6 +19,7 @@ from fastapi import Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.core.http import client_ip
 from playbron.modules.auth import signup
@@ -203,6 +204,11 @@ async def create_manual_org(
         ),
         {"uid": actor_user_id, "login": login},
     )
+    await log_action(
+        action="platform_manual_org_create",
+        target=login,
+        after={"login": login, "club_name": body.get("club_name")},
+    )
     return login
 
 
@@ -253,6 +259,13 @@ async def record_payment(
             text("UPDATE organizations SET plan_code = :plan WHERE id = :org"),
             {"plan": plan_code, "org": org_id},
         )
+
+    await log_action(
+        action="platform_payment_record",
+        target=str(org_id),
+        org_id=org_id,
+        after={"amount": amount, "plan_code": plan_code, "period_months": period_months},
+    )
 
     return {
         "id": row.id,

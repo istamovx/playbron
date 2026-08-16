@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from playbron.core.audit import log_action
 from playbron.core.errors import AppError, Forbidden, NotFound
 from playbron.core.text import clean_name
 from playbron.modules.bookings import notify
@@ -194,6 +195,13 @@ async def create_station(
             raise AppError("Bu kod bilan xona allaqachon bor", code="STATION_CODE_TAKEN") from exc
         raise
 
+    await log_action(
+        action="station_created",
+        target=code,
+        club_id=club_id,
+        after={"code": code, "room_label": room_label, "console_type": console_type, "rate": rate},
+    )
+
     return {
         "id": station_id,
         "code": code,
@@ -241,6 +249,19 @@ async def update_station(
     ).first()
     if row is None:
         raise NotFound("Xona topilmadi")
+
+    await log_action(
+        action="station_updated",
+        target=row.code,
+        club_id=club_id,
+        after={
+            "room_label": room_label,
+            "console_type": console_type,
+            "rate": rate,
+            "status": status,
+        },
+    )
+
     return _station_row_to_dict(row)
 
 
@@ -311,6 +332,18 @@ async def update_club(
     ).first()
     if row is None:
         raise NotFound("Klub topilmadi")
+
+    await log_action(
+        action="club_updated",
+        target=row.name,
+        club_id=club_id,
+        after={
+            "name": row.name,
+            "address": row.address,
+            "opens_at_min": row.opens_at_min,
+            "closes_at_min": row.closes_at_min,
+        },
+    )
 
     return {
         "id": row.id,

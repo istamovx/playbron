@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.core.text import clean_name
 
@@ -64,6 +65,13 @@ async def create_product(
             raise AppError("Bu nomli mahsulot allaqachon bor", code="PRODUCT_NAME_TAKEN") from exc
         raise
 
+    await log_action(
+        action="product_created",
+        target=name,
+        club_id=club_id,
+        after={"category": category, "name": name, "price": price},
+    )
+
     return {
         "id": product_id,
         "category": category,
@@ -111,6 +119,14 @@ async def update_product(
     ).first()
     if row is None:
         raise NotFound("Mahsulot topilmadi")
+
+    await log_action(
+        action="product_updated",
+        target=name,
+        club_id=club_id,
+        after={"category": category, "name": name, "price": price, "status": status},
+    )
+
     return _product_row(row)
 
 

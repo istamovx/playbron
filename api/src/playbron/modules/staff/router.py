@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context
+from playbron.core.audit import log_action
 from playbron.core.errors import AppError, Conflict, Forbidden
 from playbron.core.passwords import hash_password, validate
 from playbron.core.text import clean_name
@@ -174,6 +175,12 @@ async def create_staff(
         raise Forbidden("Parol tayinlanmadi", code="PASSWORD_NOT_ASSIGNED")
 
     await _log_event(session, "staff_created", club_id, {"role": body.role})
+    await log_action(
+        action="staff_created",
+        target=login,
+        club_id=club_id,
+        after={"role": body.role, "first_name": body.first_name},
+    )
 
     return StaffCreateOut(user_id=int(user_id), login=login, role=body.role)
 
