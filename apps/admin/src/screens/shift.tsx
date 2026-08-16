@@ -1,144 +1,304 @@
-import { Button, Panel, StatTile } from '@playbron/ui';
-import type { ReactNode } from 'react';
+import {
+  addShiftMovement,
+  closeShift,
+  errorText,
+  getCurrentShift,
+  openShift,
+  type ShiftDto,
+} from '@playbron/api-client';
+import { Button, Modal, Panel, StatTile, StatusLine, TextField, toast } from '@playbron/ui';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
-import { DUR } from '../mock/data';
-import { useNow } from '../store/board';
+import { api } from '../lib/api';
+import { S } from '../mock/data';
+import { useSession } from '../store/session';
 
 /**
  * Smena — `PlayBron Xodim.dc.html` SMENA bo'limi.
  *
+ * Reja #26 (2026-08-16, jonli sinovda topilgan): ekran to'liq dekorativ
+ * edi — "Kirim"/"Chiqim"/"Smenani yopish" tugmalarida `onClick` UMUMAN
+ * yo'q edi. Endi to'liq real backend (`api/src/playbron/modules/finance/
+ * shifts.py`, `0021_shifts.py`): smena ochish/yopish, qo'lda kirim/
+ * chiqim, "kutilayotgan naqd" esa qo'lda kiritilganlar + shu smenada
+ * NAQD yopilgan bronlar yig'indisi (`bookings.paid_amount`, `0013_pos.py`
+ * — takrorlanmaydi, faqat o'qiladi).
+ *
  * Tovar reestri xodimda ko'rsatilmaydi: qoldiq buyurtma yetkazilganda avtomatik
  * kamayadi, sanash va inventarizatsiya superadmin yuzasiga o'tkazildi.
  */
-const CASH_HEAD = ['Vaqt', 'Sabab', 'Turi', 'Summa'];
 
-const CASH_ROWS = [
-  { time: '18:04:12', reason: 'Smena boshlang‘ich kassa', kind: 'Kirim', amount: '200 000', tone: 'var(--secondary-500)' },
-  { time: '19:12:40', reason: '5-xona hisob · naqd', kind: 'Kirim', amount: '168 000', tone: 'var(--secondary-500)' },
-  { time: '19:48:03', reason: 'Bar mahsulot yetkazib berish', kind: 'Chiqim', amount: '− 120 000', tone: 'var(--red-100)' },
-  { time: '20:01:55', reason: 'VIP-1 hisob · naqd', kind: 'Kirim', amount: '216 000', tone: 'var(--secondary-500)' },
-  { time: '20:09:21', reason: 'Kuryer to‘lovi', kind: 'Chiqim', amount: '− 35 000', tone: 'var(--red-100)' },
-  { time: '20:13:44', reason: '8-xona hisob · naqd', kind: 'Kirim', amount: '96 000', tone: 'var(--secondary-500)' },
-];
-
-const CASH_COLS = 'minmax(96px, auto) minmax(0, 1fr) minmax(72px, auto) minmax(96px, auto)';
+type MovementKind = 'IN' | 'OUT';
 
 export function ShiftScreen(): ReactNode {
-  const now = useNow();
+  const session = useSession((state) => state.session);
+  const clubId = session?.clubs[0]?.id ?? null;
 
-  const shiftFields = [
-    { k: 'Xodim', v: 'Kamola Rasulova', tone: 'var(--text-title)' },
-    { k: 'Ochilgan', v: '2026-08-12 18:00:04', tone: 'var(--text-body)' },
-    { k: 'Davomiylik', v: DUR(now - 18 * 3600), tone: 'var(--text-body)' },
-    { k: 'Boshlang‘ich kassa', v: '200 000', tone: 'var(--text-body)' },
-    { k: 'Kutilayotgan naqd', v: '1 180 000', tone: 'var(--text-title)' },
-    { k: 'Sanaldi', v: '1 140 000', tone: 'var(--text-title)' },
-    { k: 'Farq', v: '− 40 000', tone: 'var(--red-100)' },
-  ];
+  const [shift, setShift] = useState<ShiftDto | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [openDraft, setOpenDraft] = useState<{ opening: string } | null>(null);
+  const [movementDraft, setMovementDraft] = useState<{ kind: MovementKind; amount: string; reason: string } | null>(
+    null,
+  );
+  const [closeDraft, setCloseDraft] = useState<{ counted: string } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (clubId === null) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setShift(await getCurrentShift(api, clubId));
+    } catch (cause) {
+      const message = errorText(cause);
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const submitOpen = async (): Promise<void> => {
+    if (!openDraft || clubId === null) return;
+    const opening = Number(openDraft.opening);
+    if (!Number.isFinite(opening) || opening < 0) {
+      setFormError('Summani tekshiring');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await openShift(api, clubId, Math.round(opening));
+      toast.success('Smena ochildi');
+      setOpenDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitMovement = async (): Promise<void> => {
+    if (!movementDraft || clubId === null || shift === null) return;
+    const amount = Number(movementDraft.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFormError('Summa 0 dan katta bo‘lsin');
+      return;
+    }
+    if (movementDraft.reason.trim().length < 1) {
+      setFormError('Sababni kiriting');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await addShiftMovement(api, clubId, shift.id, {
+        kind: movementDraft.kind,
+        amount: Math.round(amount),
+        reason: movementDraft.reason.trim(),
+      });
+      toast.success(movementDraft.kind === 'IN' ? 'Kirim qo‘shildi' : 'Chiqim qo‘shildi');
+      setMovementDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitClose = async (): Promise<void> => {
+    if (!closeDraft || clubId === null || shift === null) return;
+    const counted = Number(closeDraft.counted);
+    if (!Number.isFinite(counted) || counted < 0) {
+      setFormError('Summani tekshiring');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const closed = await closeShift(api, clubId, shift.id, Math.round(counted));
+      toast.success(
+        closed.variance === 0
+          ? 'Smena yopildi — kassa mos keldi'
+          : `Smena yopildi — farq ${S(closed.variance ?? 0)} so‘m`,
+      );
+      setCloseDraft(null);
+      await reload();
+    } catch (cause) {
+      const message = errorText(cause);
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loadError && !shift) {
+    return <StatusLine tone="danger" icon="error" parts={[loadError]} />;
+  }
+
+  if (!loading && shift === null) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
+        <Panel title="Smena" notch brackets>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)', alignItems: 'flex-start' }}>
+            <StatusLine
+              tone="neutral"
+              icon="lock_clock"
+              parts={['Ochiq smena yo‘q', 'Boshlash uchun boshlang‘ich kassani kiriting']}
+            />
+            <Button
+              variant="primary"
+              size="lg"
+              notch
+              icon="play_circle"
+              onClick={() => {
+                setFormError(null);
+                setOpenDraft({ opening: '0' });
+              }}
+            >
+              Smena ochish
+            </Button>
+          </div>
+        </Panel>
+
+        <Modal
+          open={openDraft !== null}
+          onClose={() => {
+            setOpenDraft(null);
+            setFormError(null);
+          }}
+          title="Smena ochish"
+          variant="center"
+        >
+          {openDraft ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+              <TextField
+                label="Boshlang‘ich kassa"
+                value={openDraft.opening}
+                onChange={(value) => setOpenDraft({ opening: value })}
+                icon="payments"
+                inputMode="numeric"
+                placeholder="200000"
+              />
+              {formError ? <StatusLine tone="danger" icon="error" parts={formError} /> : null}
+              <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+                <Button variant="primary" notch icon="check" disabled={submitting} onClick={() => void submitOpen()}>
+                  {submitting ? 'Ochilmoqda…' : 'Ochish'}
+                </Button>
+                <Button variant="ghost" disabled={submitting} onClick={() => setOpenDraft(null)}>
+                  Bekor
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </Modal>
+      </div>
+    );
+  }
+
+  if (shift === null) {
+    return <StatusLine tone="neutral" icon="hourglass_empty" parts="Yuklanmoqda…" />;
+  }
+
+  const inTotal = shift.movements.filter((m) => m.kind === 'IN').reduce((sum, m) => sum + m.amount, 0);
+  const outTotal = shift.movements.filter((m) => m.kind === 'OUT').reduce((sum, m) => sum + m.amount, 0);
 
   return (
     <div className="ds-split" style={{ alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
         <div className="pb-tiles-4">
-          <StatTile label="Naqd tushum" value="980 000" unit="so‘m" icon="payments" />
-          <StatTile label="O‘tkazma" value="640 000" unit="so‘m" icon="account_balance" />
-          <StatTile label="Onlayn bron to‘lovi" value="280 000" unit="so‘m" icon="cloud_done" />
-          <StatTile label="Yopilgan hisob" value="14" unit="ta" icon="receipt_long" />
+          <StatTile label="Boshlang‘ich kassa" value={S(shift.openingCash)} unit="so‘m" icon="payments" />
+          <StatTile label="Kutilayotgan naqd" value={S(shift.expectedCash)} unit="so‘m" icon="account_balance_wallet" />
+          <StatTile label="Kirim" value={S(inTotal)} unit="so‘m" icon="add_circle" />
+          <StatTile label="Chiqim" value={S(outTotal)} unit="so‘m" icon="remove_circle" />
         </div>
 
         <Panel title="Kassa harakatlari" notch brackets>
-          <div style={{ overflowX: 'auto' }}>
-            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: CASH_COLS,
-                  gap: 10,
-                  padding: '0 10px 8px',
-                  borderBottom: '1px solid var(--line-1)',
-                }}
-              >
-                {CASH_HEAD.map((head) => (
-                  <span
-                    key={head}
+          {shift.movements.length === 0 ? (
+            <StatusLine tone="neutral" icon="receipt_long" parts="Hali harakat yo‘q" />
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {shift.movements.map((row) => (
+                  <div
+                    key={row.id}
                     style={{
-                      font: 'var(--type-label)',
-                      letterSpacing: 'var(--ls-label)',
-                      textTransform: 'uppercase',
-                      color: 'var(--text-label)',
-                      whiteSpace: 'nowrap',
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(96px, auto) minmax(0, 1fr) minmax(72px, auto) minmax(96px, auto)',
+                      gap: 10,
+                      padding: '0 10px',
+                      minHeight: 40,
+                      alignItems: 'center',
+                      borderBottom: '1px solid var(--line-1)',
                     }}
                   >
-                    {head}
-                  </span>
+                    <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {new Date(row.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <span
+                      style={{
+                        font: 'var(--type-body-sm)',
+                        color: 'var(--text-body)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {row.reason}
+                      {row.createdByName ? ` · ${row.createdByName}` : ''}
+                    </span>
+                    <span
+                      style={{
+                        font: 'var(--type-label)',
+                        letterSpacing: 'var(--ls-label)',
+                        textTransform: 'uppercase',
+                        color: row.kind === 'IN' ? 'var(--secondary-500)' : 'var(--red-100)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row.kind === 'IN' ? 'Kirim' : 'Chiqim'}
+                    </span>
+                    <span
+                      style={{
+                        font: 'var(--type-data)',
+                        color: row.kind === 'IN' ? 'var(--secondary-500)' : 'var(--red-100)',
+                        textAlign: 'right',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row.kind === 'IN' ? '' : '− '}
+                      {S(row.amount)}
+                    </span>
+                  </div>
                 ))}
               </div>
-
-              {CASH_ROWS.map((row) => (
-                <div
-                  key={row.time}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: CASH_COLS,
-                    gap: 10,
-                    padding: '0 10px',
-                    minHeight: 40,
-                    alignItems: 'center',
-                    borderBottom: '1px solid var(--line-1)',
-                  }}
-                >
-                  <span
-                    style={{
-                      font: 'var(--type-data-xs)',
-                      color: 'var(--text-muted)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {row.time}
-                  </span>
-                  <span
-                    style={{
-                      font: 'var(--type-body-sm)',
-                      color: 'var(--text-body)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {row.reason}
-                  </span>
-                  <span
-                    style={{
-                      font: 'var(--type-label)',
-                      letterSpacing: 'var(--ls-label)',
-                      textTransform: 'uppercase',
-                      color: row.tone,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {row.kind}
-                  </span>
-                  <span
-                    style={{
-                      font: 'var(--type-data)',
-                      color: row.tone,
-                      textAlign: 'right',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {row.amount}
-                  </span>
-                </div>
-              ))}
             </div>
-          </div>
+          )}
         </Panel>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)', minWidth: 0 }}>
         <Panel title="Joriy smena" notch brackets>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {shiftFields.map((field) => (
+            {[
+              { k: 'Ochilgan', v: new Date(shift.openedAt).toLocaleString('uz-UZ') },
+              { k: 'Boshlang‘ich kassa', v: `${S(shift.openingCash)} so‘m` },
+              { k: 'Kutilayotgan naqd', v: `${S(shift.expectedCash)} so‘m` },
+            ].map((field) => (
               <div
                 key={field.k}
                 style={{
@@ -162,14 +322,7 @@ export function ShiftScreen(): ReactNode {
                 >
                   {field.k}
                 </span>
-                <span
-                  style={{
-                    font: 'var(--type-data)',
-                    color: field.tone,
-                    textAlign: 'right',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <span style={{ font: 'var(--type-data)', color: 'var(--text-title)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {field.v}
                 </span>
               </div>
@@ -184,21 +337,124 @@ export function ShiftScreen(): ReactNode {
               marginTop: 14,
             }}
           >
-            <Button variant="secondary" icon="add" block>
+            <Button
+              variant="secondary"
+              icon="add"
+              block
+              onClick={() => {
+                setFormError(null);
+                setMovementDraft({ kind: 'IN', amount: '', reason: '' });
+              }}
+            >
               Kirim
             </Button>
-            <Button variant="secondary" icon="remove" block>
+            <Button
+              variant="secondary"
+              icon="remove"
+              block
+              onClick={() => {
+                setFormError(null);
+                setMovementDraft({ kind: 'OUT', amount: '', reason: '' });
+              }}
+            >
               Chiqim
             </Button>
           </div>
 
           <div style={{ marginTop: 'var(--gap-block)' }}>
-            <Button variant="primary" size="lg" notch block icon="lock_clock">
+            <Button
+              variant="primary"
+              size="lg"
+              notch
+              block
+              icon="lock_clock"
+              onClick={() => {
+                setFormError(null);
+                setCloseDraft({ counted: String(shift.expectedCash) });
+              }}
+            >
               Smenani yopish
             </Button>
           </div>
         </Panel>
       </div>
+
+      <Modal
+        open={movementDraft !== null}
+        onClose={() => {
+          setMovementDraft(null);
+          setFormError(null);
+        }}
+        title={movementDraft?.kind === 'IN' ? 'Kirim qo‘shish' : 'Chiqim qo‘shish'}
+        variant="center"
+      >
+        {movementDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <TextField
+              label="Summa"
+              value={movementDraft.amount}
+              onChange={(value) => setMovementDraft({ ...movementDraft, amount: value })}
+              icon="payments"
+              inputMode="numeric"
+              placeholder="35000"
+            />
+            <TextField
+              label="Sabab"
+              value={movementDraft.reason}
+              onChange={(value) => setMovementDraft({ ...movementDraft, reason: value })}
+              icon="notes"
+              placeholder={movementDraft.kind === 'IN' ? 'Masalan: naqd hisob' : 'Masalan: kuryer to‘lovi'}
+              onSubmitKey={() => void submitMovement()}
+            />
+            {formError ? <StatusLine tone="danger" icon="error" parts={formError} /> : null}
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button variant="primary" notch icon="check" disabled={submitting} onClick={() => void submitMovement()}>
+                {submitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </Button>
+              <Button variant="ghost" disabled={submitting} onClick={() => setMovementDraft(null)}>
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={closeDraft !== null}
+        onClose={() => {
+          setCloseDraft(null);
+          setFormError(null);
+        }}
+        title="Smenani yopish"
+        variant="center"
+      >
+        {closeDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
+            <StatusLine
+              tone="neutral"
+              icon="account_balance_wallet"
+              parts={[`Kutilayotgan naqd: ${S(shift.expectedCash)} so‘m`, 'Naqdni sanab, natijani kiriting']}
+            />
+            <TextField
+              label="Sanalgan naqd"
+              value={closeDraft.counted}
+              onChange={(value) => setCloseDraft({ counted: value })}
+              icon="payments"
+              inputMode="numeric"
+              onSubmitKey={() => void submitClose()}
+            />
+            {formError ? <StatusLine tone="danger" icon="error" parts={formError} /> : null}
+            <div style={{ display: 'flex', gap: 'var(--gap-tight)', flexWrap: 'wrap' }}>
+              <Button variant="primary" notch icon="lock_clock" disabled={submitting} onClick={() => void submitClose()}>
+                {submitting ? 'Yopilmoqda…' : 'Yopish'}
+              </Button>
+              <Button variant="ghost" disabled={submitting} onClick={() => setCloseDraft(null)}>
+                Bekor
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

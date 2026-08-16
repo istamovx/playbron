@@ -907,6 +907,130 @@ export const updateExpense = async (
   return fromExpenseApi(row);
 };
 
+// ── Smena ────────────────────────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/finance/router.py`, `0021_shifts.py`.
+
+export interface ShiftMovementDto {
+  id: number;
+  kind: 'IN' | 'OUT';
+  amount: number;
+  reason: string;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+export interface ShiftDto {
+  id: number;
+  staffId: number;
+  openedAt: string;
+  openingCash: number;
+  closedAt: string | null;
+  countedCash: number | null;
+  status: 'open' | 'closed';
+  expectedCash: number;
+  variance: number | null;
+  movements: ShiftMovementDto[];
+}
+
+interface ShiftMovementApi {
+  id: number;
+  kind: string;
+  amount: number;
+  reason: string;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+interface ShiftApi {
+  id: number;
+  staff_id: number;
+  opened_at: string;
+  opening_cash: number;
+  closed_at: string | null;
+  counted_cash: number | null;
+  status: string;
+  expected_cash: number;
+  variance: number | null;
+  movements: ShiftMovementApi[];
+}
+
+const fromShiftApi = (row: ShiftApi): ShiftDto => ({
+  id: row.id,
+  staffId: row.staff_id,
+  openedAt: row.opened_at,
+  openingCash: row.opening_cash,
+  closedAt: row.closed_at,
+  countedCash: row.counted_cash,
+  status: row.status === 'closed' ? 'closed' : 'open',
+  expectedCash: row.expected_cash,
+  variance: row.variance,
+  movements: row.movements.map((m) => ({
+    id: m.id,
+    kind: m.kind === 'OUT' ? 'OUT' : 'IN',
+    amount: m.amount,
+    reason: m.reason,
+    createdByName: m.created_by_name,
+    createdAt: m.created_at,
+  })),
+});
+
+export const getCurrentShift = async (api: ApiClient, clubId: number): Promise<ShiftDto | null> => {
+  const row = await api.get<ShiftApi | null>(`/clubs/${clubId}/shifts/current`);
+  return row ? fromShiftApi(row) : null;
+};
+
+export interface OpenShiftSummaryDto {
+  id: number;
+  staffId: number;
+  staffName: string;
+  openedAt: string;
+  openingCash: number;
+}
+
+export const listOpenShifts = async (api: ApiClient, clubId: number): Promise<OpenShiftSummaryDto[]> => {
+  const rows = await api.get<
+    Array<{ id: number; staff_id: number; staff_name: string; opened_at: string; opening_cash: number }>
+  >(`/clubs/${clubId}/shifts/open`);
+  return rows.map((r) => ({
+    id: r.id,
+    staffId: r.staff_id,
+    staffName: r.staff_name,
+    openedAt: r.opened_at,
+    openingCash: r.opening_cash,
+  }));
+};
+
+export const openShift = async (
+  api: ApiClient,
+  clubId: number,
+  openingCash: number,
+): Promise<ShiftDto> => {
+  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts`, { opening_cash: openingCash });
+  return fromShiftApi(row);
+};
+
+export const addShiftMovement = async (
+  api: ApiClient,
+  clubId: number,
+  shiftId: number,
+  body: { kind: 'IN' | 'OUT'; amount: number; reason: string },
+): Promise<ShiftDto> => {
+  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts/${shiftId}/movements`, body);
+  return fromShiftApi(row);
+};
+
+export const closeShift = async (
+  api: ApiClient,
+  clubId: number,
+  shiftId: number,
+  countedCash: number,
+): Promise<ShiftDto> => {
+  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts/${shiftId}/close`, {
+    counted_cash: countedCash,
+  });
+  return fromShiftApi(row);
+};
+
 // ── Platforma (super admin) ─────────────────────────────────────────────
 // Manba: `api/src/playbron/modules/platform/router.py`. Faqat o'qish,
 // cross-tenant — `docs/06-super-admin.md` §3, kichik kesim
