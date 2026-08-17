@@ -517,7 +517,9 @@ async def test_owner_updates_club_info(client: httpx.AsyncClient, world: dict[st
 
 
 @skip_no_db
-async def test_club_maps_url_must_be_https(client: httpx.AsyncClient, world: dict[str, int]) -> None:
+async def test_club_maps_url_must_be_https(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
     staff_h = await _staff_headers(client, world["club"])
     r = await client.patch(
         f"/api/v1/clubs/{world['club']}",

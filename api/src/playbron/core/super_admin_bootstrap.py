@@ -173,7 +173,8 @@ async def _create_super_admin_account(conn: AsyncConnection, login: str) -> int:
         )
         await conn.execute(
             text(
-                "INSERT INTO super_admins (user_id, note) VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
+                "INSERT INTO super_admins (user_id, note)"
+                " VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
                 " ON CONFLICT (user_id) DO NOTHING"
             ),
             {"uid": user_id},
@@ -200,7 +201,8 @@ async def _ensure_super_admin_membership(conn: AsyncConnection, user_id: int) ->
     try:
         await conn.execute(
             text(
-                "INSERT INTO super_admins (user_id, note) VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
+                "INSERT INTO super_admins (user_id, note)"
+                " VALUES (:uid, 'SUPER_ADMIN_PASSWORD bootstrap')"
                 " ON CONFLICT (user_id) DO NOTHING"
             ),
             {"uid": user_id},

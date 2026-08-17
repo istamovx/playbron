@@ -36,6 +36,38 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 API_PREFIX = "/api/v1"
 
 
+async def register_webhooks(public_url: str) -> None:
+    """Ikkala botning webhook'ini ro'yxatdan o'tkazadi.
+
+    Telegram'da webhook BOTGA tegishli va bitta bot uchun BITTA URL bo'ladi:
+    ikkala yuza bir xil tokenni ishlatsa, ikkinchi `setWebhook` birinchisini
+    JIMGINA bosib ketadi. Telegram xato bermaydi, log'da ham hech nima
+    qolmaydi — tashqaridan bu shunchaki «bot javob bermayapti» bo'lib
+    ko'rinadi (`docs/HOLAT.md`, «Nima ishlamayapti — Telegram botlari»).
+
+    Shu holatda ikkinchi ro'yxatdan o'tkazish BAJARILMAYDI: qaysi yuza tirik
+    qolgani tasodifga (chaqiruvlar tartibi, tarmoq xatosi) qoldirilmaydi.
+    Mijoz boti saqlanadi — konsolga parol bilan ham kirish mumkin, mijozda
+    esa botdan boshqa yo'l yo'q. Sabab `log.error` bilan aniq yoziladi.
+    """
+    admin_token = botlogin.admin_token()
+    customer_token = settings.bot_token.get_secret_value()
+
+    if admin_token and admin_token == customer_token:
+        log.error(
+            "BOT_TOKEN va ADMIN_BOT_TOKEN bitta botni ko‘rsatyapti — admin "
+            "webhook'i ro‘yxatdan O‘TKAZILMADI (aks holda mijoz botini bosib "
+            "ketardi). @BotFather'dan ALOHIDA bot oching va ADMIN_BOT_TOKEN'ni "
+            "o‘shanga qo‘ying, so‘ng servisni qayta ishga tushiring."
+        )
+        await bot_router_setup.register_customer_webhook(public_url)
+        return
+
+    await botlogin.register_webhook(public_url)
+    # Mijoz boti — ro'yxatdan o'tish oqimi shu webhook orqali yuradi
+    await bot_router_setup.register_customer_webhook(public_url)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     log.info("PlayBron API ishga tushdi (env=%s)", settings.env)
@@ -53,9 +85,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # to'xtatmaydi). `RENDER_EXTERNAL_URL` ni Render o'zi beradi.
     if settings.env not in {"local", "test"}:
         public_url = settings.public_url or os.environ.get("RENDER_EXTERNAL_URL", "")
-        await botlogin.register_webhook(public_url)
-        # Mijoz boti — ro'yxatdan o'tish oqimi shu webhook orqali yuradi
-        await bot_router_setup.register_customer_webhook(public_url)
+        await register_webhooks(public_url)
 
     yield
     await db.dispose()

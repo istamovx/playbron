@@ -12,9 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Versiya ATAYLAB berilmaydi: `package.json`dagi `packageManager` bitta
+      # manba. Ikkalasi ham berilsa action `Multiple versions of pnpm
+      # specified` bilan yiqiladi — butun `web` job'i shu sababdan qizil edi.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -52,13 +53,19 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 10
 
+    # `DIRECT_URL` — migratsiya va fixture'lar uchun baza egasi (bu yerda u
+    # superuser). `DATABASE_URL` esa prod'dagi kabi `playbron_app`: rollarni
+    # `0001_core.py` shu `APP_DB_PASSWORD`/`PLATFORM_DB_PASSWORD` bilan
+    # yaratadi. Ilgari ilova ham superuser bilan ulanardi — superuser RLS'ni
+    # BUTUNLAY chetlab o'tadi, ya'ni bu job RLS invariantlarini tekshirmasdan
+    # o'tkazib yuborardi (aynan shu testlar prod xatolarini ushlashi kerak edi).
     env:
       ENV: test
       JWT_SECRET: ci-uchun-32-baytdan-uzun-tasodifiy-bolmagan-qiymat
       REDIS_URL: redis://localhost:6379/0
-      DATABASE_URL: postgresql://playbron:playbron@localhost:5432/playbron
+      DATABASE_URL: postgresql://playbron_app:ci-app-paroli@localhost:5432/playbron
       DIRECT_URL: postgresql://playbron:playbron@localhost:5432/playbron
-      PLATFORM_DATABASE_URL: postgresql://playbron:playbron@localhost:5432/playbron
+      PLATFORM_DATABASE_URL: postgresql://playbron_platform:ci-platform-paroli@localhost:5432/playbron
       APP_DB_PASSWORD: ci-app-paroli
       PLATFORM_DB_PASSWORD: ci-platform-paroli
 
@@ -75,6 +82,8 @@ jobs:
       - run: ruff check src tests migrations
         working-directory: api
 
+      # `playbron_app`/`playbron_platform` rollari shu qadamda tug'iladi —
+      # undan oldin `DATABASE_URL` bilan ulanib bo'lmaydi.
       - run: alembic upgrade head
         working-directory: api
 

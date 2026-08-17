@@ -1,8 +1,7 @@
 {
   "extends": "@playbron/config/tsconfig/react.json",
   "compilerOptions": {
-    "allowImportingTsExtensions": false,
-    "types": ["node"]
+    "allowImportingTsExtensions": false
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

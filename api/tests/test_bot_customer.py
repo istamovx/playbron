@@ -28,6 +28,17 @@ skip_no_db = pytest.mark.skipif(
 
 TG = 950_000_777
 PHONE = "+998901112233"
+WEBHOOK_SECRET = "sinov-uchun-webhook-sekreti"
+
+
+@pytest.fixture(autouse=True)
+def _webhook_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`TG_WEBHOOK_SECRET` bo'sh bo'lsa `_authorized()` HAR DOIM False qaytaradi
+    (`modules/bot/router.py`) — webhook 200 bilan JIM turadi va butun oqim
+    tekshirilmay qoladi. `test_bot_menu.py`/`test_bot_login.py` dagi bilan
+    bir xil naqsh: sekret muhitdan emas, sinovning o'zidan keladi.
+    """
+    monkeypatch.setattr(settings.tg_webhook_secret, "get_secret_value", lambda: WEBHOOK_SECRET)
 
 
 def _owner_engine():  # type: ignore[no-untyped-def]

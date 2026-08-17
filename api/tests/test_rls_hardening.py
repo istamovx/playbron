@@ -42,6 +42,34 @@ def owner_engine():  # type: ignore[no-untyped-def]
     return create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
 
 
+# Bir rolli rejim (`0005_two_worlds_auth.py`): hosting alohida rol bermasa
+# (Render bepul rejasi) ilova baza EGASI bilan ulanadi, ya'ni `playbron_app`
+# uchun ATAYLAB berilmagan UPDATE/DELETE GRANT'lari unda BOR.
+SINGLE_DB_ROLE = os.environ.get("ALLOW_SINGLE_DB_ROLE") == "1"
+
+
+async def assert_write_blocked(conn: AsyncConnection, sql: str, params: dict[str, int]) -> None:
+    """Yozuv bloklanganini ikkala baza shaklida ham tekshiradi.
+
+    Ikki qatlam bor va ular ALOHIDA (`[[playbron-grant-vs-rls-blind-spot]]`):
+    `playbron_app` roli bu jadvallarga UPDATE/DELETE GRANT'ini umuman olmagan —
+    blok "permission denied" bilan keladi. Bir rolli rejimda GRANT qatlami
+    yo'q, lekin `FORCE ROW LEVEL SECURITY` egaga ham tegishli va bu amallar
+    uchun policy YO'Q — blok "0 qator" ko'rinishida bo'ladi.
+
+    Invariant ikkalasida bir xil: birorta qator o'zgarmaydi. Shuning uchun
+    bir rolli shaklda test o'tkazib yuborilmaydi, faqat blok qaysi qatlamdan
+    kelishini kutish moslashadi.
+    """
+    if SINGLE_DB_ROLE:
+        result = await conn.execute(text(sql), params)
+        assert result.first() is None
+        return
+
+    with pytest.raises(DBAPIError, match="permission denied"):
+        await conn.execute(text(sql), params)
+
+
 @pytest_asyncio.fixture
 async def world() -> AsyncIterator[dict[str, int]]:
     """Bitta tashkilot, ikkita klub; STAFF faqat birinchisida."""
@@ -165,12 +193,10 @@ async def test_staff_cannot_touch_sibling_club(world: dict[str, int]) -> None:
         # `clubs`da umuman DELETE policy'si YO'Q, VA `playbron_app` roli
         # DELETE uchun GRANT ham olmagan (`[[playbron-grant-vs-rls-blind-spot]]`
         # — GRANT va RLS ikki alohida qatlam) — ya'ni bu HECH KIM uchun
-        # (STAFF uchun ham) "0 qator" bilan emas, to'g'ridan-to'g'ri
-        # "permission denied" bilan bloklanadi.
-        with pytest.raises(DBAPIError, match="permission denied"):
-            await conn.execute(
-                text("DELETE FROM clubs WHERE id = :i RETURNING id"), {"i": world["club_b"]}
-            )
+        # (STAFF uchun ham) bloklangan.
+        await assert_write_blocked(
+            conn, "DELETE FROM clubs WHERE id = :i RETURNING id", {"i": world["club_b"]}
+        )
 
     await engine.dispose()
 
@@ -306,22 +332,20 @@ async def test_audit_log_is_append_only(world: dict[str, int]) -> None:
 
     # `audit_log`da FAQAT INSERT/SELECT policy'si bor VA `playbron_app` roli
     # UPDATE/DELETE uchun GRANT ham olmagan (`[[playbron-grant-vs-rls-blind-spot]]`)
-    # — ya'ni ikkalasi ham "0 qator" bilan emas, to'g'ridan-to'g'ri
-    # "permission denied" bilan bloklanadi ("append-only" aynan shu ma'noda).
+    # — "append-only" aynan shu ma'noda: yozilgan qatorga keyin tegib bo'lmaydi.
     async with engine.begin() as conn:
         await ctx(conn, user_id=world["owner"], org_id=world["org"])
-        with pytest.raises(DBAPIError, match="permission denied"):
-            await conn.execute(
-                text("DELETE FROM audit_log WHERE org_id = :o RETURNING id"), {"o": world["org"]}
-            )
+        await assert_write_blocked(
+            conn, "DELETE FROM audit_log WHERE org_id = :o RETURNING id", {"o": world["org"]}
+        )
 
     async with engine.begin() as conn:
         await ctx(conn, user_id=world["owner"], org_id=world["org"])
-        with pytest.raises(DBAPIError, match="permission denied"):
-            await conn.execute(
-                text("UPDATE audit_log SET action = 'yashirildi' WHERE org_id = :o RETURNING id"),
-                {"o": world["org"]},
-            )
+        await assert_write_blocked(
+            conn,
+            "UPDATE audit_log SET action = 'yashirildi' WHERE org_id = :o RETURNING id",
+            {"o": world["org"]},
+        )
 
     async with owner_engine().begin() as conn:
         async with rls_bypass(conn, "audit_log"):
