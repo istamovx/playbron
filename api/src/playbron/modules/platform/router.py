@@ -257,3 +257,99 @@ async def platform_logs(
 ) -> list[PlatformLogOut]:
     rows = await service.list_platform_logs(session, limit=max(1, min(limit, 200)))
     return [PlatformLogOut(**row) for row in rows]
+
+
+class BotStatusOut(BaseModel):
+    """Bitta botning holati. TOKEN HECH QACHON QAYTARILMAYDI."""
+
+    label: str
+    configured: bool
+    ok: bool
+    username: str | None = None
+    webhook_url: str | None = None
+    pending_updates: int | None = None
+    last_error: str | None = None
+    problem: str | None = None
+
+
+@router.get("/bots", response_model=list[BotStatusOut], dependencies=[Depends(require_super_admin)])
+async def bot_status() -> list[BotStatusOut]:
+    """Ikkala Telegram botining jonli holati.
+
+    Loyiha egasining takroriy muammosi (2026-08-16/17): token noto'g'ri
+    yoki webhook o'rnatilmagan bo'lsa ilova JIM qoladi — bot shunchaki
+    javob bermaydi, hech qayerda xato ko'rinmaydi. Sababni topish uchun
+    har safar tokenni qo'lda tekshirish kerak edi.
+
+    Ikki narsa tekshiriladi:
+      `getMe`          — token haqiqiymi (username ham shundan);
+      `getWebhookInfo` — webhook aynan SHU API'ga qaratilganmi, navbatda
+                         qancha yangilanish turibdi va Telegram oxirgi
+                         marta nima xato bergan.
+
+    MUHIM: webhook FAQAT API start'ida ro'yxatdan o'tadi (`main.py`
+    lifespan). Ya'ni tokenni almashtirgach servis qayta ishga tushishi
+    SHART, aks holda webhook eski botga qaragan bo'lib qolaveradi.
+    """
+    from playbron.core import telegram_api
+    from playbron.core.config import settings
+
+    expected_base = (settings.public_url or "").rstrip("/")
+    checks = [
+        ("Mijoz boti", settings.bot_token.get_secret_value(), "/api/v1/telegram/webhook/main"),
+        (
+            "Platforma boti",
+            settings.admin_bot_token.get_secret_value(),
+            "/api/v1/auth/telegram/webhook/admin",
+        ),
+    ]
+
+    out: list[BotStatusOut] = []
+    for label, token, path in checks:
+        if not token:
+            out.append(
+                BotStatusOut(
+                    label=label,
+                    configured=False,
+                    ok=False,
+                    problem="Token sozlanmagan (Render → Environment)",
+                )
+            )
+            continue
+
+        me = await telegram_api.get_me(token)
+        if me is None:
+            out.append(
+                BotStatusOut(
+                    label=label,
+                    configured=True,
+                    ok=False,
+                    problem="Token Telegram tomonidan rad etildi — @BotFather'dan yangisini oling",
+                )
+            )
+            continue
+
+        info = await telegram_api.call(token, "getWebhookInfo", {})
+        webhook_url = (info or {}).get("url") or None
+        expected = f"{expected_base}{path}" if expected_base else None
+
+        problem: str | None = None
+        if not webhook_url:
+            problem = "Webhook o‘rnatilmagan — API'ni qayta ishga tushiring"
+        elif expected and webhook_url != expected:
+            problem = f"Webhook boshqa manzilga qaragan: {webhook_url}"
+
+        out.append(
+            BotStatusOut(
+                label=label,
+                configured=True,
+                ok=problem is None,
+                username=me.get("username"),
+                webhook_url=webhook_url,
+                pending_updates=(info or {}).get("pending_update_count"),
+                last_error=(info or {}).get("last_error_message"),
+                problem=problem,
+            )
+        )
+
+    return out

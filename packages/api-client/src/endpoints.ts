@@ -1637,6 +1637,43 @@ export const updatePlatformOrg = async (
   };
 };
 
+/** Telegram botining jonli holati — token HECH QACHON qaytarilmaydi. */
+export interface BotStatusDto {
+  label: string;
+  configured: boolean;
+  ok: boolean;
+  username: string | null;
+  webhookUrl: string | null;
+  pendingUpdates: number | null;
+  lastError: string | null;
+  problem: string | null;
+}
+
+export const listBotStatus = async (api: ApiClient): Promise<BotStatusDto[]> => {
+  const rows = await api.get<
+    Array<{
+      label: string;
+      configured: boolean;
+      ok: boolean;
+      username: string | null;
+      webhook_url: string | null;
+      pending_updates: number | null;
+      last_error: string | null;
+      problem: string | null;
+    }>
+  >('/platform/bots');
+  return rows.map((row) => ({
+    label: row.label,
+    configured: row.configured,
+    ok: row.ok,
+    username: row.username,
+    webhookUrl: row.webhook_url,
+    pendingUpdates: row.pending_updates,
+    lastError: row.last_error,
+    problem: row.problem,
+  }));
+};
+
 export interface PlatformOrgClubDto {
   clubId: number;
   clubName: string;
