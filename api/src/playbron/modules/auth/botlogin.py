@@ -150,8 +150,13 @@ _EXPIRED_TEXT: dict[str, str] = {
 }
 
 
-def _admin_token() -> str:
-    """Konsol oqimi admin bot bilan ishlaydi; lokalda asosiy botga qaytadi."""
+def admin_token() -> str:
+    """Konsol oqimi admin bot bilan ishlaydi; lokalda asosiy botga qaytadi.
+
+    Prod'da `ADMIN_BOT_TOKEN` majburiy (`core/config.py`), ya'ni qaytish
+    faqat `local`/`test` uchun. `main.py::register_webhooks()` shu qiymatga
+    qaraydi — u yerda "ikkala yuza bitta bot" holati ushlanadi.
+    """
     return settings.admin_bot_token.get_secret_value() or settings.bot_token.get_secret_value()
 
 
@@ -168,7 +173,7 @@ async def admin_bot_username() -> str | None:
     if _bot_username_cache is not None:
         return _bot_username_cache
 
-    token = _admin_token()
+    token = admin_token()
     if not token:
         return None
 
@@ -184,7 +189,7 @@ async def admin_bot_username() -> str | None:
 
 async def notify(chat_id: int, language_code: str | None, *, approved: bool) -> None:
     """Foydalanuvchiga botda natijani aytadi. Xato oqimni to'xtatmaydi."""
-    token = _admin_token()
+    token = admin_token()
     if not token:
         return
 
@@ -209,7 +214,7 @@ async def register_webhook(public_url: str) -> None:
     Idempotent: Telegram bir xil URL'ni qayta qabul qilaveradi. Xato start'ni
     to'xtatmaydi — webhook'siz ham API'ning qolgan qismi ishlayveradi.
     """
-    token = _admin_token()
+    token = admin_token()
     secret = settings.tg_webhook_secret.get_secret_value()
     if not (token and secret and public_url):
         log.warning("Webhook ro'yxatdan o'tkazilmadi — token/sekret/URL to'liq emas")

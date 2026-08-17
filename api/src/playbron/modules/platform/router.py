@@ -353,22 +353,25 @@ async def bot_status() -> list[BotStatusOut]:
         )
 
     # ── Ikkala yuza BITTA botga qaragan holati ────────────────────────────
-    # Eng ziyonli va eng qiyin sezinadigan nosozlik. `main.py` lifespan
-    # ikkala webhook'ni KETMA-KET ro'yxatdan o'tkazadi; bitta bot ikkala
-    # yuzaga ishlatilsa ikkinchi `setWebhook` birinchisini BOSIB KETADI.
-    # Natijada bitta bot butunlay jim qoladi — Telegram xato bermaydi,
-    # log'da ham hech nima yo'q.
+    # Eng ziyonli va eng qiyin sezinadigan nosozlik. Telegram'da webhook
+    # BOTGA tegishli va bitta bot uchun BITTA URL bo'ladi — bitta token
+    # ikkala yuzaga ishlatilsa ikkinchi `setWebhook` birinchisini bosib
+    # ketardi va bitta bot butunlay jim qolardi (Telegram xato bermaydi).
     #
-    # `ADMIN_BOT_TOKEN` umuman berilmasa ham shu holat yuzaga keladi:
-    # `_admin_token()` `BOT_TOKEN` ga tushadi (`botlogin.py`).
+    # `main.py::register_webhooks()` endi bu holatda admin webhook'ini
+    # ATAYLAB ro'yxatdan o'tkazmaydi — mijoz boti saqlanadi, konsolga esa
+    # parol bilan kirish mumkin. Ya'ni konsol bot oqimi (kirish havolasi,
+    # Telegram ulash) SHU SABABDAN ishlamaydi, tasodifdan emas.
     live = [row for row in out if row.username]
     if len(live) == 2 and live[0].username == live[1].username:
         for row in live:
             row.ok = False
             row.problem = (
                 f"Ikkala yuza ham BITTA botga (@{row.username}) qaragan — "
-                "webhook'lar bir-birini bosib ketadi va bitta bot jim qoladi. "
-                "BOT_TOKEN va ADMIN_BOT_TOKEN HAR XIL bot bo'lishi shart."
+                "konsol bot oqimi o‘chirib qo‘yilgan (mijoz boti bosib "
+                "ketilmasin uchun). BOT_TOKEN va ADMIN_BOT_TOKEN HAR XIL "
+                "bot bo‘lishi shart; tokenni almashtirgach servisni qayta "
+                "ishga tushiring."
             )
 
     return out

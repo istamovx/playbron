@@ -90,8 +90,25 @@ xabari boradi va `log.error` yoziladi. Sinov ham qo'shildi —
 **Ikkinchi ehtimol** (hali chiqarib tashlanmagan): `main.py` lifespan
 ikkala webhook'ni KETMA-KET ro'yxatdan o'tkazadi. Ikkala yuza bitta
 botga qarasa — yoki `ADMIN_BOT_TOKEN` berilmasa (u holda
-`_admin_token()` `BOT_TOKEN` ga tushadi) — ikkinchi `setWebhook`
+`admin_token()` `BOT_TOKEN` ga tushadi) — ikkinchi `setWebhook`
 birinchisini BOSIB KETADI. Buni Sozlamalar ekrani endi aniq aytadi.
+
+**Bosib ketish endi mumkin emas.** `main.py::register_webhooks()`
+ikkala token bir xil bo'lsa admin webhook'ini ATAYLAB ro'yxatdan
+o'tkazmaydi va sababni `log.error` bilan yozadi. Mijoz boti saqlanadi:
+konsolga parol bilan ham kirish mumkin, mijozda esa botdan boshqa yo'l
+yo'q. Ya'ni qaysi yuza tirik qolgani endi chaqiruvlar tartibiga yoki
+tarmoq xatosiga bog'liq emas (`tests/test_webhook_registration.py`).
+
+> **Ammo alomat bu ehtimolga QARSHI ishlaydi — buni e'tiborga oling.**
+> Tartib: avval admin, keyin mijoz. Bitta bot bo'lsa OXIRGI chaqiruv
+> yutadi, ya'ni **mijoz boti ishlab, konsol oqimi o'lishi** kerak edi.
+> Kuzatilgani esa buning teskarisi: `/start` jim, konsol ulanishi bir
+> marta ishlagan. Buning bitta izohi bor — o'sha start'da mijoz
+> `setWebhook` chaqiruvi RAD ETILGAN yoki tarmoqqa yetib bormagan,
+> natijada admin webhook'i o'z joyida qolgan. Shuning uchun log'dan
+> `setWebhook rad etildi` va `Mijoz webhook'i ro'yxatdan o'tkazilmadi`
+> qatorlarini ham qidiring — ular WARNING darajasida yoziladi.
 
 **KEYINGI QADAM:** Konsol → **Sozlamalar → Telegram botlari**
 (`GET /platform/bots`). Ekran to'rt holatdan birini aniq aytadi:
