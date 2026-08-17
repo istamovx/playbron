@@ -28,6 +28,7 @@ skip_no_db = pytest.mark.skipif(
 )
 
 OWNER_LOGIN = "pos.owner"
+STAFF_LOGIN = "pos.kassir"
 PASSWORD = "juda mustahkam parol"
 
 
@@ -103,6 +104,36 @@ async def world() -> AsyncIterator[dict[str, int]]:
                 text("INSERT INTO memberships (user_id, club_id, role) VALUES (:u, :c, 'OWNER')"),
                 {"u": ids["owner"], "c": ids["club"]},
             )
+            # HAQIQIY `STAFF` rolli xodim ham kerak: kassa/buyurtma oqimini
+            # kundalik ishda aynan U bajaradi, lekin RLS policy'lari OWNER
+            # bilan bir xil EMAS (masalan `products_write` STAFF'ni umuman
+            # o'z ichiga olmaydi). Faqat OWNER bilan sinash bu farqni
+            # yashiradi — loyiha egasining hisoboti (2026-08-17): "xodim
+            # yangi buyurtmani bekor qilganda xatolik yuz berdi".
+            ids["staff"] = await conn.scalar(
+                text(
+                    "INSERT INTO users (kind, login, status, first_name)"
+                    " VALUES ('staff', :login, 'active', 'Kassir')"
+                    " ON CONFLICT ((lower(login))) WHERE kind = 'staff'"
+                    " DO UPDATE SET status = 'active' RETURNING id"
+                ),
+                {"login": STAFF_LOGIN},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :h, false) ON CONFLICT (user_id) DO UPDATE"
+                    " SET password_hash = EXCLUDED.password_hash, must_change = false"
+                ),
+                {"uid": ids["staff"], "h": password_hash},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO memberships (user_id, club_id, role) VALUES (:u, :c, 'STAFF')"
+                    " ON CONFLICT (user_id, club_id) DO UPDATE SET status = 'active'"
+                ),
+                {"u": ids["staff"], "c": ids["club"]},
+            )
             ids["station"] = await conn.scalar(
                 text(
                     "INSERT INTO stations (club_id, code, room_label, console_type, rate)"
@@ -158,6 +189,19 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 async def _staff_headers(client: httpx.AsyncClient, club_id: int) -> dict[str, str]:
     r = await client.post(
         "/api/v1/auth/staff/login", json={"login": OWNER_LOGIN, "password": PASSWORD}
+    )
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}", "X-Club-Id": str(club_id)}
+
+
+async def _kassir_headers(client: httpx.AsyncClient, club_id: int) -> dict[str, str]:
+    """HAQIQIY `STAFF` roli — kundalik kassa ishini aynan u bajaradi.
+
+    OWNER bilan sinash yetarli EMAS: RLS policy'lari rolga qarab farq
+    qiladi (`products_write` STAFF'ni o'z ichiga olmaydi).
+    """
+    r = await client.post(
+        "/api/v1/auth/staff/login", json={"login": STAFF_LOGIN, "password": PASSWORD}
     )
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}", "X-Club-Id": str(club_id)}
@@ -306,6 +350,50 @@ async def test_cancelled_order_is_not_counted_as_revenue(
     assert after.json()["bar_revenue_today"] == base_bar, (
         "bekor qilingan buyurtma tushumda qolib ketdi"
     )
+
+
+@skip_no_db
+async def test_staff_role_can_create_and_cancel_order(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Loyiha egasining hisoboti (2026-08-17): "xodim yangi buyurtmani
+    bekor qilganda xatolik yuz berdi".
+
+    Oldingi testlar OWNER bilan yurgan — `products_write` policy'si esa
+    STAFF'ni umuman o'z ichiga olmaydi, ya'ni kundalik ishni bajaradigan
+    rol sinovdan CHETDA qolgan edi."""
+    owner_h = await _staff_headers(client, world["club"])
+    kassir_h = await _kassir_headers(client, world["club"])
+
+    # Mahsulotni EGA qo'shadi (xodimda bunday huquq yo'q — bu to'g'ri)
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/products",
+        json={"category": "Snack", "name": "Kassir Snack", "price": 15000, "stock_qty": 10},
+        headers=owner_h,
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    # Buyurtmani XODIM kiritadi
+    order = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders",
+        json={"booking_id": world["booking"], "items": [{"product_id": product_id, "qty": 2}]},
+        headers=kassir_h,
+    )
+    assert order.status_code == 201, order.text
+    order_id = order.json()["id"]
+
+    # Va XODIM uni bekor qiladi — aynan shu qadam xato berardi
+    cancelled = await client.post(
+        f"/api/v1/clubs/{world['club']}/orders/{order_id}/cancel", headers=kassir_h
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    # Qoldiq to'liq qaytishi kerak
+    listed = await client.get(f"/api/v1/clubs/{world['club']}/products", headers=owner_h)
+    row = next(p for p in listed.json() if p["id"] == product_id)
+    assert row["stock_qty"] == 10, f"xodim bekor qilgach qoldiq qaytmadi: {row['stock_qty']}"
 
 
 @skip_no_db

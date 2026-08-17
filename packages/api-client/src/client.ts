@@ -232,8 +232,30 @@ async function parse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Loyihaning O'Z xato formati (`{ error: { code, message } }`) bo'lmagan
+ * javoblar uchun tushunarli zaxira matn.
+ *
+ * Avval hammasi uchun bitta "Xatolik yuz berdi" edi va bu SABABNI
+ * yashirardi (loyiha egasining hisoboti, 2026-08-17: xodim buyurtmani
+ * bekor qilolmadi — aslida API'ning eski nusxasi jonli bo'lgani uchun
+ * endpoint 404 qaytargan, lekin ekranda buni bilib bo'lmasdi).
+ *
+ * Eng ko'p uchraydigan sabab — frontend va API deploy'lari ROSTMANA
+ * ajralib qolishi: statik sayt yangi, API hali eski (yoki teskarisi).
+ * Shuning uchun 404 uchun matn "sahifani yangilang" deb aytadi.
+ */
+function fallbackMessage(status: number): string {
+  if (status === 404) return 'Amal topilmadi — sahifani yangilang (ilova yangilangan bo‘lishi mumkin)';
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Server vaqtincha javob bermayapti — birozdan keyin urinib ko‘ring';
+  }
+  if (status >= 500) return `Serverda xatolik (${status})`;
+  return `Xatolik yuz berdi (${status})`;
+}
+
 async function toError(response: Response): Promise<ApiError> {
-  let body: ApiErrorBody = { code: 'UNKNOWN', message: 'Xatolik yuz berdi' };
+  let body: ApiErrorBody = { code: 'UNKNOWN', message: fallbackMessage(response.status) };
   try {
     const parsed = (await response.json()) as { error?: ApiErrorBody };
     if (parsed.error) body = parsed.error;
