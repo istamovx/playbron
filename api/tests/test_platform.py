@@ -469,7 +469,9 @@ async def test_payment_updates_org_plan_and_expiry_in_list(
     # Postgres `interval '1 month'` — kalendar oyi qo'shadi (kun/soat aynan
     # saqlanadi), `timedelta(days=...)` bilan emas — 3 oy qo'shib solishtiramiz.
     expected_month = paid_at.month - 1 + 3
-    expected = paid_at.replace(year=paid_at.year + expected_month // 12, month=expected_month % 12 + 1)
+    expected = paid_at.replace(
+        year=paid_at.year + expected_month // 12, month=expected_month % 12 + 1
+    )
     assert abs((expires_at - expected).total_seconds()) < 60
 
 
