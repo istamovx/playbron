@@ -199,10 +199,71 @@ async def test_changed_password_revokes_old_sessions(account: int) -> None:
 
 
 @skip_no_db
-async def test_unknown_login_is_skipped_without_error(account: int) -> None:
-    settings.super_admin_logins = "yoq.bunday.login"
+async def test_unknown_login_creates_a_new_super_admin(account: int) -> None:
+    """Mavjud bo'lmagan login — hisob YARATILADI, o'tkazib yuborilmaydi.
+
+    Test avval `test_unknown_login_is_skipped_without_error` deb atalgan
+    va faqat "xato chiqmasin" deb tekshirardi — ya'ni nomi ham, izohi ham
+    HAQIQIY xatti-harakatga ZID edi (`_sync_one()` login topilmasa
+    `_create_super_admin_account()` chaqiradi). Xavfsizlikka daxldor
+    yo'lda bunday nomlanish kod o'quvchisini chalg'itadi.
+
+    Bu ATAYLAB shunday: birinchi deployda super admin hisobi shu yo'l
+    bilan paydo bo'ladi (`render.yaml` izohi — bepul rejada Shell yo'q,
+    qo'lda seed qilib bo'lmaydi). Shuning uchun test endi shu haqiqatni
+    QULFLAYDI va o'zidan keyin tozalaydi (avval hisob bazada qolib
+    ketardi — loyiha egasining dev bazasida shu tarzda yig'ilgan edi).
+    """
+    login = "yoq.bunday.login"
+    settings.super_admin_logins = login
     settings.super_admin_password = SecretStr(PASSWORD)
-    await sync_super_admin_password()  # xato chiqarmasligi yetarli
+
+    engine = _owner_engine()
+    try:
+        await sync_super_admin_password()
+
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "users", "super_admins", "staff_credentials"):
+                row = (
+                    await conn.execute(
+                        text(
+                            "SELECT u.id, sa.user_id IS NOT NULL AS is_sa,"
+                            "       sc.user_id IS NOT NULL AS has_password"
+                            " FROM users u"
+                            " LEFT JOIN super_admins sa ON sa.user_id = u.id"
+                            " LEFT JOIN staff_credentials sc ON sc.user_id = u.id"
+                            " WHERE u.kind = 'staff' AND lower(u.login) = :login"
+                        ),
+                        {"login": login},
+                    )
+                ).first()
+
+        assert row is not None, "noma'lum login uchun hisob yaratilmadi"
+        assert row.is_sa, "yaratilgan hisob super admin emas"
+        assert row.has_password, "yaratilgan hisobga parol qo'yilmadi"
+    finally:
+        # Sinov ortidan bazada HAQIQIY super admin hisobi qolib ketmasin
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "users", "super_admins", "staff_credentials"):
+                await conn.execute(
+                    text(
+                        "DELETE FROM staff_credentials WHERE user_id IN"
+                        " (SELECT id FROM users WHERE kind = 'staff' AND lower(login) = :login)"
+                    ),
+                    {"login": login},
+                )
+                await conn.execute(
+                    text(
+                        "DELETE FROM super_admins WHERE user_id IN"
+                        " (SELECT id FROM users WHERE kind = 'staff' AND lower(login) = :login)"
+                    ),
+                    {"login": login},
+                )
+                await conn.execute(
+                    text("DELETE FROM users WHERE kind = 'staff' AND lower(login) = :login"),
+                    {"login": login},
+                )
+        await engine.dispose()
 
 
 @skip_no_db

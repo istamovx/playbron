@@ -1,0 +1,18 @@
+[Unit]
+Description=PlayBron zaxirasini kunlik ishga tushiradi
+
+[Timer]
+# 04:00 Toshkent = 23:00 UTC (oldingi kun). Klublar 02:00 gacha ishlaydi,
+# ya'ni bu vaqtda kassa yopilgan va yuk eng past bo'ladi.
+OnCalendar=*-*-* 23:00:00 UTC
+
+# Server o'chirilgan bo'lsa (Hetzner qayta yuklashi, uzilish) — yoqilishi
+# bilan o'tkazib yuborilgan zaxira BAJARILADI. Busiz "server o'chiq edi"
+# degan sabab bilan kunlar tushib qolardi.
+Persistent=true
+
+# Bir necha server bo'lsa hammasi bir vaqtda Storage Box'ga urilmasin
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

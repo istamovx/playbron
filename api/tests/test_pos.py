@@ -168,13 +168,17 @@ async def world() -> AsyncIterator[dict[str, int]]:
         async with rls_bypass(
             conn, "organizations", "users", "bookings", "stations", "products", "orders"
         ):
-            await purge_audit_actor(conn, ids["owner"])
+            await purge_audit_actor(conn, ids["owner"], ids.get("staff"))
             await conn.execute(text("DELETE FROM orders WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM products WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM bookings WHERE club_id = :c"), {"c": ids["club"]})
             await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": ids["org"]})
+            # IKKALA login ham o'chiriladi. Avval faqat `OWNER_LOGIN` bor
+            # edi va yangi qo'shilgan xodim hisobi bazada qolib ketardi —
+            # dev bazasi shu tarzda sinov hisoblari bilan to'lardi.
             await conn.execute(
-                text("DELETE FROM users WHERE login = :l AND kind = 'staff'"), {"l": OWNER_LOGIN}
+                text("DELETE FROM users WHERE login = ANY(:l) AND kind = 'staff'"),
+                {"l": [OWNER_LOGIN, STAFF_LOGIN]},
             )
     await engine.dispose()
 

@@ -1,0 +1,24 @@
+[Unit]
+Description=PlayBron PostgreSQL zaxirasi
+Documentation=file:///opt/playbron/deploy/backup/README.md
+# Docker tayyor bo'lmasa zaxira ma'nosiz — kutamiz
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/playbron-backup.sh
+
+# Sekin tashqi nusxa butun tizimni ushlab qolmasin
+TimeoutStartSec=45min
+
+# Zaxira fon vazifasi — ilovaning javob berishi muhimroq
+Nice=10
+IOSchedulingClass=idle
+
+# Chiqish `journalctl -u playbron-backup` ga tushadi
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
