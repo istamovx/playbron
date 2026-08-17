@@ -40,6 +40,17 @@ def _rls() -> None:
                 USING (app_bot_lookup_claim());
             CREATE POLICY bookings_bot_update ON bookings FOR UPDATE
                 USING (app_bot_lookup_claim()) WITH CHECK (app_bot_lookup_claim());
+
+            -- `stations` HAM kerak: pastdagi funksiya `UPDATE ... FROM
+            -- stations s, clubs c` qiladi va JOIN uchun SELECT huquqi
+            -- talab qilinadi. Bu policy DASTLAB UNUTILGAN edi — natijada
+            -- BYPASSRLS'siz bazada (Render) join bo'sh qaytardi, UPDATE
+            -- hech qanday qatorga tegmasdi va `_self_test()` "holat
+            -- SUBMITTED'ga o'tmadi" bilan yiqilib, DEPLOYNI to'sardi.
+            -- Lokal superuser buni yashirgan (`_exempt()` self-testni
+            -- o'tkazib yuboradi). `[[playbron-rls-cross-table-subquery-gap]]`.
+            CREATE POLICY stations_bot_lookup ON stations FOR SELECT
+                USING (app_bot_lookup_claim());
             """
         )
     )
@@ -173,13 +184,6 @@ def _self_test() -> None:
         if row is None or row.booking_id != booking_id or row.club_id != club_id:
             raise RuntimeError("bot_submit_payment_proof: PENDING bron topilmadi/yangilanmadi")
 
-        status = conn.execute(
-            sa.text("SELECT payment_proof_status, payment_proof_file_id FROM bookings WHERE id = :i"),
-            {"i": booking_id},
-        ).first()
-        if status is None or status.payment_proof_status != "SUBMITTED" or status.payment_proof_file_id != "file-abc":
-            raise RuntimeError("bot_submit_payment_proof: holat SUBMITTED'ga o'tmadi")
-
         empty = conn.execute(
             sa.text("SELECT * FROM bot_submit_payment_proof(999999999, 'file-xyz')")
         ).first()
@@ -188,6 +192,28 @@ def _self_test() -> None:
     finally:
         if not exempt:
             _force_rls(conn, scoped, enabled=False)
+
+        # Natijani QAYTA O'QISH — FORCE RLS o'chirilgandan KEYIN. Migratsiya
+        # sessiyasida `app.bot_lookup` GUC'i yo'q (uni funksiya o'z ichida,
+        # o'z tranzaksiyasida qo'yadi), shuning uchun FORCE RLS ostida
+        # `bookings` bu yerda KO'RINMAYDI va o'qish 0 qator qaytaradi.
+        # Avval bu tekshiruv yuqorida, RLS yoqilgan holda turardi va
+        # "holat SUBMITTED'ga o'tmadi" deb YOLG'ON yiqilardi — funksiyaning
+        # o'zi to'g'ri ishlagan bo'lsa ham. Buni faqat BYPASSRLS'siz muhit
+        # ko'rsatadi (Render), lokal superuser self-testni umuman
+        # o'tkazib yuboradi (`_exempt()`).
+        status = conn.execute(
+            sa.text(
+                "SELECT payment_proof_status, payment_proof_file_id FROM bookings WHERE id = :i"
+            ),
+            {"i": booking_id},
+        ).first()
+        submitted = (
+            status is not None
+            and status.payment_proof_status == "SUBMITTED"
+            and status.payment_proof_file_id == "file-abc"
+        )
+
         conn.execute(sa.text("DELETE FROM bookings WHERE id = :i"), {"i": booking_id})
         conn.execute(sa.text("DELETE FROM stations WHERE id = :i"), {"i": station_id})
         conn.execute(sa.text("DELETE FROM clubs WHERE id = :i"), {"i": club_id})
@@ -197,6 +223,14 @@ def _self_test() -> None:
         )
         if not exempt:
             _force_rls(conn, scoped, enabled=True)
+
+        # Tozalashdan KEYIN — aks holda xato tashlansa sinov qatorlari
+        # bazada qolib ketardi.
+        if not submitted:
+            raise RuntimeError(
+                "bot_submit_payment_proof: holat SUBMITTED'ga o'tmadi"
+                f" (o'qilgan: {status})"
+            )
 
 
 def downgrade() -> None:

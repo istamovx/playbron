@@ -34,8 +34,55 @@ APP_ROLE = "playbron_app"
 
 
 def upgrade() -> None:
+    _claim_function()
+    _rls()
     _function()
     _self_test()
+
+
+def _claim_function() -> None:
+    op.execute(
+        sa.text(
+            """
+            CREATE OR REPLACE FUNCTION app_org_revoke_claim() RETURNS boolean
+                LANGUAGE sql STABLE PARALLEL SAFE AS
+            $$ SELECT COALESCE(NULLIF(current_setting('app.org_revoke', true), ''), 'false')::boolean $$;
+            """
+        )
+    )
+
+
+def _rls() -> None:
+    op.execute(
+        sa.text(
+            """
+            -- SECURITY DEFINER YETARLI EMAS: funksiya egasi ham
+            -- `FORCE ROW LEVEL SECURITY` ostida qoladi va Render bepul
+            -- rejasida BYPASSRLS olib bo'lmaydi
+            -- (`[[render-free-tier-no-bypassrls]]`). Mavjud
+            -- `refresh_tokens_scope` policy'si `user_id = app_user_id()`
+            -- talab qiladi — platforma sessiyasida u 0, ya'ni UPDATE
+            -- hech qanday qatorga tegmasdi.
+            --
+            -- GUC-claim naqshi (`0022`/`0025`/`0026` bilan bir xil): tor
+            -- policy, kalitni faqat quyidagi funksiya o'z tranzaksiyasida
+            -- qo'yadi. Butun jadvalga keng platform policy berilmaydi.
+            -- SELECT ham KERAK, faqat UPDATE yetarli emas: Postgres UPDATE
+            -- uchun qatorni TOPISH bosqichida SELECT policy'larini ham
+            -- qo'llaydi (WHERE sharti bo'lsa). Faqat `FOR UPDATE` bo'lganda
+            -- UPDATE 0 qatorga tegardi va sinov "token yopilmadi" berardi.
+            CREATE POLICY refresh_tokens_org_revoke_read ON refresh_tokens FOR SELECT
+                USING (app_org_revoke_claim());
+            CREATE POLICY refresh_tokens_org_revoke ON refresh_tokens FOR UPDATE
+                USING (app_org_revoke_claim()) WITH CHECK (app_org_revoke_claim());
+
+            CREATE POLICY memberships_org_revoke ON memberships FOR SELECT
+                USING (app_org_revoke_claim());
+            CREATE POLICY clubs_org_revoke ON clubs FOR SELECT
+                USING (app_org_revoke_claim());
+            """
+        )
+    )
 
 
 def _function() -> None:
@@ -50,12 +97,13 @@ def _function() -> None:
             DECLARE
                 v_count integer;
             BEGIN
-                -- Faqat platforma konteksti chaqira oladi. Bu tekshiruv
-                -- funksiya ICHIDA: SECURITY DEFINER egasining huquqi bilan
-                -- ishlagani uchun tashqi RLS uni to'sib qololmaydi.
+                -- Faqat platforma konteksti chaqira oladi. Tekshiruv
+                -- funksiya ICHIDA, chunki quyidagi GUC RLS'ni ochadi.
                 IF NOT app_platform() THEN
                     RETURN 0;
                 END IF;
+
+                PERFORM set_config('app.org_revoke', 'true', true);
 
                 UPDATE refresh_tokens rt
                    SET revoked_at = now()
@@ -68,6 +116,7 @@ def _function() -> None:
                    );
 
                 GET DIAGNOSTICS v_count = ROW_COUNT;
+                PERFORM set_config('app.org_revoke', '', true);
                 RETURN v_count;
             END
             $fn$;
