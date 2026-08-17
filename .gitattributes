@@ -1,0 +1,35 @@
+# Qator oxiri (line ending) qoidalari.
+#
+# NEGA KERAK: loyiha Windows'da yoziladi, lekin server — Linux. Windows'da
+# yozilgan `.sh` fayl CRLF bilan saqlansa, Linux uni umuman yurgiza olmaydi:
+#
+#   /usr/bin/env: 'bash\r': No such file or directory
+#
+# Hozircha hamma narsa to'g'ri (tekshirildi 2026-08-17: barcha `.sh`
+# blob'larida 0 ta CR). Lekin bu `core.autocrlf=true` sozlamasiga
+# TASODIFAN bog'liq — boshqa mashinada u `false` bo'lsa, CRLF'li skript
+# git'ga tushib qolishi mumkin. Bu fayl kafolatni ANIQ qilib qo'yadi.
+
+# Sukut: matn fayllarni git o'zi aniqlasin
+* text=auto
+
+# ── Linux'da BAJARILADIGAN yoki O'QILADIGAN fayllar: har doim LF ──────────
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.service       text eol=lf
+*.timer         text eol=lf
+Caddyfile       text eol=lf
+*.env.example   text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# ── Ikkilik fayllar: umuman tegilmasin ───────────────────────────────────
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.webp          binary
+*.avif          binary
+*.ico           binary
+*.woff          binary
+*.woff2         binary
+*.pdf           binary
