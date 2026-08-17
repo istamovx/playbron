@@ -13,6 +13,13 @@ coverage/
 .env
 .env.*
 !.env.example
+# `.env.*` yuqorida `deploy/.env.prod.example` ni ham ushlab qolardi va
+# shablon git'ga UMUMAN tushmasdi — ya'ni serverda uni nusxa olib
+# bo'lmasdi. Namuna fayllar har doim kuzatiladi (ularda sir yo'q).
+!.env.*.example
+
+# Yig'ilgan frontend — Caddy shu yerdan o'qiydi, lekin git'da saqlanmaydi
+deploy/www/
 
 *.log
 npm-debug.log*

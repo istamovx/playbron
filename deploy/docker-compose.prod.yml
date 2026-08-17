@@ -1,0 +1,156 @@
+# PlayBron — production (Hetzner VPS).
+#
+# Ildizdagi `docker-compose.yml` DEV uchun: portlar tashqariga ochiq,
+# `--reload`, manba kodi mount qilingan, dev parollar. Uni prod'da
+# ISHLATIB BO'LMAYDI. Bu fayl o'sha vazifani prod uchun bajaradi.
+#
+#   cd /opt/playbron
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d
+#
+# Odatda to'g'ridan-to'g'ri emas, `deploy/deploy.sh` orqali chaqiriladi.
+
+name: playbron
+
+services:
+  # ── Postgres ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # PORT OCHILMAYDI. Dev faylda `5432:5432` bor — VPS'da bu bazani butun
+    # internetga ochib qo'yardi. Bazaga faqat shu compose tarmog'idagi
+    # konteynerlar yetadi.
+    environment:
+      POSTGRES_USER: ${DB_OWNER:-playbron}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD kerak}
+      POSTGRES_DB: ${DB_NAME:-playbron}
+      # Toshkent vaqti loglarda ham to'g'ri ko'rinsin
+      TZ: Asia/Tashkent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_OWNER:-playbron} -d ${DB_NAME:-playbron}']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 1m
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  # ── Redis ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # `appendonly` — qayta yuklanganda chegaralagich sanagichlari saqlanadi.
+    # Yo'qolsa halokat emas (kesh), lekin qayta ishga tushirish har safar
+    # brute-force chegarasini nolga qaytarardi.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '256mb', '--maxmemory-policy', 'allkeys-lru']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  # ── Migratsiya (bir martalik) ───────────────────────────────────────────
+  # ATAYLAB alohida profil: API konteyneri migratsiya QILMAYDI. Aks holda
+  # bir nechta nusxa bir vaqtda `alembic upgrade` yurgizib, bir-birini
+  # bosib ketardi. `deploy.sh` buni API'dan OLDIN, bir marta chaqiradi.
+  migrate:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    image: playbron-api:${IMAGE_TAG:-latest}
+    command: ['alembic', 'upgrade', 'head']
+    env_file: .env.prod
+    environment:
+      # Migratsiya EGA roli bilan yuradi (rol yaratish, DDL, RLS).
+      DIRECT_URL: postgresql+psycopg://${DB_OWNER:-playbron}:${DB_OWNER_PASSWORD}@postgres:5432/${DB_NAME:-playbron}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ['migrate']
+    restart: 'no'
+    logging: *logging
+
+  # ── API ─────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    image: playbron-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # `--reload` YO'Q va manba kodi mount QILINMAYDI — konteyner ichidagi
+    # tayyor nusxa ishlaydi.
+    command:
+      - uvicorn
+      - playbron.main:app
+      - --host
+      - '0.0.0.0'
+      - --port
+      - '8000'
+      - --workers
+      - '2'
+      - --proxy-headers
+      # Caddy oldinda turadi: haqiqiy mijoz IP'si shu orqali o'tadi
+      # (chegaralagich `client_ip()` ga tayanadi).
+      - --forwarded-allow-ips
+      - '*'
+    env_file: .env.prod
+    environment:
+      # Ulanish manzillari SHU YERDA quriladi — `.env.prod` da faqat
+      # parollar turadi, host nomlari emas.
+      #
+      # Uchta ALOHIDA rol (Render bepul rejasida imkonsiz edi):
+      #   playbron_app       — ilova, RLS ostida, `staff_credentials` KO'RINMAYDI
+      #   playbron_platform  — BYPASSRLS, faqat super admin o'qishlari
+      #   playbron (ega)     — migratsiya va zaxira
+      # Shu sababli `ALLOW_SINGLE_DB_ROLE` bu yerda QO'YILMAYDI.
+      DATABASE_URL: postgresql+asyncpg://playbron_app:${APP_DB_PASSWORD:?APP_DB_PASSWORD kerak}@postgres:5432/${DB_NAME:-playbron}
+      DIRECT_URL: postgresql+psycopg://${DB_OWNER:-playbron}:${DB_OWNER_PASSWORD}@postgres:5432/${DB_NAME:-playbron}
+      PLATFORM_DATABASE_URL: postgresql+asyncpg://playbron_platform:${PLATFORM_DB_PASSWORD:?PLATFORM_DB_PASSWORD kerak}@postgres:5432/${DB_NAME:-playbron}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:8000/healthz\", timeout=5).status==200 else 1)"']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *logging
+
+  # ── Caddy: teskari proksi + AVTOMATIK HTTPS ─────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # Yagona tashqariga ochiq konteyner.
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Statik saytlar (`build-web.sh` shu yerga yig'adi)
+      - ./www:/srv:ro
+      # Sertifikatlar shu yerda saqlanadi — YO'QOTMANG, aks holda
+      # Let's Encrypt chegarasiga tez urilib qolasiz.
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - api
+    logging: *logging
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:

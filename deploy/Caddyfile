@@ -1,0 +1,124 @@
+# PlayBron — Caddy (teskari proksi + avtomatik HTTPS).
+#
+# Caddy Let's Encrypt sertifikatini O'ZI oladi va yangilaydi — certbot,
+# cron yoki qo'lda yangilash kerak emas. Buning uchun 80 va 443 portlari
+# ochiq va domenlar shu serverga qaragan bo'lishi kifoya.
+#
+# Domen taqsimoti `render.yaml` dagi bilan AYNAN bir xil saqlangan —
+# ko'chish paytida hech narsa o'zgarmasin:
+#   playbron.uz / www  -> landing (Astro, statik)
+#   app.playbron.uz    -> konsol (xodim + klub admini, Vite SPA)
+#   mini.playbron.uz   -> mijoz Mini App (Vite SPA)
+#   api.playbron.uz    -> API
+
+{
+	email {$ACME_EMAIL}
+
+	# Sertifikat muammosini sinash uchun (chegaraga urilmaslik):
+	#   acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ── Umumiy sarlavhalar ────────────────────────────────────────────────────
+(security) {
+	header {
+		# MIME turini taxmin qilish o'chiriladi
+		X-Content-Type-Options nosniff
+		# Faqat HTTPS (Caddy o'zi HTTPS'ga yo'naltiradi, bu brauzerni ham majburlaydi)
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Referrer-Policy strict-origin-when-cross-origin
+		# Server versiyasini oshkor qilmaymiz
+		-Server
+	}
+}
+
+(static_assets) {
+	# Hash'langan fayllar (Vite/Astro) — uzoq kesh
+	@hashed path_regexp \.[0-9a-f]{8,}\.(js|css|woff2?|png|jpe?g|svg|webp|avif)$
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# HTML hech qachon keshlanmaydi — aks holda foydalanuvchi eski
+	# bundle'ni ushlab qoladi va yangi API bilan mos kelmaydi
+	@html path *.html /
+	header @html Cache-Control "no-cache, must-revalidate"
+}
+
+# ── API ───────────────────────────────────────────────────────────────────
+api.playbron.uz {
+	import security
+
+	# CORS API'ning O'ZIDA hal qilinadi (`main.py` CORSMiddleware,
+	# `CORS_ORIGINS`). Caddy bu yerga ARALASHMAYDI — ikki joyda
+	# boshqarilsa qaysi biri ishlayotganini aniqlash qiyin bo'ladi.
+	reverse_proxy api:8000 {
+		# Haqiqiy mijoz IP'si: chegaralagich (`login:ip`) shunga tayanadi
+		header_up X-Real-IP {remote_host}
+
+		# Telegram webhook va uzoq so'rovlar uchun
+		transport http {
+			read_timeout 120s
+		}
+	}
+
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ── Konsol (xodim + klub admini) ──────────────────────────────────────────
+app.playbron.uz {
+	import security
+	import static_assets
+
+	root * /srv/admin
+	encode zstd gzip
+
+	# SPA: mavjud bo'lmagan yo'l index.html ga (react-router)
+	try_files {path} /index.html
+	file_server
+
+	# `X-Frame-Options` ATAYLAB YO'Q — ilova Telegram Mini App sifatida
+	# iframe ichida ochiladi (Desktop/Web). SAMEORIGIN qo'yilsa
+	# foydalanuvchi bo'sh oyna ko'radi. `render.yaml` da ham shunday.
+}
+
+# ── Mijoz Mini App ────────────────────────────────────────────────────────
+mini.playbron.uz {
+	import security
+	import static_assets
+
+	root * /srv/mini
+	encode zstd gzip
+	try_files {path} /index.html
+	file_server
+	# Bu ham Telegram iframe'ida ochiladi — X-Frame-Options yo'q
+}
+
+# ── Landing ───────────────────────────────────────────────────────────────
+www.playbron.uz {
+	redir https://playbron.uz{uri} permanent
+}
+
+playbron.uz {
+	import security
+	import static_assets
+
+	root * /srv/landing
+	encode zstd gzip
+
+	# SPA fallback ATAYLAB YO'Q: mavjud bo'lmagan manzil HAQIQIY 404
+	# qaytarishi kerak, aks holda qidiruv tizimlari istalgan URL'ni
+	# sahifa deb indekslaydi (`render.yaml` dagi izoh bilan bir xil).
+	file_server
+
+	# Landing iframe'da ochilmaydi — bu yerda himoya qo'yiladi
+	header X-Frame-Options SAMEORIGIN
+
+	handle_errors {
+		@404 expression {err.status_code} == 404
+		rewrite @404 /404.html
+		file_server
+	}
+}
