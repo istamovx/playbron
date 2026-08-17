@@ -45,13 +45,45 @@ qarab turibdi**.
 
 Ko'chish tartibi: `deploy/README.md`.
 
-### Nima ishlamayapti
+### Nima ishlamayapti — Telegram botlari
 
-**Telegram botlari.** Tokenlar `401 Unauthorized` qaytarardi;
-foydalanuvchi yangi botlar yaratdi va Render dashboard'ga qo'ydi,
-lekin natija tasdiqlanmagan. Holatni ko'rish:
-**Konsol → Sozlamalar → Telegram botlari** (`GET /platform/bots`).
-Ekran nosozlik turini aniq aytadi.
+**Alomat** (loyiha egasi, 2026-08-17): botga `/start` berilganda hech
+qanday xabar kelmaydi; «Telegram ulash» esa chiqib-kirgandan keyin
+uzilgan bo'lib ko'rinadi.
+
+**NIMA TEKSHIRILGAN va CHIQARIB TASHLANGAN** (qaytarmang):
+
+| Tekshirildi | Natija |
+|---|---|
+| Jonli frontend bundle eskimi | Yo'q — `telegram_linked`, bot diagnostikasi ekrani hammasi bor |
+| `TelegramLinkPanel` holatni serverdan o'qiydimi | Ha — `GET /me` dan, mount'da |
+| Backend `telegram_linked` qaytaradimi | Ha — `users/router.py::me()` → `staff_telegram` |
+| Webhook endpointlari javob beradimi | Ha, ikkalasi ham; sekret tekshiriladi |
+| Mijoz webhook'i sekretsiz 200 qaytaryapti | Bu ATAYLAB (Telegram navbati to'xtamasin), teshik emas |
+
+**XULOSA:** «chiqqach uziladi» mustaqil nosozlik EMAS — ulanish hech
+qachon yakunlanmagani oqibati. Bot `/start` ni qabul qilmasa
+`staff_telegram` yozuvi yaratilmaydi va panel to'g'ri qilib
+«ulanmagan» ko'rsatadi. Ya'ni **bitta ildiz sabab: bot yangilanish
+olmayapti.**
+
+**Eng ehtimolli sabab.** `main.py` lifespan ikkala webhook'ni
+KETMA-KET ro'yxatdan o'tkazadi. Ikkala yuza bitta botga qarasa —
+yoki `ADMIN_BOT_TOKEN` berilmasa (u holda `_admin_token()`
+`BOT_TOKEN` ga tushadi) — ikkinchi `setWebhook` birinchisini BOSIB
+KETADI va bitta bot butunlay jim qoladi. Telegram xato bermaydi.
+
+**KEYINGI QADAM:** Konsol → **Sozlamalar → Telegram botlari**
+(`GET /platform/bots`). Ekran to'rt holatdan birini aniq aytadi:
+
+- «Ikkala yuza ham bitta botga qaragan» → Render'da `ADMIN_BOT_TOKEN`
+  ni **boshqa** bot tokeniga qo'ying (bu tekshiruv `dc03c9b` da
+  qo'shildi);
+- «Webhook o'rnatilmagan» → servisni qayta ishga tushiring (webhook
+  faqat API start'ida ro'yxatdan o'tadi);
+- «Token rad etildi» → Render'dagi qiymat noto'g'ri;
+- «Ishlayapti» (ikkalasi, HAR XIL username) → sabab boshqa joyda,
+  chuqurroq qidirish kerak.
 
 ---
 
