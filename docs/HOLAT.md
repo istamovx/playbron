@@ -61,17 +61,37 @@ uzilgan bo'lib ko'rinadi.
 | Webhook endpointlari javob beradimi | Ha, ikkalasi ham; sekret tekshiriladi |
 | Mijoz webhook'i sekretsiz 200 qaytaryapti | Bu ATAYLAB (Telegram navbati to'xtamasin), teshik emas |
 
-**XULOSA:** «chiqqach uziladi» mustaqil nosozlik EMAS — ulanish hech
-qachon yakunlanmagani oqibati. Bot `/start` ni qabul qilmasa
-`staff_telegram` yozuvi yaratilmaydi va panel to'g'ri qilib
-«ulanmagan» ko'rsatadi. Ya'ni **bitta ildiz sabab: bot yangilanish
-olmayapti.**
+**MUHIM aniqlik** (loyiha egasi): *«bot 1 marta ulandi, log outdan
+keyin uzildi»*. Ya'ni bot yangilanishni QABUL QILGAN — webhook va
+token joyida. Demak muammo o'qish/saqlash yo'lida.
 
-**Eng ehtimolli sabab.** `main.py` lifespan ikkala webhook'ni
-KETMA-KET ro'yxatdan o'tkazadi. Ikkala yuza bitta botga qarasa —
-yoki `ADMIN_BOT_TOKEN` berilmasa (u holda `_admin_token()`
-`BOT_TOKEN` ga tushadi) — ikkinchi `setWebhook` birinchisini BOSIB
-KETADI va bitta bot butunlay jim qoladi. Telegram xato bermaydi.
+**Topilgan haqiqiy nuqson.** Konsoldagi poll `stafflink.poll_link()`
+orqali **Redis**ni o'qiydi, ulanish yozuvi esa **bazaga** ketadi —
+ikki ALOHIDA manba. `approve_link()` Redis'ni darhol «ready» qilib
+qo'yadi, shuning uchun `staff_telegram_link_confirm()` yiqilsa ham:
+
+- konsol «Ulandi» deb ko'rsatardi,
+- bot «ulandi» xabarini yuborardi,
+- keyingi kirishda `/me` (`staff_telegram`) bo'sh bo'lgani uchun
+  «ulanmagan» chiqardi.
+
+Tashqaridan bu aynan «chiqqach uziladi» bo'lib ko'rinadi.
+
+Tuzatildi (`_handle_link_start`): yozuv **haqiqatan paydo bo'lgani
+tekshiriladi**; bo'lmasa foydalanuvchiga «ulandi» EMAS, «saqlanmadi»
+xabari boradi va `log.error` yoziladi. Sinov ham qo'shildi —
+`test_full_link_flow...` endi poll'dan keyin `/me` ni ham tekshiradi.
+
+> Bu SILENT FAILURE ni ko'rinadigan qiladi, lekin baza yozuvi
+> NEGA yiqilayotganini hali aniqlamaydi. Keyingi sessiyada prod
+> logidan `staff_telegram_link_confirm yozuvni yaratmadi` qatorini
+> qidiring — u chiqsa sabab RLS/GRANT, chiqmasa boshqa yo'nalish.
+
+**Ikkinchi ehtimol** (hali chiqarib tashlanmagan): `main.py` lifespan
+ikkala webhook'ni KETMA-KET ro'yxatdan o'tkazadi. Ikkala yuza bitta
+botga qarasa — yoki `ADMIN_BOT_TOKEN` berilmasa (u holda
+`_admin_token()` `BOT_TOKEN` ga tushadi) — ikkinchi `setWebhook`
+birinchisini BOSIB KETADI. Buni Sozlamalar ekrani endi aniq aytadi.
 
 **KEYINGI QADAM:** Konsol → **Sozlamalar → Telegram botlari**
 (`GET /platform/bots`). Ekran to'rt holatdan birini aniq aytadi:
