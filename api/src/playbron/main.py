@@ -6,7 +6,7 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from playbron.core import context, db, errors, redis
@@ -105,8 +105,15 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/readyz", tags=["ops"])
-async def readyz() -> dict[str, object]:
-    """Trafik qabul qilishga tayyormi — DB va Redis tekshiriladi."""
+async def readyz(response: Response) -> dict[str, object]:
+    """Trafik qabul qilishga tayyormi — DB va Redis tekshiriladi.
+
+    Tayyor bo'lmasa HTTP **503** qaytaradi. Avval har doim 200 edi va
+    tayyorlik faqat javob TANASIDAGI `ready: false` da ko'rinardi — ya'ni
+    holat kodiga qaraydigan har qanday kuzatuvchi (yuk balanslagich,
+    Docker healthcheck, tashqi monitoring) bazasi o'lgan API'ni ham
+    "sog'lom" deb hisoblardi va trafik yuboraverardi.
+    """
     checks: dict[str, object] = {}
     try:
         await db.ping()
@@ -119,7 +126,10 @@ async def readyz() -> dict[str, object]:
     except Exception as exc:  # noqa: BLE001
         checks["redis"] = f"error: {exc.__class__.__name__}"
 
-    checks["ready"] = all(value == "ok" for key, value in checks.items() if key != "ready")
+    ready = all(value == "ok" for key, value in checks.items() if key != "ready")
+    checks["ready"] = ready
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return checks
 
 

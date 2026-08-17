@@ -215,6 +215,18 @@ async def test_full_link_flow_then_booking_notify_reaches_staff(
     r = await client.post(f"/api/v1/auth/telegram/link/{nonce}", headers=staff_h)
     assert r.json()["status"] == "expired"
 
+    # 4b. Poll REDIS'ni o'qiydi, `/me` esa BAZANI — ikki alohida manba.
+    # Baza yozuvi yiqilsa poll baribir `ready` derdi va nosozlik faqat
+    # keyingi kirishda, "chiqqach uzildi" degan boshqa alomat bilan
+    # chiqardi (loyiha egasining hisoboti, 2026-08-17). Shu sababli
+    # SAQLANGANLIK alohida tekshiriladi.
+    r = await client.get("/api/v1/me", headers=staff_h)
+    assert r.status_code == 200, r.text
+    assert r.json()["telegram_linked"] is True, (
+        "poll 'ready' dedi, lekin `/me` ulanmagan deyapti — "
+        "ya'ni staff_telegram yozuvi yaratilmagan"
+    )
+
     # 5. Haqiqiy isbot: mijoz bron yuborganda `booking_notify_targets()`
     #    ENDI shu xodimning `chat_id`sini topadi (`0010`dagi tuzatish) —
     #    Telegram API chaqiruvi o'zi tutib olinadi, tarmoqqa chiqilmaydi.

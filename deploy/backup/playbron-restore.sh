@@ -36,6 +36,10 @@ compose() { docker compose --project-directory "$COMPOSE_DIR" "$@"; }
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# Shifr ochilgandan keyin `$ARCHIVE` vaqtinchalik faylga o'zgaradi —
+# rollar faylini topish uchun ASL nom kerak.
+ORIGINAL_ARCHIVE="$ARCHIVE"
+
 # ── Shifr ochish ──────────────────────────────────────────────────────────
 if [[ "$ARCHIVE" == *.age ]]; then
   KEY="${AGE_SECRET_KEY_FILE:-/root/.config/playbron-age.key}"
@@ -78,6 +82,32 @@ fi
 # Ilova konteynerini to'xtatamiz: tiklash paytida yozuv bo'lmasin.
 echo "API to'xtatilmoqda…"
 compose stop api 2>/dev/null || true
+
+# ── ROLLAR (bazadan OLDIN) ────────────────────────────────────────────────
+# Rollar klaster darajasida yashaydi va `pg_dump` ichiga TUSHMAYDI. Toza
+# serverda ular bo'lmasa `pg_restore` birinchi `ALTER ... OWNER TO
+# playbron_platform` da yiqiladi. Zaxira skripti ularni yonma-yon
+# `.roles.sql` fayliga saqlaydi.
+ROLES_FILE="${ARCHIVE%.dump}.roles.sql"
+[[ -r "$ROLES_FILE" ]] || ROLES_FILE="${ORIGINAL_ARCHIVE%.dump.age}.roles.sql.age"
+
+if [[ -r "$ROLES_FILE" ]]; then
+  if [[ "$ROLES_FILE" == *.age ]]; then
+    age -d -i "${AGE_SECRET_KEY_FILE:-/root/.config/playbron-age.key}" \
+      -o "$WORK/roles.sql" "$ROLES_FILE"
+    ROLES_FILE="$WORK/roles.sql"
+  fi
+  echo "Rollar tiklanmoqda…"
+  # `ON_ERROR_STOP` ATAYLAB yoqilmagan: mavjud serverga tiklaganda rollar
+  # allaqachon bor va "role already exists" KUTILGAN holat.
+  compose exec -T "$DB_SERVICE" psql -U "$DB_SUPERUSER" -d postgres < "$ROLES_FILE" 2>&1 |
+    grep -vi 'already exists' | tail -5 || true
+  echo "  tayyor"
+else
+  echo "OGOHLANTIRISH: rollar fayli topilmadi."
+  echo "  Toza serverga tiklayotgan bo'lsangiz pg_restore 'role does not exist'"
+  echo "  bilan yiqiladi. Rollarni avval qo'lda yarating."
+fi
 
 echo "Baza qayta yaratilmoqda: $TARGET_DB"
 compose exec -T "$DB_SERVICE" psql -U "$DB_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 \

@@ -439,6 +439,13 @@ _LINK_EXPIRED_TEXT: dict[str, str] = {
     "ru": "⏱ Ссылка устарела. Нажмите кнопку в консоли ещё раз.",
     "en": "⏱ The link expired. Press the button in the console again.",
 }
+# Nonce to'g'ri edi, lekin bazaga yozib bo'lmadi. Foydalanuvchiga
+# "ulandi" deyish YARAMAYDI — u keyingi kirishda ulanmaganini ko'radi.
+_LINK_FAILED_TEXT: dict[str, str] = {
+    "uz": "⚠️ Ulanish saqlanmadi. Administratorga xabar bering.",
+    "ru": "⚠️ Подключение не сохранилось. Сообщите администратору.",
+    "en": "⚠️ The link was not saved. Please contact an administrator.",
+}
 
 
 def _admin_token() -> str:
@@ -464,6 +471,42 @@ async def _handle_link_start(
         sql_text("SELECT staff_telegram_link_confirm(:u, :tg, :chat)"),
         {"u": user_id, "tg": telegram_id, "chat": telegram_id},
     )
+
+    # Yozuv HAQIQATAN paydo bo'lganini TEKSHIRAMIZ.
+    #
+    # Nega kerak: konsoldagi poll `stafflink.poll_link()` orqali REDIS'ni
+    # o'qiydi, bu yerdagi yozuv esa BAZAGA ketadi — ikki alohida manba.
+    # `approve_link()` Redis'ni allaqachon "ready" qilib qo'ygani uchun,
+    # baza yozuvi yiqilsa ham konsol "Ulandi" deb ko'rsatardi va
+    # foydalanuvchi botdan "ulandi" xabarini olardi. Keyingi kirishda esa
+    # `/me` (`staff_telegram`) bo'sh bo'lgani uchun "ulanmagan" chiqardi —
+    # tashqaridan bu "chiqqach uziladi" bo'lib ko'rinadi (loyiha egasining
+    # hisoboti, 2026-08-17: "bot 1 marta ulandi, log outdan keyin uzildi").
+    #
+    # `staff_telegram_self` policy'si `app.user_id` ni talab qiladi —
+    # webhook oqimida u yo'q, shuning uchun tekshiruvni funksiyaning
+    # O'ZI qo'yadigan doiradan tashqarida emas, `app.user_id` ni vaqtincha
+    # o'rnatib bajaramiz.
+    await session.execute(
+        sql_text("SELECT set_config('app.user_id', :uid, true)"), {"uid": str(user_id)}
+    )
+    stored = await session.scalar(
+        sql_text("SELECT 1 FROM staff_telegram WHERE user_id = :u AND blocked_at IS NULL"),
+        {"u": user_id},
+    )
+    await session.execute(sql_text("SELECT set_config('app.user_id', '0', true)"))
+
+    if stored is None:
+        # Jimgina "muvaffaqiyat" xabarini YUBORMAYMIZ — aks holda nosozlik
+        # faqat keyingi kirishda, butunlay boshqa alomat bilan chiqadi.
+        log.error(
+            "staff_telegram_link_confirm yozuvni yaratmadi (user_id=%s) — "
+            "ehtimol RLS/GRANT muammosi",
+            user_id,
+        )
+        texts = _LINK_FAILED_TEXT
+        await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))
+        return
 
     texts = _LINK_OK_TEXT
     await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))

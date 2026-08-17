@@ -1,6 +1,16 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": ["NODE_ENV"],
+  // Turbo 2 "strict" env rejimida ishlaydi: SHU YERDA e'lon qilinmagan
+  // o'zgaruvchi task jarayoniga UMUMAN yetib bormaydi va kesh kalitiga ham
+  // kirmaydi.
+  //
+  // `VITE_*` ni Turbo freymvork bo'yicha o'zi taniydi (sinab ko'rilgan:
+  // qiymat o'zgarsa qayta yig'iladi), lekin `SITE_URL` bunday emas edi —
+  // u jimgina tashlanardi va Astro `astro.config.mjs` dagi zaxira qiymatga
+  // tushardi. Prod domeni bilan tasodifan to'g'ri chiqardi, boshqa domen
+  // (staging, vaqtinchalik manzil) bilan esa e'tiborsiz qolardi. Ustiga
+  // kesh kalitida bo'lmagani uchun qiymat o'zgarganda ESKI `dist` tiklanardi.
+  "globalEnv": ["NODE_ENV", "SITE_URL", "VITE_API_URL", "VITE_LANDING_URL"],
   "globalDependencies": [".env", "tsconfig.base.json"],
   "tasks": {
     "build": {

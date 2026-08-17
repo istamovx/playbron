@@ -10,7 +10,8 @@ bu butunlay sizga o'tadi. Shu sababli bu yerda uchta narsa ataylab bor:
 
 | Qadam | Nega |
 |---|---|
-| **Tekshiruv** | Tekshirilmagan zaxira — zaxira emas. Nol baytli yoki yarim yozilgan fayl haftalab "muvaffaqiyatli" bo'lib turishi mumkin. Skript `pg_restore --list` bilan arxivni to'liq o'qiydi va asosiy jadvallar borligini talab qiladi. |
+| **Tekshiruv** | Tekshirilmagan zaxira — zaxira emas. Skript `pg_restore --list` bilan arxivni to'liq o'qiydi, asosiy jadvallar **va RLS policy'lari** borligini talab qiladi (policy'lar tushmasa tiklangan bazada tenant izolyatsiyasi yo'q bo'ladi va buni hech kim sezmaydi). |
+| **Rollar alohida** | `pg_dump` faqat bitta bazani oladi, rollar esa klaster darajasida. Ularsiz toza serverga tiklash `role "playbron_platform" does not exist` bilan yiqiladi — ya'ni aynan falokat paytida zaxira ishlamaydi. Har bir zaxira yonida `.roles.sql` saqlanadi. |
 | **Tashqi nusxa** | Serverning O'ZIDAGI zaxira — zaxira emas. Disk ishdan chiqsa u ham ketadi. |
 | **Yiqilganda xabar** | Jimgina to'xtagan zaxira eng yomoni: buni faqat tiklash kerak bo'lganda bilasiz. |
 
