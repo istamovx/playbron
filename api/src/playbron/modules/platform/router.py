@@ -352,4 +352,23 @@ async def bot_status() -> list[BotStatusOut]:
             )
         )
 
+    # ── Ikkala yuza BITTA botga qaragan holati ────────────────────────────
+    # Eng ziyonli va eng qiyin sezinadigan nosozlik. `main.py` lifespan
+    # ikkala webhook'ni KETMA-KET ro'yxatdan o'tkazadi; bitta bot ikkala
+    # yuzaga ishlatilsa ikkinchi `setWebhook` birinchisini BOSIB KETADI.
+    # Natijada bitta bot butunlay jim qoladi — Telegram xato bermaydi,
+    # log'da ham hech nima yo'q.
+    #
+    # `ADMIN_BOT_TOKEN` umuman berilmasa ham shu holat yuzaga keladi:
+    # `_admin_token()` `BOT_TOKEN` ga tushadi (`botlogin.py`).
+    live = [row for row in out if row.username]
+    if len(live) == 2 and live[0].username == live[1].username:
+        for row in live:
+            row.ok = False
+            row.problem = (
+                f"Ikkala yuza ham BITTA botga (@{row.username}) qaragan — "
+                "webhook'lar bir-birini bosib ketadi va bitta bot jim qoladi. "
+                "BOT_TOKEN va ADMIN_BOT_TOKEN HAR XIL bot bo'lishi shart."
+            )
+
     return out
