@@ -107,6 +107,28 @@ docker compose --project-directory "$COMPOSE_DIR" exec -T "$DB_SERVICE" \
 SIZE=$(stat -c%s "$DUMP")
 log "dump tayyor: $(numfmt --to=iec "$SIZE")"
 
+# ── 1b. ROLLAR ────────────────────────────────────────────────────────────
+# `pg_dump` faqat BITTA bazani oladi; rollar esa KLASTER darajasida yashaydi
+# va dump ichiga TUSHMAYDI. Natijada toza serverga tiklash birinchi
+# `ALTER ... OWNER TO playbron_platform` da yiqiladi:
+#
+#   pg_restore: error: role "playbron_platform" does not exist
+#
+# Ya'ni aynan falokat holatida — server butunlay yo'qolganda — zaxira
+# ishlamas edi (sinab ko'rilgan, 2026-08-17).
+FAILED_STEP="pg_dumpall --roles-only"
+ROLES="$WORK/playbron-${STAMP}.roles.sql"
+docker compose --project-directory "$COMPOSE_DIR" exec -T "$DB_SERVICE" \
+  pg_dumpall -U "$DB_SUPERUSER" --roles-only --no-comments > "$ROLES"
+
+# Parol xeshlari ATAYLAB saqlanadi: ularsiz tiklangan bazaga ilova ulana
+# olmaydi va falokat paytida qo'lda parol qo'yish kerak bo'lardi. Shu
+# sababli tashqi nusxa uchun shifrlash (AGE_PUBLIC_KEY) tavsiya etiladi.
+for role in playbron_app playbron_platform; do
+  grep -q "CREATE ROLE $role" "$ROLES" || { log "rollar faylida '$role' yo'q"; false; }
+done
+log "rollar saqlandi ($(wc -l < "$ROLES") qator)"
+
 # ── 2. TEKSHIRUV ──────────────────────────────────────────────────────────
 # Uch bosqich: hajm -> ichki tuzilma -> kutilgan jadvallar.
 FAILED_STEP="zaxira tekshiruvi"
@@ -126,33 +148,52 @@ for tbl in users clubs bookings orders memberships; do
     log "dump ichida '$tbl' ma'lumoti yo'q"; false
   }
 done
-log "tekshiruv o'tdi ($(wc -l < "$TOC") ta obyekt)"
+
+# RLS policy'lari — tenant izolyatsiyasining O'ZI. Ular dump'ga tushmasa,
+# tiklangan bazada har bir klub boshqasining ma'lumotini ko'radi va buni
+# hech kim sezmaydi. Jadval ma'lumoti borligini tekshirish buni USHLAMAYDI.
+policies=$(grep -c 'POLICY ' "$TOC" || true)
+(( policies >= 40 )) || { log "dump'da RLS policy juda kam ($policies)"; false; }
+
+log "tekshiruv o'tdi ($(wc -l < "$TOC") obyekt, $policies policy)"
 
 # ── 3. Shifrlash (ixtiyoriy) ──────────────────────────────────────────────
-FINAL="$DUMP"
+# Rollar fayli dump bilan BIRGA ishlanadi: ikkalasi ham bo'lmasa tiklash
+# to'liq bo'lmaydi.
+FILES=("$DUMP" "$ROLES")
 if [[ -n "${AGE_PUBLIC_KEY:-}" ]]; then
   FAILED_STEP="shifrlash"
   command -v age >/dev/null || { log "age o'rnatilmagan"; false; }
-  age -r "$AGE_PUBLIC_KEY" -o "$DUMP.age" "$DUMP"
-  FINAL="$DUMP.age"
+  encrypted=()
+  for f in "${FILES[@]}"; do
+    age -r "$AGE_PUBLIC_KEY" -o "$f.age" "$f"
+    encrypted+=("$f.age")
+  done
+  FILES=("${encrypted[@]}")
   log "shifrlandi"
+else
+  log "OGOHLANTIRISH: shifrlanmadi — zaxirada mijoz ismi/telefoni va rol parol xeshlari bor"
 fi
 
 # ── 4. Saqlash + qattiq havolalar ─────────────────────────────────────────
 FAILED_STEP="mahalliy saqlash"
-NAME="$(basename "$FINAL")"
-cp "$FINAL" "$BACKUP_DIR/$TIER/$NAME"
-# Kunlik nusxa doim bo'lsin (haftalik/oylik ham kunlik ro'yxatda ko'rinadi)
-[[ "$TIER" == "daily" ]] || ln -f "$BACKUP_DIR/$TIER/$NAME" "$BACKUP_DIR/daily/$NAME"
-log "saqlandi: $TIER/$NAME"
+for f in "${FILES[@]}"; do
+  name="$(basename "$f")"
+  cp "$f" "$BACKUP_DIR/$TIER/$name"
+  # Kunlik nusxa doim bo'lsin (haftalik/oylik ham kunlik ro'yxatda ko'rinadi)
+  [[ "$TIER" == "daily" ]] || ln -f "$BACKUP_DIR/$TIER/$name" "$BACKUP_DIR/daily/$name"
+done
+log "saqlandi: $TIER/ ($(basename "${FILES[0]}") + rollar)"
 
 # ── 5. Tashqi nusxa ───────────────────────────────────────────────────────
 if [[ -n "${REMOTE_TARGET:-}" ]]; then
   FAILED_STEP="tashqi nusxa"
   log "tashqariga yuborilmoqda"
-  rsync -a --timeout=120 \
-    -e "ssh -p ${REMOTE_SSH_PORT:-22} -i ${REMOTE_SSH_KEY} -o StrictHostKeyChecking=accept-new" \
-    "$BACKUP_DIR/$TIER/$NAME" "$REMOTE_TARGET/$TIER/"
+  for f in "${FILES[@]}"; do
+    rsync -a --timeout=120 \
+      -e "ssh -p ${REMOTE_SSH_PORT:-22} -i ${REMOTE_SSH_KEY} -o StrictHostKeyChecking=accept-new" \
+      "$BACKUP_DIR/$TIER/$(basename "$f")" "$REMOTE_TARGET/$TIER/"
+  done
   log "tashqi nusxa tayyor"
 else
   log "OGOHLANTIRISH: REMOTE_TARGET sozlanmagan — zaxira FAQAT shu serverda"
@@ -162,11 +203,18 @@ fi
 FAILED_STEP="eskilarini tozalash"
 prune() {
   local dir="$1" keep="$2"
-  # Nomda UTC vaqt tamg'asi bor, ya'ni nom bo'yicha saralash = vaqt bo'yicha
-  local total; total=$(find "$dir" -maxdepth 1 -type f -name 'playbron-*' | wc -l)
-  (( total > keep )) || return 0
-  find "$dir" -maxdepth 1 -type f -name 'playbron-*' | sort | head -n -"$keep" |
-    while read -r old; do rm -f -- "$old"; log "o'chirildi: $(basename "$old")"; done
+  # Faqat DUMP fayllari sanaladi. Har bir zaxira ikki fayldan iborat
+  # (dump + rollar) — hammasini birga sanasak saqlash muddati ikki
+  # barobar qisqarardi. Rollar fayli o'z dump'i bilan BIRGA o'chiriladi,
+  # aks holda juftsiz qolib, tiklashda chalkashlik tug'dirardi.
+  local dumps; dumps=$(find "$dir" -maxdepth 1 -type f -name 'playbron-*.dump*' | wc -l)
+  (( dumps > keep )) || return 0
+  find "$dir" -maxdepth 1 -type f -name 'playbron-*.dump*' | sort | head -n -"$keep" |
+    while read -r old; do
+      local stamp; stamp="$(basename "$old")"; stamp="${stamp#playbron-}"; stamp="${stamp%%.*}"
+      rm -f -- "$old" "$dir/playbron-${stamp}.roles.sql" "$dir/playbron-${stamp}.roles.sql.age"
+      log "o'chirildi: playbron-${stamp}.*"
+    done
 }
 prune "$BACKUP_DIR/daily" "$KEEP_DAILY"
 prune "$BACKUP_DIR/weekly" "$KEEP_WEEKLY"

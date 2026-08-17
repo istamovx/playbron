@@ -103,6 +103,15 @@ services:
       - '*'
     env_file: .env.prod
     environment:
+      # `environment:` `env_file` dan USTUN turadi. `ENV` va `DEBUG` shu
+      # yerda QATTIQ qulflanadi: `.env.prod` ga tasodifan `ENV=local`
+      # tushib qolsa (masalan `api/.env` dan nusxa olinsa), `config.py`
+      # dagi BARCHA prod tekshiruvlari jimgina o'chardi — zaif JWT
+      # sekreti, ochiq `/docs`, SQL echo bilan PII loglari. Va hech
+      # qanday xato chiqmasdi.
+      ENV: prod
+      DEBUG: 'false'
+
       # Ulanish manzillari SHU YERDA quriladi — `.env.prod` da faqat
       # parollar turadi, host nomlari emas.
       #
