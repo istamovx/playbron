@@ -68,7 +68,12 @@ Kodda ishlatiladigan nom — chapda. Boshqa nom yozilmaydi.
 | Platforma egasi | `super_admins` jadvali (rol emas, alohida jadval) |
 | Mijoz | `users.kind = 'customer'`, `telegram_id` bilan tanaladi |
 | Xodim identiteti | `users.kind = 'staff'`, `login` bilan tanaladi; Telegram `staff_telegram` da |
-| O'yin joyi | `stations` (`code`, `console_type`, `rate`, `room_label`) |
+| O'yin joyi | `stations` (`code`, `console_type`, `rate`, `room_id`) |
+| Xona | `rooms` (`name`, `kind`) — `stations.room_label` matni o'rniga |
+| Tarif | `tariffs` (`days_mask`, `from_min`, `to_min`, `price_per_hour`, `priority`) |
+| Bron narxi | `bookings.play_amount` — oynaning TO'LIQ summasi |
+| Narx so'rovi | `POST /clubs/{id}/bookings/quote` — bron qilmasdan summa |
+| Fon vazifasi | `modules/bookings/reminders.py` + `app_reminder_job()` claim GUC |
 | Bron = seans = chek | `bookings` — bitta qator uch rolni bajaradi; `sessions`/`bills` jadvallari YO'Q |
 | To'lov | `payments` — har bir pul harakati bitta qator, `shift_id` FK bilan |
 | To'lov turi | `payments.kind` ∈ `FINAL` \| `REFUND` |
@@ -81,8 +86,8 @@ Kodda ishlatiladigan nom — chapda. Boshqa nom yozilmaydi.
 | Bron holati | `bookings.status` ∈ `PENDING` \| `CONFIRMED` \| `CANCELLED` |
 | To'lov turi | `bookings.payment_method` ∈ `CASH` \| `TRANSFER` |
 
-`CLUB_ADMIN`, `CUSTOMER`, `sessions`, `bills`, `rooms`, `tariffs`, `menu_items` —
-bu nomlar kodda YO'Q. Arxivdagi hujjatlarda uchraydi, ishlatilmaydi.
+`CLUB_ADMIN`, `CUSTOMER`, `sessions`, `bills`, `menu_items` — bu nomlar kodda
+YO'Q. Arxivdagi hujjatlarda uchraydi, ishlatilmaydi.
 
 ---
 
@@ -94,7 +99,8 @@ bu nomlar kodda YO'Q. Arxivdagi hujjatlarda uchraydi, ishlatilmaydi.
 - Pul JSON'da butun son sifatida qaytadi. Kasr yoki satr qaytaradigan endpoint merge qilinmaydi.
 - Har bir pul ustuni `>= 0` yoki `> 0` CHECK konstreyni bilan yoziladi.
 - Hujjatga tushgan narx snapshot ustuniga yoziladi (`rate_snapshot`, `price_snapshot`, `product_name`). Yopilgan hujjat narxini joriy jadvaldan JOIN bilan oladigan kod merge qilinmaydi.
-- Narx va hisob formulasi bitta manbada — backend `modules/*/service.py`. Frontend formulani takrorlamaydi, server bergan summani ko'rsatadi.
+- Narx va hisob formulasi bitta manbada — backend `modules/*/service.py`, tarif hisobi `modules/bookings/pricing.py`. Frontend formulani takrorlamaydi, server bergan summani ko'rsatadi.
+- Bron summasi `bookings.play_amount` dan olinadi. `rate_snapshot * hours` bilan hisoblaydigan yangi kod merge qilinmaydi — tarif vaqtga qarab o'zgarsa ular teng bo'lmaydi.
 - Naqd pul harakatining har bir manbai smenaga bog'lanadi. Smenaga bog'lanmagan yangi naqd yozuv merge qilinmaydi.
 - Yopilgan smenaning hisobiga ta'sir qiladigan yozuv keyin o'zgartirilmaydi — `expected_cash` har o'qishda qayta hisoblanadi va tuzatish audit jurnalidagi farq bilan ziddiyatga tushardi.
 - Hisoblangan `total` bilan olingan summa farqi sababi bilan birga yoziladi: kam bo'lsa `DISCOUNT` yoki `DEBT`, ko'p bo'lsa `TIP`. Sababsiz farqni qabul qiladigan kod merge qilinmaydi.
@@ -166,6 +172,12 @@ Shablonlar: `docs/07-patterns.md`.
 5. Self-test
 6. `check_render_shape.py`
 
+**Yangi fon vazifasi** (`reminders.py` naqshi):
+1. Ishni DB'ning O'ZI atomar da'vo qiladi (`UPDATE ... RETURNING` + `FOR UPDATE SKIP LOCKED`) — ikki nusxa bir ishni ikki marta bajarmaydi
+2. Cross-tenant o'qish `SECURITY DEFINER` + nomlangan claim GUC orqali; funksiya claim'ni qaytishdan OLDIN tozalaydi
+3. Sikl HECH QACHON to'xtamaydi — har qanday xato log'ga yoziladi va keyingi aylanishda qayta uriniladi
+4. Yon ta'sirdan (xabar yuborish) OLDIN belgilanadi: takroriy xabardan ko'ra bittasini o'tkazib yuborish afzal
+
 **Yangi endpoint:**
 1. `router.py` — Pydantic model, `Depends(require_owner|require_admin|require_staff)`, `_assert_path_matches_header()`
 2. `service.py` — mantiq, SQL, `AppError`, `log_action()`
@@ -176,16 +188,24 @@ Shablonlar: `docs/07-patterns.md`.
 
 Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
 
-- Konsolda chegirma/qarz/tip tanlash va naqd xarajatni smenaga biriktirish UI'si yo'q — backend qo'llab-quvvatlaydi (`0032_payments.py`), POS ekrani hali doim to'liq summa yuboradi.
 - Qisman qaytarim yo'q: `cancel_order()` bronsiz sotuvni TO'LIQ qaytaradi.
-- `apps/miniapp/src/lib/bill.ts` bonus va prepay'ni `mock/data.ts` konstantalaridan oladi.
-- `apps/admin/src/mock/club.ts` — backendda ekvivalenti yo'q entity'larning soxta ma'lumoti.
-- `apps/miniapp` da i18n yo'q; landing'da `en` yo'q.
+- Mijoz uchun bar buyurtmasi va hisob endpoint'lari yo'q (POS faqat xodimniki) — miniapp'dagi menyu/hisob ekranlari shu sababdan olib tashlangan.
+- `PATCH /me` yo'q — mijoz profili faqat o'qish uchun.
+- Loyalty/bonus backendda umuman yo'q. Mijozga KO'RSATILMAYDI — ilgari mock konstantadan chiqarilardi.
+- `apps/admin/src/mock/club.ts` — backendda ekvivalenti yo'q entity'larning soxta ma'lumoti. `mock/data.ts` da esa `ScreenId`/`TITLES` qolgan (soxta ma'lumot emas, joyi noto'g'ri).
+- Landing'da `en` yo'q (admin va miniapp'da uz/ru/en bor).
 - Ish vaqti tekshiruvi FAQAT mijoz yo'lida. Xodim yo'li ataylab cheklanmagan — kech qolgan mijozni yozish uning qarori.
 - `shifts_staff_one_open_uk` klub bo'yicha emas, global — ikki klubda ishlaydigan xodim ikkinchi smenani ocholmaydi.
-- Fon vazifalari yo'q: avto-bekor, no-show, eslatma ishlamaydi.
+- Fon vazifalaridan faqat bron eslatmasi bor (`modules/bookings/reminders.py`). Avto-bekor va no-show hali yo'q — o'sha naqshni takrorlaydi.
 - Telegram botlari jonli muhitda javob bermaydi — `docs/HOLAT.md` §2.
 - `mypy src/` 27 xato beradi (asosan `int | None` → `int`). CI'da mypy qadami YO'Q — faqat `ruff`. Yangi kod bu sonni oshirmaydi.
+- i18n dvigateli admin va miniapp'da IKKI nusxa (`STORAGE_KEY`, `isLang`, `useI18n`, `useT`) — farqi faqat til aniqlagichda. `packages/ui` ga `createI18n(strings, {detect})` sifatida chiqariladi.
+- `reminders.py::run_forever()` fon vazifasi supervizori — ikkinchi vazifa (avto-bekor, no-show) qo'shilganda `core/jobs.py::run_periodic()` ga chiqariladi, nusxalanmaydi.
+- Miniapp ekranlarida takrorlanadigan komponentlar: xato+qayta urinish bloki (`bookings`/`session`/`clubs`), `InfoLine`/`Line`, `Label`. `src/components/` ga yig'iladi.
+- Test fixture'lari (`skip_no_db`, `_owner_engine`, `client`) har fayl'da qayta yozilgan — `tests/conftest.py` ga ko'chiriladi.
+- `clubs.prepay_hours` — birorta o'quvchisi yo'q (`0033`). Oldindan to'lov mantiqi yozilganda ishlatiladi; qolgan besh sozlama Sozlamalar ekranidan tahrirlanadi.
+- `bookings.rate_snapshot` — `play_amount // hours` dan kelib chiqadi va birorta ekran uni o'qimaydi; DTO'lardan chiqarish alohida o'zgarish.
+- Tarif oynani QOPLAMASA `422 NO_TARIFF_FOR_SLOT` — xodim yo'lida ham. Bu ataylab: jimgina `stations.rate` ga tushish ikkinchi narx rejimini tiriltirardi. Klub 24/7 zaxira tarif qo'shib hal qiladi.
 
 ## Scope
 

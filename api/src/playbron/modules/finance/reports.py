@@ -25,29 +25,25 @@ Period = Literal["day", "week", "month", "year"]
 PERIOD_UNIT: dict[Period, str] = {"day": "day", "week": "week", "month": "month", "year": "year"}
 
 
-async def _club_timezone(session: AsyncSession, club_id: int) -> str:
-    """Hisobot kun chegarasi KLUB zonasida chiziladi.
+async def _club_report_context(session: AsyncSession, club_id: int) -> tuple[str, int, int]:
+    """Zona va ish oynasi — BITTA so'rovda.
 
-    Ilgari butun fayl modul darajasidagi `TZ` konstantasiga
-    tayanardi. Endi shu oyna `payments` bo'yicha PUL hisobiga ham tegadi —
-    boshqa zonadagi klubda kechki to'lovlar noto'g'ri kunga tushardi
-    (`CLAUDE.md`, «Vaqt»).
+    Ilgari zona `TZ = "Asia/Tashkent"` konstantasidan olinardi; endi shu
+    oyna `payments` bo'yicha PUL hisobiga ham tegadi, ya'ni boshqa zonadagi
+    klubda kechki to'lovlar noto'g'ri kunga tushardi (`CLAUDE.md`, «Vaqt»).
+
+    Zona va soatlar birga o'qiladi — ilgari har hisobot so'rovi bir xil
+    `clubs` qatorini UCH marta olib kelardi.
     """
-    row = await session.scalar(
-        text("SELECT timezone FROM clubs WHERE id = :id"), {"id": club_id}
-    )
-    return str(row or TZ)
-
-
-async def _club_hours(session: AsyncSession, club_id: int) -> tuple[int, int]:
     row = (
         await session.execute(
-            text("SELECT opens_at_min, closes_at_min FROM clubs WHERE id = :id"), {"id": club_id}
+            text("SELECT timezone, opens_at_min, closes_at_min FROM clubs WHERE id = :id"),
+            {"id": club_id},
         )
     ).first()
     if row is None:
-        return 600, 1560
-    return int(row.opens_at_min), int(row.closes_at_min)
+        return TZ, 600, 1560
+    return str(row.timezone or TZ), int(row.opens_at_min), int(row.closes_at_min)
 
 
 def _open_minutes_per_day(opens_at_min: int, closes_at_min: int) -> int:
@@ -74,7 +70,7 @@ async def _revenue_expense_for_range(
     play = (
         await session.execute(
             text(
-                "SELECT COALESCE(SUM(rate_snapshot * hours), 0) AS amount, count(*) AS sessions,"
+                "SELECT COALESCE(SUM(play_amount), 0) AS amount, count(*) AS sessions,"
                 "       COALESCE(SUM(hours), 0) AS hours"
                 " FROM bookings"
                 " WHERE club_id = :club_id AND status = 'CONFIRMED'"
@@ -163,7 +159,7 @@ def _occupancy_percent(
 
 async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
     """"Boshqaruv paneli" — bugungi real ko'rsatkichlar."""
-    opens_at_min, closes_at_min = await _club_hours(session, club_id)
+    tz, opens_at_min, closes_at_min = await _club_report_context(session, club_id)
     open_minutes = _open_minutes_per_day(opens_at_min, closes_at_min)
 
     today_range = (
@@ -174,7 +170,7 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
                 "       (((now() AT TIME ZONE :tz)::date) + 1) AT TIME ZONE :tz AS until_utc,"
                 "       ((now() AT TIME ZONE :tz)::date) + 1 AS until_date"
             ),
-            {"tz": await _club_timezone(session, club_id)},
+            {"tz": tz},
         )
     ).one()
 
@@ -200,7 +196,7 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
                 " GROUP BY 1"
             ),
             {
-                "tz": await _club_timezone(session, club_id),
+                "tz": tz,
                 "club_id": club_id,
                 "since": today_range.since_utc,
                 "until": today_range.until_utc,
@@ -265,7 +261,13 @@ _SUB_UNIT: dict[Period, str] = {"day": "hour", "week": "day", "month": "day", "y
 
 
 async def _revenue_series(
-    session: AsyncSession, *, club_id: int, period: Period, since: datetime, until: datetime
+    session: AsyncSession,
+    *,
+    club_id: int,
+    period: Period,
+    since: datetime,
+    until: datetime,
+    tz: str,
 ) -> list[dict[str, Any]]:
     """Davr ichidagi tushum trendi — grafik uchun (`ActivityBars`, endi
     `LineChart` EMAS — loyiha egasining topilmasi, 2026-08-16). Bo'sh
@@ -295,7 +297,7 @@ async def _revenue_series(
                 ),
                 play AS (
                     SELECT date_trunc(:unit, lower(period) AT TIME ZONE :tz) AS bucket_local,
-                           SUM(rate_snapshot * hours) AS amount
+                           SUM(play_amount) AS amount
                     FROM bookings
                     WHERE club_id = :club_id AND status = 'CONFIRMED'
                       AND lower(period) >= :since AND lower(period) < :until
@@ -316,13 +318,7 @@ async def _revenue_series(
                 ORDER BY b.bucket_local
                 """
             ),
-            {
-                "unit": sub_unit,
-                "tz": await _club_timezone(session, club_id),
-                "club_id": club_id,
-                "since": since,
-                "until": until,
-            },
+            {"unit": sub_unit, "tz": tz, "club_id": club_id, "since": since, "until": until},
         )
     ).all()
     return [{"bucket": r.bucket_local.isoformat(), "amount": int(r.amount)} for r in rows]
@@ -330,7 +326,7 @@ async def _revenue_series(
 
 async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> dict[str, Any]:
     unit = PERIOD_UNIT[period]
-    opens_at_min, closes_at_min = await _club_hours(session, club_id)
+    tz, opens_at_min, closes_at_min = await _club_report_context(session, club_id)
     open_minutes = _open_minutes_per_day(opens_at_min, closes_at_min)
 
     bounds = (
@@ -343,7 +339,7 @@ async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> 
                 "       EXTRACT(EPOCH FROM (now() - (date_trunc(:unit, now() AT TIME ZONE :tz)"
                 "         AT TIME ZONE :tz))) / 86400 AS days_elapsed"
             ),
-            {"unit": unit, "tz": await _club_timezone(session, club_id)},
+            {"unit": unit, "tz": tz},
         )
     ).one()
     days_elapsed = max(float(bounds.days_elapsed), 1 / 24)
@@ -386,7 +382,12 @@ async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> 
     ).all()
 
     series = await _revenue_series(
-        session, club_id=club_id, period=period, since=bounds.since_utc, until=bounds.until_utc
+        session,
+        club_id=club_id,
+        period=period,
+        since=bounds.since_utc,
+        until=bounds.until_utc,
+        tz=tz,
     )
 
     # `get_dashboard()` bilan bir xil ta'rif: reja va olingan pul alohida.

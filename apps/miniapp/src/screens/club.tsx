@@ -1,21 +1,27 @@
-import { Button, Panel, Tag } from '@playbron/ui';
+import { CyberLoader, EmptyState, Icon, Panel, StatusLine } from '@playbron/ui';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo } from 'react';
 
-import { HM, S } from '../mock/data';
+import { MapButton } from '../components/map-button';
+import { useT } from '../i18n';
+import { hhmm, money } from '../lib/format';
 import { CONSOLE_LABEL, isoDateOf, minutesOfDayInZone, nowMinutesOfDay } from '../lib/slots';
-import { openExternalLink } from '../lib/telegram';
 import { useApp } from '../store/app';
 import { useBooking, useDayBookings } from '../store/booking';
 
 /**
  * Klub sahifasi — real xonalar (`stations`) va bugungi bandlik.
  *
- * Sharhlar paneli mock'da 3 ta o'ylab topilgan ism/matn edi — backend'da
- * sharh tizimi yo'q, shuning uchun ATAYLAB olib tashlangan (soxta fikr
- * ko'rsatishdan ko'ra ko'rsatmaslik ma'qul).
+ * RASM/GALEREYA YO'Q: bu yerda ham 150px balandlikdagi "Klub galereyasi"
+ * plasholderi turardi (backendda rasm yo'q, `cover_url` doim `null`).
+ * O'rnida klub NOMI, MANZILI, ISH VAQTI va xarita tugmasi — mijozga
+ * haqiqatan kerak bo'lgani (loyiha egasi, 2026-08-17).
+ *
+ * Sharhlar paneli ham mock edi (3 ta o'ylab topilgan ism/matn) — sharh
+ * tizimi backendda yo'q, shuning uchun olib tashlangan.
  */
 export function ClubScreen(): ReactNode {
+  const t = useT();
   const clubId = useApp((state) => state.clubId);
   const club = useBooking((state) => state.clubs.find((item) => item.id === clubId) ?? null);
   const stations = useBooking((state) => state.stations);
@@ -60,94 +66,74 @@ export function ClubScreen(): ReactNode {
           return nowMin >= from && nowMin < (to > from ? to : 24 * 60);
         }),
       ).length;
-      const free = group.length - busy;
 
       return {
         name,
-        price:
+        // Stansiyaning soatlik tarifi — SERVER qiymati. Umumiy summa bu
+        // yerda hisoblanmaydi (`CLAUDE.md` §Pul).
+        rate:
           rates.length === 1
-            ? `${S(rates[0] as number)} / soat`
-            : `${S(rates[0] as number)}–${S(rates[rates.length - 1] as number)} / soat`,
-        spec: `${consoles.join(' · ')} · ${group.length} xona`,
+            ? money(rates[0] as number)
+            : `${money(rates[0] as number)}–${money(rates[rates.length - 1] as number)}`,
+        consoles,
+        count: group.length,
         pct: Math.round((busy / group.length) * 100),
-        free,
+        free: group.length - busy,
       };
     });
   }, [stations, todayBookings, nowMin, timezone]);
 
   if (clubId === null || !club) {
-    return (
-      <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>Klub tanlanmagan</div>
-    );
+    return <EmptyState icon="storefront">{t('clubNotSelected')}</EmptyState>;
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
-      <div
+      <section
         style={{
-          height: 150,
-          background: 'var(--surface-inset)',
+          padding: 'var(--card-pad)',
+          background: 'var(--surface-panel)',
           border: '1px solid var(--line-1)',
           clipPath: 'var(--clip-tr)',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          gap: 'var(--gap-tight)',
         }}
       >
-        <span
-          style={{
-            font: 'var(--type-label)',
-            letterSpacing: 'var(--ls-label)',
-            textTransform: 'uppercase',
-            color: 'var(--text-dim)',
-          }}
-        >
-          Klub galereyasi
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        <Tag tone="neutral">{`${stations.length} xona`}</Tag>
-        <Tag tone="neutral">{`${HM(club.opensAtMin)} – ${HM(club.closesAtMin)}`}</Tag>
-        {club.address ? <Tag tone="neutral">{club.address}</Tag> : null}
-      </div>
-
-      {club.googleMapsUrl || club.yandexMapsUrl ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {club.googleMapsUrl ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="location_on"
-              onClick={() => openExternalLink(club.googleMapsUrl as string)}
-            >
-              {club.yandexMapsUrl ? 'Google Maps' : 'Manzil'}
-            </Button>
-          ) : null}
-          {club.yandexMapsUrl ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="location_on"
-              onClick={() => openExternalLink(club.yandexMapsUrl as string)}
-            >
-              {club.googleMapsUrl ? 'Yandex Maps' : 'Manzil'}
-            </Button>
-          ) : null}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              font: 'var(--fw-medium) var(--fs-xl)/1.2 var(--font-display)',
+              color: 'var(--text-title)',
+            }}
+          >
+            {club.name}
+          </span>
+          <MapButton club={club} />
         </div>
-      ) : null}
+
+        <Line icon="location_on" text={club.address || t('addressMissing')} />
+        <Line icon="schedule" text={`${hhmm(club.opensAtMin)} – ${hhmm(club.closesAtMin)}`} />
+        {club.phone ? <Line icon="call" text={club.phone} /> : null}
+      </section>
 
       {club.about ? (
         <div style={{ font: 'var(--type-body)', color: 'var(--text-body)' }}>{club.about}</div>
       ) : null}
 
-      <Panel title="Xonalar va narxlar" notch>
+      <Panel title={t('roomsTitle')} notch>
         {stationsError ? (
-          <div style={{ font: 'var(--type-body-sm)', color: 'var(--red-100)' }}>{stationsError}</div>
-        ) : !stationsLoading && rooms.length === 0 ? (
-          <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-            Bu klubda hali xona qo‘shilmagan.
+          <StatusLine tone="danger" icon="error" parts={[stationsError]} />
+        ) : stationsLoading && rooms.length === 0 ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
+            <CyberLoader label={t('loading')} />
           </div>
+        ) : rooms.length === 0 ? (
+          <EmptyState icon="meeting_room" title={t('roomsEmptyTitle')}>
+            {t('roomsEmptyHint')}
+          </EmptyState>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rooms.map((room) => (
@@ -187,17 +173,22 @@ export function ClubScreen(): ReactNode {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {room.price}
+                    {t('perHour', { sum: room.rate })}
                   </span>
                 </div>
 
                 <div style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                  {room.spec}
+                  {[...room.consoles, t('roomsCount', { count: room.count })].join(' · ')}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div
-                    style={{ flex: 1, height: 3, background: 'var(--chart-track)', position: 'relative' }}
+                    style={{
+                      flex: 1,
+                      height: 3,
+                      background: 'var(--chart-track)',
+                      position: 'relative',
+                    }}
                   >
                     <div
                       className="pb-fill"
@@ -215,9 +206,13 @@ export function ClubScreen(): ReactNode {
                     />
                   </div>
                   <span
-                    style={{ font: 'var(--type-data-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+                    style={{
+                      font: 'var(--type-data-xs)',
+                      color: 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
-                    {room.free === 0 ? 'Band' : `${room.free} bo‘sh`}
+                    {room.free === 0 ? t('allBusy') : t('freeCount', { count: room.free })}
                   </span>
                 </div>
               </div>
@@ -225,6 +220,17 @@ export function ClubScreen(): ReactNode {
           </div>
         )}
       </Panel>
+    </div>
+  );
+}
+
+function Line({ icon, text }: { icon: string; text: string }): ReactNode {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+      <Icon name={icon} size={15} color="var(--text-dim)" />
+      <span style={{ minWidth: 0, font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
+        {text}
+      </span>
     </div>
   );
 }

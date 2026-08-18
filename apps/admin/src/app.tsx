@@ -3,17 +3,10 @@ import { Button, Icon, Modal, SidebarNav, StatusLine, ToastHost, UserMenu, Wordm
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
-import {
-  CLK,
-  NAV_ADMIN,
-  NAV_STAFF,
-  NAV_SUPER_ADMIN,
-  TITLES,
-  type NavItem,
-  type ScreenId,
-} from './mock/data';
+import { CLK, NAV_ADMIN, NAV_STAFF, NAV_SUPER_ADMIN, TITLES } from './mock/data';
 import { DashboardScreen } from './screens/admin/dashboard';
 import { ExpensesScreen } from './screens/admin/expenses';
+import { PricingScreen } from './screens/admin/pricing';
 import { ProductsScreen } from './screens/admin/products';
 import { ReportsScreen } from './screens/admin/reports';
 import { SettingsScreen, TelegramLinkPanel } from './screens/admin/settings';
@@ -32,9 +25,18 @@ import { ShiftScreen } from './screens/shift';
 import { LoginScreen } from './screens/login';
 import { TimelineScreen } from './screens/timeline';
 import { api } from './lib/api';
-import { pathOf, screenOf } from './routes';
+import { pathOf, screenOf, type AppScreenId } from './routes';
+import { useT } from './i18n';
 import { useBoard, useClock, useNow } from './store/board';
 import { useSession } from './store/session';
+
+/** `NavItem`ning `mock/data.ts` dan tashqarida ham qo'shiladigan shakli. */
+interface AppNavItem {
+  id: AppScreenId;
+  icon: string;
+  label: string;
+  count?: number;
+}
 
 /**
  * Klub konsoli — bitta shell, rolga qarab menyu.
@@ -43,6 +45,7 @@ import { useSession } from './store/session';
  */
 export function App(): ReactNode {
   useClock();
+  const t = useT();
   const now = useNow();
   const session = useSession((state) => state.session);
   const mustChangePassword = useSession((state) => state.mustChangePassword);
@@ -64,7 +67,9 @@ export function App(): ReactNode {
 
   /** Navigatsiya URL orqali; store keyingi fazalar uchun sinxron qoladi. */
   const go = useCallback(
-    (id: ScreenId) => {
+    (id: AppScreenId) => {
+      // `store/board.ts::setScreen` hali `ScreenId` bilan ishlaydi —
+      // narxlar bandi uchun manba URL, store esa keyingi fazalar uchun.
       setScreen(id);
       navigate(pathOf(id));
     },
@@ -92,18 +97,25 @@ export function App(): ReactNode {
     setActiveClub(session.clubs[0]?.id ?? null);
   }, [session, activeClubId, setActiveClub]);
 
-  const items =
+  // Narxlar — mahsulotlardan keyin: ikkalasi ham katalog boshqaruvi.
+  const adminItems: AppNavItem[] = NAV_ADMIN.flatMap((item) =>
+    item.id === 'products'
+      ? [item, { id: 'pricing' as const, icon: 'sell', label: t('pricingNav') }]
+      : [item],
+  );
+
+  const items: AppNavItem[] =
     session?.role === 'SUPER_ADMIN'
       ? NAV_SUPER_ADMIN
       : session && session.role !== 'STAFF'
-        ? NAV_ADMIN
+        ? adminItems
         : NAV_STAFF;
 
   // Manba — URL. Noma'lum yoki rolga tegishli bo'lmagan manzil bo'lsa rolning
   // birinchi bo'limi ochiladi (route guard shu yerda).
   const fromUrl = screenOf(location.pathname);
   const active =
-    fromUrl && items.some((item) => item.id === fromUrl) ? fromUrl : (items[0] as NavItem).id;
+    fromUrl && items.some((item) => item.id === fromUrl) ? fromUrl : (items[0] as AppNavItem).id;
 
   // Manzil ekranga mos kelmasa (begona rol marshruti yoki noma'lum yo'l) —
   // URL jimgina to'g'rilanadi, aks holda manzil qatorida yolg'on yo'l qolardi.
@@ -125,7 +137,9 @@ export function App(): ReactNode {
     );
   }
 
-  const [title, staticMeta] = TITLES[active];
+  const [title, staticMeta] = active === 'pricing'
+    ? ([t('pricingTitle'), [t('pricingMeta')]] as [string, string[]])
+    : (TITLES[active] ?? ['', []]);
   // Klub nomi HAQIQIY sessiyadan. Avval `TITLES` ichida "Neon Arena" deb
   // qotirilgan edi va uni har bir klub egasi ko'rardi (audit topilmasi,
   // 2026-08-16). Super admin ekranlarida klub tushunchasi yo'q — faqat
@@ -335,6 +349,7 @@ export function App(): ReactNode {
             {active === 'products' ? <ProductsScreen /> : null}
             {active === 'reports' ? <ReportsScreen /> : null}
             {active === 'expenses' ? <ExpensesScreen /> : null}
+            {active === 'pricing' ? <PricingScreen /> : null}
             {active === 'settings' ? <SettingsScreen /> : null}
 
             {active === 'platform' ? <PlatformScreen /> : null}
@@ -428,9 +443,9 @@ function Nav({
   active,
   onSelect,
 }: {
-  items: NavItem[];
-  active: ScreenId;
-  onSelect: (id: ScreenId) => void;
+  items: AppNavItem[];
+  active: AppScreenId;
+  onSelect: (id: AppScreenId) => void;
 }): ReactNode {
   return (
     <SidebarNav
@@ -441,7 +456,7 @@ function Nav({
         badge: item.count,
       }))}
       active={active}
-      onSelect={(key) => onSelect(key as ScreenId)}
+      onSelect={(key) => onSelect(key as AppScreenId)}
       brand={<Wordmark width="min(150px, 100%)" />}
     />
   );
@@ -454,9 +469,9 @@ function Drawer({
   onSelect,
   onClose,
 }: {
-  items: NavItem[];
-  active: ScreenId;
-  onSelect: (id: ScreenId) => void;
+  items: AppNavItem[];
+  active: AppScreenId;
+  onSelect: (id: AppScreenId) => void;
   onClose: () => void;
 }): ReactNode {
   return (

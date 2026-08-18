@@ -3,6 +3,7 @@ bu yerdagi tekshiruvlar HAKAM (`docs/05-auth-redesign.md` uslubi bilan bir xil).
 """
 
 from datetime import UTC, datetime, time, timedelta
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -10,20 +11,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core.audit import log_action
-from playbron.core.errors import AppError, Forbidden, NotFound
+from playbron.core.errors import PG_UNIQUE_VIOLATION, AppError, Forbidden, NotFound
 from playbron.core.text import clean_name
-from playbron.modules.bookings import notify
+from playbron.modules.bookings import notify, pricing
 from playbron.modules.bot.contact import normalize_phone
 
-MIN_HOURS = 1
-MAX_HOURS = 6
 # `bookings_hours_range_ck` (`0009_bookings.py`) DB'da qo'ygan yuqori chegara.
 # Uzaytirish shu qiymatdan oshsa CHECK buziladi — servis buni oldindan
 # ushlaydi, aks holda foydalanuvchi 500 ko'radi.
 MAX_TOTAL_HOURS = 12
-# Bugundan boshlab necha kun oldinga bron qilish mumkin. Klub sozlamasiga
-# ko'chirilishi kerak — `docs/audit-report.md` §2.5.
-MAX_ADVANCE_DAYS = 14
 # Bron boshlanishidan necha daqiqa oldin hali ham qabul qilinadi (soat
 # ustida turgan foydalanuvchi "hozir" ni bir necha soniya kech bosishi mumkin)
 PAST_GRACE_MIN = 2
@@ -72,6 +68,8 @@ async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
             text(
                 "SELECT id, name, address, phone, about, cover_url,"
                 "       opens_at_min, closes_at_min, timezone,"
+                "       min_booking_hours, max_booking_hours, max_advance_days,"
+                "       slot_step_min,"
                 "       google_maps_url, yandex_maps_url"
                 " FROM clubs WHERE status = 'active' ORDER BY name"
             )
@@ -88,6 +86,10 @@ async def list_active_clubs(session: AsyncSession) -> list[dict[str, Any]]:
             "opens_at_min": r.opens_at_min,
             "closes_at_min": r.closes_at_min,
             "timezone": r.timezone,
+            "min_booking_hours": r.min_booking_hours,
+            "max_booking_hours": r.max_booking_hours,
+            "max_advance_days": r.max_advance_days,
+            "slot_step_min": r.slot_step_min,
             "google_maps_url": r.google_maps_url,
             "yandex_maps_url": r.yandex_maps_url,
         }
@@ -107,6 +109,8 @@ async def get_club_for_staff(session: AsyncSession, club_id: int) -> dict[str, A
             text(
                 "SELECT id, name, address, phone, about, cover_url,"
                 "       opens_at_min, closes_at_min, timezone, status,"
+                "       min_booking_hours, max_booking_hours, max_advance_days,"
+                "       slot_step_min, extend_max_hours,"
                 "       google_maps_url, yandex_maps_url"
                 " FROM clubs WHERE id = :id"
             ),
@@ -126,6 +130,11 @@ async def get_club_for_staff(session: AsyncSession, club_id: int) -> dict[str, A
         "closes_at_min": row.closes_at_min,
         "timezone": row.timezone,
         "status": row.status,
+        "min_booking_hours": row.min_booking_hours,
+        "max_booking_hours": row.max_booking_hours,
+        "max_advance_days": row.max_advance_days,
+        "slot_step_min": row.slot_step_min,
+        "extend_max_hours": row.extend_max_hours,
         "google_maps_url": row.google_maps_url,
         "yandex_maps_url": row.yandex_maps_url,
     }
@@ -180,23 +189,26 @@ async def create_station(
     if not code:
         raise AppError("Xona kodini kiriting", code="CODE_REQUIRED")
 
+    room_id = await _resolve_room_id(session, club_id, room_label)
+
     try:
         station_id = await session.scalar(
             text(
-                "INSERT INTO stations (club_id, code, room_label, rate, status)"
-                " VALUES (:club_id, :code, :room_label, :rate, 'active')"
+                "INSERT INTO stations (club_id, code, room_label, room_id, rate, status)"
+                " VALUES (:club_id, :code, :room_label, :room_id, :rate, 'active')"
                 " RETURNING id"
             ),
             {
                 "club_id": club_id,
                 "code": code,
                 "room_label": room_label.strip() or "Standart",
+                "room_id": room_id,
                 "rate": rate,
             },
         )
     except Exception as exc:  # noqa: BLE001
         sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
-        if sqlstate == "23505":
+        if sqlstate == PG_UNIQUE_VIOLATION:
             raise AppError("Bu kod bilan xona allaqachon bor", code="STATION_CODE_TAKEN") from exc
         raise
 
@@ -217,6 +229,36 @@ async def create_station(
     }
 
 
+async def _resolve_room_id(session: AsyncSession, club_id: int, room_label: str) -> int:
+    """`stations.room_label` matni -> `rooms` qatori, kerak bo'lsa yaratiladi.
+
+    `0033` `rooms` jadvalini qo'shdi va MAVJUD stansiyalarni unga bog'ladi,
+    lekin `room_id` ni YOZADIGAN kod yo'q edi: migratsiyadan keyin
+    yaratilgan har bir stansiyada `room_id IS NULL` qolardi. Oqibati
+    jimgina va qimmat — `pricing._pick()` xonaga bog'langan tarifni
+    (`tariffs.room_kind`) `room_kind IS NULL` bo'lgani uchun rad etardi:
+    VIP xona umumiy narxda hisoblanardi, klubda faqat xonaga bog'langan
+    tarif bo'lsa esa har bir bron `NO_TARIFF_FOR_SLOT` bilan yiqilardi.
+
+    Tur (`kind`) sukut bilan nomning o'zi — `0033` backfill'i ham shunday
+    qilgan; keyin egasi Narxlar ekranidan o'zgartiradi.
+    """
+    name = room_label.strip() or "Standart"
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO rooms (club_id, name, kind) VALUES (:club_id, :name, :name)"
+                " ON CONFLICT (club_id, name) DO UPDATE SET name = EXCLUDED.name"
+                " RETURNING id"
+            ),
+            {"club_id": club_id, "name": name},
+        )
+    ).first()
+    if row is None:  # amalda yuz bermaydi — `DO UPDATE` doim qator qaytaradi
+        raise NotFound("Xona turi topilmadi")
+    return int(row.id)
+
+
 async def update_station(
     session: AsyncSession,
     *,
@@ -231,15 +273,19 @@ async def update_station(
     if status not in ("active", "maintenance"):
         raise AppError("Noma'lum holat", code="STATUS_INVALID")
 
+    room_id = await _resolve_room_id(session, club_id, room_label)
+
     row = (
         await session.execute(
             text(
-                "UPDATE stations SET room_label = :room_label, rate = :rate, status = :status"
+                "UPDATE stations SET room_label = :room_label, room_id = :room_id,"
+                " rate = :rate, status = :status"
                 " WHERE id = :id AND club_id = :club_id"
                 " RETURNING id, code, room_label, console_type, rate, status"
             ),
             {
                 "room_label": room_label.strip() or "Standart",
+                "room_id": room_id,
                 "rate": rate,
                 "status": status,
                 "id": station_id,
@@ -258,6 +304,319 @@ async def update_station(
     )
 
     return _station_row_to_dict(row)
+
+
+# ── Xonalar va tariflar ───────────────────────────────────────────────────
+# Jadval, RLS va konstreyntlar `0033_rooms_tariffs.py` da. `0033` ularni
+# ochib qo'ygan, lekin BOSHQARUV yo'li qolmagan edi: tarifni faqat xom SQL
+# bilan kiritish mumkin edi (`CLAUDE.md`, «Ma'lum texnik qarz»). Quyidagi
+# CRUD o'sha bo'shliqni yopadi.
+#
+# O'CHIRISH ATAYLAB YO'Q: yopilgan bronning narxi shu qatorlar orqali
+# hisoblangan va `pricing.py` ularga qarab ishlaydi — `products` naqshi
+# bilan `is_active = false` qilinadi.
+
+ROOM_NAME_MAX = 64
+ROOM_KIND_MAX = 32
+ROOM_KIND_DEFAULT = "Standart"
+TARIFF_NAME_MAX = 64
+# `tariffs_days_mask_ck` — dushanba 1-bit ... yakshanba 64-bit
+# (`pricing.ALL_DAYS` bilan bir xil qiymat, `datetime.weekday()` tartibi).
+DAYS_MASK_ALL = pricing.ALL_DAYS
+# `tariffs_window_ck` — `to_min` yarim tundan o'tishi mumkin (22:00–02:00
+# → 1320..1560), shuning uchun yuqori chegara ikki sutka.
+TARIFF_MAX_TO_MIN = 2 * MINUTES_PER_DAY
+
+
+def _room_row(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "kind": row.kind,
+        "sort": row.sort,
+        "is_active": row.is_active,
+    }
+
+
+def _clean_room_fields(name: str, kind: str) -> tuple[str, str]:
+    clean = clean_name(name, limit=ROOM_NAME_MAX)
+    if not clean:
+        raise AppError("Xona nomini kiriting", code="ROOM_NAME_REQUIRED")
+    return clean, clean_name(kind, limit=ROOM_KIND_MAX) or ROOM_KIND_DEFAULT
+
+
+async def list_rooms(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Boshqaruv ro'yxati — nofaol xonalar ham (tarif ularga hali havola qiladi)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, kind, sort, is_active FROM rooms"
+                " WHERE club_id = :club_id ORDER BY sort, name"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [_room_row(r) for r in rows]
+
+
+async def create_room(
+    session: AsyncSession, *, club_id: int, name: str, kind: str, sort: int
+) -> dict[str, Any]:
+    name, kind = _clean_room_fields(name, kind)
+    try:
+        room_id = await session.scalar(
+            text(
+                "INSERT INTO rooms (club_id, name, kind, sort)"
+                " VALUES (:club_id, :name, :kind, :sort) RETURNING id"
+            ),
+            {"club_id": club_id, "name": name, "kind": kind, "sort": sort},
+        )
+    except Exception as exc:  # noqa: BLE001
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if sqlstate == PG_UNIQUE_VIOLATION:
+            raise AppError("Bu nomli xona allaqachon bor", code="ROOM_NAME_TAKEN") from exc
+        raise
+
+    await log_action(
+        action="room_created",
+        target=name,
+        club_id=club_id,
+        after={"name": name, "kind": kind, "sort": sort},
+    )
+    return {"id": room_id, "name": name, "kind": kind, "sort": sort, "is_active": True}
+
+
+async def update_room(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    room_id: int,
+    name: str,
+    kind: str,
+    sort: int,
+    is_active: bool,
+) -> dict[str, Any]:
+    name, kind = _clean_room_fields(name, kind)
+    try:
+        row = (
+            await session.execute(
+                text(
+                    "UPDATE rooms SET name = :name, kind = :kind, sort = :sort,"
+                    "                 is_active = :is_active"
+                    " WHERE id = :id AND club_id = :club_id"
+                    " RETURNING id, name, kind, sort, is_active"
+                ),
+                {
+                    "name": name,
+                    "kind": kind,
+                    "sort": sort,
+                    "is_active": is_active,
+                    "id": room_id,
+                    "club_id": club_id,
+                },
+            )
+        ).first()
+    except Exception as exc:  # noqa: BLE001
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if sqlstate == PG_UNIQUE_VIOLATION:
+            raise AppError("Bu nomli xona allaqachon bor", code="ROOM_NAME_TAKEN") from exc
+        raise
+    if row is None:
+        raise NotFound("Xona topilmadi")
+
+    await log_action(
+        action="room_updated",
+        target=name,
+        club_id=club_id,
+        after={"name": name, "kind": kind, "sort": sort, "is_active": is_active},
+    )
+    return _room_row(row)
+
+
+def _tariff_row(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "days_mask": row.days_mask,
+        "from_min": row.from_min,
+        "to_min": row.to_min,
+        "price_per_hour": int(row.price_per_hour),
+        "priority": row.priority,
+        "console_type": row.console_type,
+        "room_kind": row.room_kind,
+        "is_active": row.is_active,
+    }
+
+
+def _clean_tariff_fields(
+    *,
+    name: str,
+    days_mask: int,
+    from_min: int,
+    to_min: int,
+    price_per_hour: int,
+    console_type: str | None,
+    room_kind: str | None,
+) -> dict[str, Any]:
+    """`0033` dagi CHECK'larning ilova tomonidagi nusxasi.
+
+    Bu yerda YANGI biznes qoidasi yo'q — har bir shart aynan
+    `tariffs_price_positive_ck`, `tariffs_days_mask_ck` va
+    `tariffs_window_ck` dan olingan. Maqsad tushunarli xabar berish:
+    konstreyntning o'zi ishlab ketsa foydalanuvchi `CONSTRAINT_VIOLATED`
+    ko'rardi va nimani tuzatishni bilmasdi.
+
+    Kesishgan tariflar ATAYLAB taqiqlanmaydi — `pricing.py` ularni
+    `priority` bo'yicha hal qiladi, ya'ni kesishish modelning O'ZIDA bor.
+    """
+    clean = clean_name(name, limit=TARIFF_NAME_MAX)
+    if not clean:
+        raise AppError("Tarif nomini kiriting", code="TARIFF_NAME_REQUIRED")
+    if price_per_hour <= 0:
+        raise AppError("Narx musbat bo'lsin", code="PRICE_INVALID")
+    if not 1 <= days_mask <= DAYS_MASK_ALL:
+        raise AppError("Kamida bitta kun tanlansin", code="DAYS_MASK_INVALID")
+    if not 0 <= from_min < MINUTES_PER_DAY:
+        raise AppError("Boshlanish vaqti bir sutka ichida bo'lsin", code="TARIFF_WINDOW_INVALID")
+    if not from_min < to_min <= TARIFF_MAX_TO_MIN:
+        raise AppError("Tugash vaqti boshlanishdan keyin bo'lsin", code="TARIFF_WINDOW_INVALID")
+    if console_type is not None and console_type not in CONSOLE_TYPES:
+        raise AppError("Noma'lum konsol turi", code="CONSOLE_TYPE_INVALID")
+
+    # Bo'sh qator `NULL` ga tenglashtiriladi — `0033`: `NULL` «har qanday
+    # xonaga» degani, bo'sh matnli xona turi esa yo'q.
+    return {"name": clean, "room_kind": clean_name(room_kind, limit=ROOM_KIND_MAX) or None}
+
+
+async def list_tariffs(session: AsyncSession, club_id: int) -> list[dict[str, Any]]:
+    """Boshqaruv ro'yxati — nofaollar ham. Narx hisobi `_load_tariffs()` da,
+    u faqat `is_active` qatorlarni oladi."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, days_mask, from_min, to_min, price_per_hour, priority,"
+                "       console_type, room_kind, is_active"
+                " FROM tariffs WHERE club_id = :club_id"
+                " ORDER BY priority DESC, from_min, id"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [_tariff_row(r) for r in rows]
+
+
+async def create_tariff(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    name: str,
+    days_mask: int,
+    from_min: int,
+    to_min: int,
+    price_per_hour: int,
+    priority: int,
+    console_type: str | None,
+    room_kind: str | None,
+) -> dict[str, Any]:
+    cleaned = _clean_tariff_fields(
+        name=name,
+        days_mask=days_mask,
+        from_min=from_min,
+        to_min=to_min,
+        price_per_hour=price_per_hour,
+        console_type=console_type,
+        room_kind=room_kind,
+    )
+    fields: dict[str, Any] = {
+        "name": cleaned["name"],
+        "days_mask": days_mask,
+        "from_min": from_min,
+        "to_min": to_min,
+        "price_per_hour": price_per_hour,
+        "priority": priority,
+        "console_type": console_type,
+        "room_kind": cleaned["room_kind"],
+    }
+    tariff_id = await session.scalar(
+        text(
+            "INSERT INTO tariffs (club_id, name, days_mask, from_min, to_min,"
+            "                     price_per_hour, priority, console_type, room_kind)"
+            " VALUES (:club_id, :name, :days_mask, :from_min, :to_min,"
+            "         :price_per_hour, :priority, :console_type, :room_kind)"
+            " RETURNING id"
+        ),
+        {"club_id": club_id, **fields},
+    )
+
+    await log_action(
+        action="tariff_created",
+        target=cleaned["name"],
+        club_id=club_id,
+        after=fields,
+    )
+    return {"id": tariff_id, "is_active": True, **fields}
+
+
+async def update_tariff(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    tariff_id: int,
+    name: str,
+    days_mask: int,
+    from_min: int,
+    to_min: int,
+    price_per_hour: int,
+    priority: int,
+    console_type: str | None,
+    room_kind: str | None,
+    is_active: bool,
+) -> dict[str, Any]:
+    cleaned = _clean_tariff_fields(
+        name=name,
+        days_mask=days_mask,
+        from_min=from_min,
+        to_min=to_min,
+        price_per_hour=price_per_hour,
+        console_type=console_type,
+        room_kind=room_kind,
+    )
+    fields: dict[str, Any] = {
+        "name": cleaned["name"],
+        "days_mask": days_mask,
+        "from_min": from_min,
+        "to_min": to_min,
+        "price_per_hour": price_per_hour,
+        "priority": priority,
+        "console_type": console_type,
+        "room_kind": cleaned["room_kind"],
+        "is_active": is_active,
+    }
+    row = (
+        await session.execute(
+            text(
+                "UPDATE tariffs SET name = :name, days_mask = :days_mask,"
+                "                   from_min = :from_min, to_min = :to_min,"
+                "                   price_per_hour = :price_per_hour, priority = :priority,"
+                "                   console_type = :console_type, room_kind = :room_kind,"
+                "                   is_active = :is_active"
+                " WHERE id = :id AND club_id = :club_id"
+                " RETURNING id, name, days_mask, from_min, to_min, price_per_hour,"
+                "           priority, console_type, room_kind, is_active"
+            ),
+            {"id": tariff_id, "club_id": club_id, **fields},
+        )
+    ).first()
+    if row is None:
+        raise NotFound("Tarif topilmadi")
+
+    await log_action(
+        action="tariff_updated",
+        target=cleaned["name"],
+        club_id=club_id,
+        after=fields,
+    )
+    return _tariff_row(row)
 
 
 def _clean_maps_url(value: str | None, *, field_label: str) -> str | None:
@@ -288,6 +647,11 @@ async def update_club(
     about: str,
     opens_at_min: int,
     closes_at_min: int,
+    min_booking_hours: int,
+    max_booking_hours: int,
+    max_advance_days: int,
+    extend_max_hours: int,
+    slot_step_min: int,
     google_maps_url: str | None = None,
     yandex_maps_url: str | None = None,
 ) -> dict[str, Any]:
@@ -298,6 +662,13 @@ async def update_club(
             "Ish vaqti noto'g'ri — yopilish ochilishdan keyin, 26:00 (1560) gacha",
             code="HOURS_INVALID",
         )
+    # `0033` ustunlarni qo'shdi, lekin ularni YOZADIGAN yo'l yo'q edi:
+    # konstantalar shunchaki koddan bazaga ko'chirilgan, har bir tenant
+    # esa 1/6/14/3/30 ga abadiy mixlangan edi.
+    if not min_booking_hours <= max_booking_hours:
+        raise AppError(
+            "Eng kam davomiylik eng ko'pdan oshmasin", code="BOOKING_HOURS_INVALID"
+        )
     google_maps_url = _clean_maps_url(google_maps_url, field_label="Google Maps")
     yandex_maps_url = _clean_maps_url(yandex_maps_url, field_label="Yandex Maps")
 
@@ -306,10 +677,17 @@ async def update_club(
             text(
                 "UPDATE clubs SET name = :name, address = :address, phone = :phone,"
                 " about = :about, opens_at_min = :opens_at_min, closes_at_min = :closes_at_min,"
+                " min_booking_hours = :min_booking_hours,"
+                " max_booking_hours = :max_booking_hours,"
+                " max_advance_days = :max_advance_days,"
+                " extend_max_hours = :extend_max_hours,"
+                " slot_step_min = :slot_step_min,"
                 " google_maps_url = :google_maps_url, yandex_maps_url = :yandex_maps_url"
                 " WHERE id = :id"
                 " RETURNING id, name, address, phone, about, cover_url,"
                 "           opens_at_min, closes_at_min, timezone,"
+                "           min_booking_hours, max_booking_hours, max_advance_days,"
+                "           extend_max_hours, slot_step_min,"
                 "           google_maps_url, yandex_maps_url"
             ),
             {
@@ -319,6 +697,11 @@ async def update_club(
                 "about": about.strip(),
                 "opens_at_min": opens_at_min,
                 "closes_at_min": closes_at_min,
+                "min_booking_hours": min_booking_hours,
+                "max_booking_hours": max_booking_hours,
+                "max_advance_days": max_advance_days,
+                "extend_max_hours": extend_max_hours,
+                "slot_step_min": slot_step_min,
                 "google_maps_url": google_maps_url,
                 "yandex_maps_url": yandex_maps_url,
                 "id": club_id,
@@ -350,6 +733,11 @@ async def update_club(
         "opens_at_min": row.opens_at_min,
         "closes_at_min": row.closes_at_min,
         "timezone": row.timezone,
+        "min_booking_hours": row.min_booking_hours,
+        "max_booking_hours": row.max_booking_hours,
+        "max_advance_days": row.max_advance_days,
+        "extend_max_hours": row.extend_max_hours,
+        "slot_step_min": row.slot_step_min,
         "google_maps_url": row.google_maps_url,
         "yandex_maps_url": row.yandex_maps_url,
     }
@@ -464,30 +852,53 @@ async def list_timeline(
 async def _load_club_and_station(
     session: AsyncSession, club_id: int, station_id: int
 ) -> tuple[Any, Any]:
-    club = (
+    # Klub va stansiya BITTA so'rovda — ikkalasi ham har bron/narx
+    # chaqiruvida kerak va ular bitta AsyncSession'da parallel ketolmaydi,
+    # ya'ni ikkinchi so'rov sof qo'shimcha kechikish edi
+    # (`finance/reports.py::_club_report_context` bilan bir xil tuzatish).
+    row = (
         await session.execute(
             text(
-                "SELECT id, name, timezone, status, opens_at_min, closes_at_min"
-                " FROM clubs WHERE id = :id"
+                "SELECT c.id AS club_id, c.name AS club_name, c.timezone, c.status AS club_status,"
+                "       c.opens_at_min, c.closes_at_min, c.max_advance_days,"
+                "       c.min_booking_hours, c.max_booking_hours,"
+                "       s.id AS station_id, s.code, s.console_type, s.rate,"
+                "       s.status AS station_status, r.kind AS room_kind"
+                " FROM clubs c"
+                " LEFT JOIN stations s ON s.id = :station_id AND s.club_id = c.id"
+                " LEFT JOIN rooms r ON r.id = s.room_id"
+                " WHERE c.id = :club_id"
             ),
-            {"id": club_id},
+            {"club_id": club_id, "station_id": station_id},
         )
     ).first()
-    if club is None or club.status != "active":
-        raise NotFound("Klub topilmadi")
 
-    station = (
-        await session.execute(
-            text(
-                "SELECT id, code, console_type, rate, status FROM stations"
-                " WHERE id = :id AND club_id = :club_id"
-            ),
-            {"id": station_id, "club_id": club_id},
-        )
-    ).first()
-    if station is None or station.status != "active":
+    if row is None or row.club_status != "active":
+        raise NotFound("Klub topilmadi")
+    if row.station_id is None or row.station_status != "active":
         raise NotFound("Xona topilmadi")
 
+    # Chaqiruvchilar `club.name`/`station.code` kabi nomlarni kutadi —
+    # bitta qatorni ikkita ko'rinishga ajratamiz.
+    club = SimpleNamespace(
+        id=row.club_id,
+        name=row.club_name,
+        timezone=row.timezone,
+        status=row.club_status,
+        opens_at_min=row.opens_at_min,
+        closes_at_min=row.closes_at_min,
+        max_advance_days=row.max_advance_days,
+        min_booking_hours=row.min_booking_hours,
+        max_booking_hours=row.max_booking_hours,
+    )
+    station = SimpleNamespace(
+        id=row.station_id,
+        code=row.code,
+        console_type=row.console_type,
+        rate=row.rate,
+        status=row.station_status,
+        room_kind=row.room_kind,
+    )
     return club, station
 
 
@@ -564,10 +975,21 @@ def _assert_within_opening_hours(club: Any, starts_at: datetime, hours: int) -> 
     )
 
 
-def _validate_window(starts_at: datetime, hours: int) -> datetime:
-    if not (MIN_HOURS <= hours <= MAX_HOURS):
+def _validate_window(starts_at: datetime, hours: int, club: Any) -> datetime:
+    """Chegaralar KLUB sozlamasidan (`0033_rooms_tariffs.py`).
+
+    `club` MAJBURIY va ustunlar `NOT NULL DEFAULT` — shuning uchun bu yerda
+    zaxira konstanta YO'Q. Bo'lsa edi, SELECT'dan ustun tushib qolganda
+    tenant sozlamasi jimgina e'tiborsiz qolardi va hech narsa yiqilmasdi
+    (`docs/HOLAT.md` §4.1 dagi "jimgina 0 qator" saboqning aynan o'zi).
+    """
+    min_hours = int(club.min_booking_hours)
+    max_hours = int(club.max_booking_hours)
+    advance_days = int(club.max_advance_days)
+
+    if not (min_hours <= hours <= max_hours):
         raise AppError(
-            f"Davomiylik {MIN_HOURS}–{MAX_HOURS} soat oralig'ida bo'lsin",
+            f"Davomiylik {min_hours}–{max_hours} soat oralig'ida bo'lsin",
             code="HOURS_OUT_OF_RANGE",
         )
 
@@ -578,12 +1000,118 @@ def _validate_window(starts_at: datetime, hours: int) -> datetime:
     if starts_at < now - timedelta(minutes=PAST_GRACE_MIN):
         raise AppError("O'tib ketgan vaqtga bron qilib bo'lmaydi", code="STARTS_AT_PAST")
 
-    if starts_at > now + timedelta(days=MAX_ADVANCE_DAYS):
+    if starts_at > now + timedelta(days=advance_days):
         raise AppError(
-            f"Bron faqat {MAX_ADVANCE_DAYS} kun oldinga qilinadi", code="STARTS_AT_TOO_FAR"
+            f"Bron faqat {advance_days} kun oldinga qilinadi", code="STARTS_AT_TOO_FAR"
         )
 
     return starts_at
+
+
+async def _load_tariffs(session: AsyncSession, club_id: int) -> list[pricing.Tariff]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, days_mask, from_min, to_min, price_per_hour, priority,"
+                "       console_type, room_kind"
+                " FROM tariffs WHERE club_id = :club_id AND is_active"
+            ),
+            {"club_id": club_id},
+        )
+    ).all()
+    return [
+        pricing.Tariff(
+            id=r.id,
+            days_mask=r.days_mask,
+            from_min=r.from_min,
+            to_min=r.to_min,
+            price_per_hour=int(r.price_per_hour),
+            priority=r.priority,
+            console_type=r.console_type,
+            room_kind=r.room_kind,
+        )
+        for r in rows
+    ]
+
+
+async def quote_play_amount(
+    session: AsyncSession,
+    *,
+    club: Any,
+    station: Any,
+    starts_at: datetime,
+    hours: int,
+    console_type: str,
+) -> tuple[int, int]:
+    """Bron oynasining to'liq narxi va ko'rsatish uchun soatlik qiymat.
+
+    Tarif YO'Q bo'lsa `stations.rate` ga qaytadi — tarif jadvalini hali
+    to'ldirmagan klublar ishlashda davom etsin (`0033` gacha butun narx
+    modeli shu ustun edi).
+
+    Tarif bor, lekin oynaning bir qismini qoplamasa — bu KLUB SOZLAMASIDAGI
+    kamchilik, jimgina `stations.rate` ga tushib ketilmaydi: xodim buni
+    ko'rib tuzatishi kerak.
+    """
+    tariffs = await _load_tariffs(session, int(club.id))
+    if not tariffs:
+        total = int(station.rate) * hours
+    else:
+        local_start = starts_at.astimezone(ZoneInfo(club.timezone))
+        try:
+            total = pricing.price_for_window(
+                local_start.replace(tzinfo=None),
+                hours,
+                tariffs,
+                console_type=console_type,
+                room_kind=getattr(station, "room_kind", None),
+            )
+        except pricing.NoTariffForSlot as exc:
+            raise AppError(
+                "Bu vaqt uchun tarif belgilanmagan", code="NO_TARIFF_FOR_SLOT", status_code=422
+            ) from exc
+
+    # Ikkinchi qiymat — faqat KO'RSATISH uchun o'rtacha soatlik narx.
+    # Tarif oyna ichida o'zgarsa `rate * hours != total` bo'ladi, shuning
+    # uchun hisob-kitob hamma joyda `play_amount` bo'yicha ketadi.
+    return total, total // hours
+
+
+async def quote_booking(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    station_id: int,
+    starts_at: datetime,
+    hours: int,
+    console_type: str | None = None,
+) -> dict[str, Any]:
+    """Bron qilinmasdan narxni hisoblab beradi.
+
+    Bron YARATMAYDI va hech narsani band qilmaydi — shuning uchun
+    to'qnashuv tekshirilmaydi. Validatsiya `create_customer_booking()`
+    bilan BIR XIL: mijoz "narxi shu" degan javobni olib, keyin bron
+    bosganda boshqa xatoga uchramasin.
+    """
+    club, station = await _load_club_and_station(session, club_id, station_id)
+    _validate_window(starts_at, hours, club)
+    _assert_within_opening_hours(club, starts_at, hours)
+    resolved_console = _resolve_console_type(console_type, station)
+
+    play_amount, rate = await quote_play_amount(
+        session,
+        club=club,
+        station=station,
+        starts_at=starts_at,
+        hours=hours,
+        console_type=resolved_console,
+    )
+    return {
+        "play_amount": play_amount,
+        "rate_snapshot": rate,
+        "hours": hours,
+        "console_type": resolved_console,
+    }
 
 
 async def create_customer_booking(
@@ -597,7 +1125,7 @@ async def create_customer_booking(
     console_type: str | None = None,
 ) -> dict[str, Any]:
     club, station = await _load_club_and_station(session, club_id, station_id)
-    _validate_window(starts_at, hours)
+    _validate_window(starts_at, hours, club)
     # Faqat MIJOZ yo'lida. Mini App allaqachon shu oynani filtrlaydi
     # (`apps/miniapp/src/lib/slots.ts`), lekin u YAGONA to'siq edi —
     # API'ga to'g'ridan-to'g'ri murojaat qilib klub yopiq vaqtga bron
@@ -608,15 +1136,22 @@ async def create_customer_booking(
     resolved_console = _resolve_console_type(console_type, station)
 
     ends_at = starts_at + timedelta(hours=hours)
-    rate = int(station.rate)
+    play_amount, rate = await quote_play_amount(
+        session,
+        club=club,
+        station=station,
+        starts_at=starts_at,
+        hours=hours,
+        console_type=resolved_console,
+    )
 
     booking_id = await session.scalar(
         text(
             "INSERT INTO bookings"
             " (club_id, station_id, customer_id, source, status, period, hours,"
-            "  rate_snapshot, console_type)"
+            "  rate_snapshot, play_amount, console_type)"
             " VALUES (:club_id, :station_id, :customer_id, 'MINIAPP', 'PENDING',"
-            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :console_type)"
+            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :play, :console_type)"
             " RETURNING id"
         ),
         {
@@ -627,6 +1162,7 @@ async def create_customer_booking(
             "ends_at": ends_at,
             "hours": hours,
             "rate": rate,
+            "play": play_amount,
             "console_type": resolved_console,
         },
     )
@@ -658,6 +1194,7 @@ async def create_customer_booking(
         "ends_at": ends_at.isoformat(),
         "hours": hours,
         "rate_snapshot": rate,
+        "play_amount": play_amount,
         "console_type": resolved_console,
         "prepaid_amount": 0,
     }
@@ -681,7 +1218,7 @@ async def create_staff_booking(
     bosqich shart emas — "qog'ozbozlikdan qutilish" aynan shu.
     """
     club, station = await _load_club_and_station(session, club_id, station_id)
-    _validate_window(starts_at, hours)
+    _validate_window(starts_at, hours, club)
     resolved_console = _resolve_console_type(console_type, station)
 
     name = clean_name(guest_name, limit=128)
@@ -693,16 +1230,23 @@ async def create_staff_booking(
         raise AppError("Telefon raqami +998XXXXXXXXX ko'rinishida bo'lsin", code="PHONE_INVALID")
 
     ends_at = starts_at + timedelta(hours=hours)
-    rate = int(station.rate)
+    play_amount, rate = await quote_play_amount(
+        session,
+        club=club,
+        station=station,
+        starts_at=starts_at,
+        hours=hours,
+        console_type=resolved_console,
+    )
 
     booking_id = await session.scalar(
         text(
             "INSERT INTO bookings"
             " (club_id, station_id, guest_name, guest_phone, source, status,"
-            "  period, hours, rate_snapshot, console_type, created_by, confirmed_by,"
-            "  confirmed_at)"
+            "  period, hours, rate_snapshot, play_amount, console_type, created_by,"
+            "  confirmed_by, confirmed_at)"
             " VALUES (:club_id, :station_id, :guest_name, :guest_phone, 'STAFF', 'CONFIRMED',"
-            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :console_type,"
+            "         tstzrange(:starts_at, :ends_at), :hours, :rate, :play, :console_type,"
             "         :created_by, :created_by, now())"
             " RETURNING id"
         ),
@@ -715,6 +1259,7 @@ async def create_staff_booking(
             "ends_at": ends_at,
             "hours": hours,
             "rate": rate,
+            "play": play_amount,
             "console_type": resolved_console,
             "created_by": created_by,
         },
@@ -728,6 +1273,7 @@ async def create_staff_booking(
         "ends_at": ends_at.isoformat(),
         "hours": hours,
         "rate_snapshot": rate,
+        "play_amount": play_amount,
         "console_type": resolved_console,
         "guest_name": name,
         "guest_phone": phone,
@@ -740,7 +1286,7 @@ async def list_pending_bookings(session: AsyncSession, club_id: int) -> list[dic
             text(
                 "SELECT b.id, b.station_id, s.code AS station_code,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
-                "       b.hours, b.rate_snapshot,"
+                "       b.hours, b.rate_snapshot, b.play_amount,"
                 "       COALESCE(u.display_name, u.first_name) AS customer_name,"
                 "       u.phone AS customer_phone"
                 " FROM bookings b"
@@ -761,6 +1307,7 @@ async def list_pending_bookings(session: AsyncSession, club_id: int) -> list[dic
             "ends_at": r.ends_at.isoformat(),
             "hours": r.hours,
             "rate_snapshot": int(r.rate_snapshot),
+            "play_amount": int(r.play_amount),
             "customer_name": r.customer_name,
             "customer_phone": r.customer_phone,
         }
@@ -782,10 +1329,12 @@ async def _load_pending_booking(session: AsyncSession, club_id: int, booking_id:
                 # `[[playbron-rls-cross-table-subquery-gap]]` bilan bir xil sinf).
                 "SELECT b.id, b.customer_id, b.status, b.source, b.hours,"
                 "       lower(b.period) AS starts_at, s.code AS station_code,"
+                "       COALESCE(r.name, s.room_label) AS room_label,"
                 "       c.name AS club_name, c.timezone AS club_tz,"
                 "       u.telegram_id AS customer_telegram_id"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
+                " LEFT JOIN rooms r ON r.id = s.room_id"
                 " JOIN clubs c ON c.id = b.club_id"
                 " LEFT JOIN users u ON u.id = b.customer_id"
                 " WHERE b.id = :id AND b.club_id = :club_id"
@@ -819,9 +1368,10 @@ async def confirm_booking(
             club_id=club_id,
             customer_id=booking.customer_id,
             club_name=booking.club_name,
-            station_code=booking.station_code,
-            starts_label=notify.format_starts_at(booking.starts_at, booking.club_tz),
+            room_label=booking.room_label,
+            starts_at=booking.starts_at,
             hours=booking.hours,
+            timezone=booking.club_tz,
         )
 
 
@@ -870,15 +1420,23 @@ async def _load_booking_for_staff(session: AsyncSession, club_id: int, booking_i
                 # (`_load_pending_booking()`dagi bilan bir xil sabab:
                 # `users_booking_contact` policy'si `CANCELLED`dan keyin
                 # mijoz qatorini yopadi).
-                "SELECT b.id, b.station_id, s.code AS station_code, b.status, b.hours,"
-                "       b.rate_snapshot, b.closed_at, b.customer_id,"
+                # `s.rate`, `r.kind`, `c.extend_max_hours` — uzaytirish
+                # narxi uchun. Ilgari `extend_booking()` ular uchun
+                # `_load_club_and_station()` ni alohida chaqirardi va o'sha
+                # funksiya stansiya `active` bo'lmasa 404 berardi: pult
+                # buzilgani uchun ta'mirga qo'yilgan stansiyadagi JONLI
+                # seansni uzaytirib bo'lmasdi.
+                "SELECT b.id, b.club_id, b.station_id, s.code AS station_code, b.status, b.hours,"
+                "       b.rate_snapshot, b.play_amount, b.console_type, b.closed_at, b.customer_id,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
                 "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label,"
                 "       u.telegram_id AS customer_telegram_id,"
-                "       c.name AS club_name, c.timezone AS club_tz"
+                "       s.rate AS station_rate, r.kind AS room_kind,"
+                "       c.name AS club_name, c.timezone AS club_tz, c.extend_max_hours"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
                 " JOIN clubs c ON c.id = b.club_id"
+                " LEFT JOIN rooms r ON r.id = s.room_id"
                 " LEFT JOIN users u ON u.id = b.customer_id"
                 " WHERE b.id = :id AND b.club_id = :club_id"
             ),
@@ -918,7 +1476,10 @@ async def get_booking_detail(
         for r in item_rows
     ]
     orders_amount = sum(i["price_snapshot"] * i["qty"] for i in items)
-    play_amount = int(booking.rate_snapshot) * booking.hours
+    # Ustundan — `rate_snapshot * hours` EMAS: tarif vaqtga qarab
+    # o'zgarganda bron ikki xil narxdagi bo'laklardan iborat bo'ladi
+    # (`0033_rooms_tariffs.py`).
+    play_amount = int(booking.play_amount)
 
     return {
         "id": booking.id,
@@ -939,7 +1500,11 @@ async def get_booking_detail(
 
 
 # Bitta amalda uzaytirish chegarasi — cheksiz uzaytirishni oldini oladi
-EXTEND_MAX_HOURS = 3
+# Bir marta uzaytirishning YUQORI chegarasi — DTO shu qiymatni ishlatadi.
+# HAQIQIY chegara klubniki (`clubs.extend_max_hours`) va u servis qatlamida
+# tekshiriladi: import paytida o'qiladigan konstanta tenant sozlamasi
+# bo'la olmaydi.
+EXTEND_HARD_MAX_HOURS = 12
 
 
 async def extend_booking(
@@ -952,12 +1517,14 @@ async def extend_booking(
     to'qnashsa `23P01` → global handler `409 SLOT_TAKEN`ga aylantiradi
     (`core/errors.py`).
     """
-    if not (1 <= extra_hours <= EXTEND_MAX_HOURS):
+    booking = await _load_booking_for_staff(session, club_id, booking_id)
+
+    club_max = int(booking.extend_max_hours)
+    if not (1 <= extra_hours <= club_max):
         raise AppError(
-            f"1 dan {EXTEND_MAX_HOURS} soatgacha uzaytirish mumkin", code="EXTEND_RANGE_INVALID"
+            f"1 dan {club_max} soatgacha uzaytirish mumkin", code="EXTEND_RANGE_INVALID"
         )
 
-    booking = await _load_booking_for_staff(session, club_id, booking_id)
     if booking.status != "CONFIRMED":
         raise AppError(
             "Faqat tasdiqlangan bron uzaytiriladi", code="BOOKING_NOT_CONFIRMED", status_code=409
@@ -976,15 +1543,43 @@ async def extend_booking(
             status_code=409,
         )
 
+    # FAQAT qo'shilgan oyna narxlanadi va mavjud summaga QO'SHILADI.
+    #
+    # Ilgari butun oyna (`starts_at`, `new_hours`) HOZIRGI tarif jadvali
+    # bo'yicha qayta hisoblanardi. Bu snapshot invariantini buzardi: egasi
+    # kechqurungi tarifni 21:00 da ko'tarsa, 18:00 da boshlangan seansni
+    # uzaytirish mijozning ALLAQACHON o'ynagan uch soatini ham yangi narxga
+    # ko'chirardi. Bron qilingandan keyin arxivlangan tarif esa uzaytirishni
+    # umuman imkonsiz qilardi — narxlangan hujjat narxsiz bo'lib qolardi.
+    #
+    # `rate_snapshot` ham SHU SABABDAN tegilmaydi: u bron qilingan paytdagi
+    # soatlik narx, keyingi o'zgarish uni qayta yozmaydi.
+    club_view = SimpleNamespace(id=booking.club_id, timezone=booking.club_tz)
+    station_view = SimpleNamespace(rate=booking.station_rate, room_kind=booking.room_kind)
+    extra_amount, _ = await quote_play_amount(
+        session,
+        club=club_view,
+        station=station_view,
+        starts_at=booking.ends_at,
+        hours=extra_hours,
+        console_type=str(booking.console_type),
+    )
+    play_amount = int(booking.play_amount) + extra_amount
+
     row = (
         await session.execute(
             text(
-                "UPDATE bookings SET hours = :hours,"
+                "UPDATE bookings SET hours = :hours, play_amount = :play,"
                 " period = tstzrange(lower(period), upper(period) + make_interval(hours => :extra))"
                 " WHERE id = :id"
                 " RETURNING lower(period) AS starts_at, upper(period) AS ends_at"
             ),
-            {"id": booking_id, "hours": new_hours, "extra": extra_hours},
+            {
+                "id": booking_id,
+                "hours": new_hours,
+                "extra": extra_hours,
+                "play": play_amount,
+            },
         )
     ).first()
     if row is None:  # amalda yuz bermaydi — yuqorida topilgani tasdiqlangan
@@ -994,7 +1589,11 @@ async def extend_booking(
         action="booking_extended",
         target=booking.station_code,
         club_id=club_id,
-        after={"extra_hours": extra_hours, "new_hours": new_hours},
+        after={
+            "extra_hours": extra_hours,
+            "new_hours": new_hours,
+            "play_amount": play_amount,
+        },
     )
 
     return {
@@ -1101,8 +1700,12 @@ async def list_customer_bookings(session: AsyncSession, customer_id: int) -> lis
                 # ko'rsatishi uchun. Usiz telefon zonasida chiqardi va
                 # mijoz o'z bronini boshqa soatda ko'rardi (audit
                 # topilmasi, 2026-08-16; CLAUDE.md: "UI'da Asia/Tashkent").
-                "SELECT b.id, b.status, b.hours, b.rate_snapshot,"
+                "SELECT b.id, b.status, b.hours, b.rate_snapshot, b.play_amount,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
+                # Hisob yopilgan bo'lsa bron TUGAGAN — oyna hali tugamagan
+                # bo'lsa ham. Usiz mijoz ilovasida to'langan seans oyna
+                # oxirigacha "aktiv" bo'lib turardi.
+                "       b.closed_at IS NOT NULL AS closed,"
                 "       s.code AS station_code, c.name AS club_name, c.timezone"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
@@ -1119,6 +1722,8 @@ async def list_customer_bookings(session: AsyncSession, customer_id: int) -> lis
             "status": r.status,
             "hours": r.hours,
             "rate_snapshot": int(r.rate_snapshot),
+            "play_amount": int(r.play_amount),
+            "closed": bool(r.closed),
             "starts_at": r.starts_at.isoformat(),
             "ends_at": r.ends_at.isoformat(),
             "station_code": r.station_code,

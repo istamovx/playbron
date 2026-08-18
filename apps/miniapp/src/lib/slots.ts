@@ -1,9 +1,9 @@
 import type { DayBookingDto, StationDto } from '@playbron/api-client';
 
 /**
- * Bo'sh slot hisobi — real stansiya/bandlik ustida. Algoritm mock
- * (`mock/data.ts::freeStations` va yonidagilar) bilan bir xil, faqat
- * manba psevdo-tasodif o'rniga `GET /clubs/{id}/bookings/day` natijasi.
+ * Bo'sh slot hisobi — real stansiya/bandlik ustida. Manba
+ * `GET /clubs/{id}/stations` va `GET /clubs/{id}/bookings/day`; prototipdagi
+ * psevdo-tasodifiy bandlik generatori (`mock/`) butunlay olib tashlangan.
  *
  * Soddalashtirish: bron bir kun ICHIDA deb hisoblanadi (kecha yarmidan
  * o'tib ketmaydi) — klubning `closes_at_min` ≤ 1440 (24:00) doirasida bu
@@ -31,10 +31,50 @@ export interface SlotFilter {
   console: string;
 }
 
-export const ANY = 'Barchasi';
-export const SLOT_STEP = 30;
-/** Server `MAX_HOURS` (`modules/bookings/service.py`) bilan bir xil. */
-export const DURATIONS = [1, 2, 3, 4, 5, 6];
+/** Filtr «hammasi» sentineli. Ko'rinadigan matn EMAS — ekran uni
+ * `t('filterAny')` bilan chizadi; xona turi shu nom bilan atalib qolsa
+ * filtr buzilmasin uchun ataylab identifikatorga o'xshamaydigan belgi. */
+export const ANY = '*';
+
+/**
+ * Serverga yuboriladigan konsol turi.
+ *
+ * Stansiyaning O'Z turi bo'lsa (0023'dan oldingi xonalar) tanlov
+ * YUBORILMAYDI — server xonanikini oladi. Tanlov ekrani ham shunday
+ * xonalarda ko'rsatilmaydi, ya'ni `picked` bo'sh satr bo'lib qoladi va
+ * uni xomligicha yuborish `^(ps3|ps4|ps4pro|ps5|ps5pro)$` naqshiga
+ * tushmasdan 422 berardi.
+ *
+ * Ilgari bu shart bron yaratishda bor, narx so'rashda esa YO'Q edi:
+ * oddiy stansiyada mijoz jami summa o'rniga xato ko'rardi, bron esa
+ * bemalol o'tib ketardi.
+ */
+export function consoleForRequest(
+  station: { consoleType: string | null },
+  picked: string,
+): string | undefined {
+  if (station.consoleType !== null) return undefined;
+  return picked || undefined;
+}
+
+/**
+ * Bron oynasi chegaralari klubdan keladi (`clubs.min_booking_hours`,
+ * `max_booking_hours`, `max_advance_days`, `slot_step_min`). Ilgari ular
+ * shu yerda qotirilgan edi va klub sozlamasini o'zgartirsa ilova baribir
+ * eski variantni chizib, so'rov serverda 422 bo'lardi.
+ */
+export interface BookingLimits {
+  minBookingHours: number;
+  maxBookingHours: number;
+  maxAdvanceDays: number;
+  slotStepMin: number;
+}
+
+export const durationOptions = (club: BookingLimits): number[] => {
+  const out: number[] = [];
+  for (let h = club.minBookingHours; h <= club.maxBookingHours; h += 1) out.push(h);
+  return out;
+};
 
 const overlaps = (a: TimeRange, b: TimeRange): boolean => a.from < b.to && a.to > b.from;
 
@@ -46,16 +86,33 @@ interface ZonedParts {
   minute: number;
 }
 
+/**
+ * `Intl.DateTimeFormat` — QIMMAT obyekt, lekin holatsiz va qayta
+ * ishlatilishi mumkin. Ilgari u HAR chaqiruvda qurilardi: bron kartochkasi
+ * × sekundiga bir marta × stansiya × bron — bitta slot ekranida sekundiga
+ * o'n minglab allokatsiya. Telefon webview'ida bu sezilarli edi.
+ */
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zonedFormatter(timezone: string): Intl.DateTimeFormat {
+  let formatter = zonedFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    zonedFormatters.set(timezone, formatter);
+  }
+  return formatter;
+}
+
 function zonedParts(date: Date, timezone: string): ZonedParts {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const formatter = zonedFormatter(timezone);
   const raw: Record<string, string> = {};
   for (const part of formatter.formatToParts(date)) {
     if (part.type !== 'literal') raw[part.type] = part.value;
@@ -133,13 +190,11 @@ export function freeStations(
 }
 
 /** Boshlanish vaqtlari to'ri — eng qisqa seans ham yopilishgacha sig'adigan slotlargacha. */
-export function slotTimes(openMin: number, closeMin: number): number[] {
-  const last = closeMin - (DURATIONS[0] as number) * 60;
+export function slotTimes(openMin: number, closeMin: number, club: BookingLimits): number[] {
+  const last = closeMin - club.minBookingHours * 60;
   if (last < openMin) return [];
-  return Array.from(
-    { length: (last - openMin) / SLOT_STEP + 1 },
-    (_, i) => openMin + i * SLOT_STEP,
-  );
+  const step = club.slotStepMin;
+  return Array.from({ length: Math.floor((last - openMin) / step) + 1 }, (_, i) => openMin + i * step);
 }
 
 /** O'tib ketgan slot — faqat bugungi kun uchun. */
@@ -154,9 +209,10 @@ export function maxHours(
   closeMin: number,
   filter: SlotFilter,
   timezone: string,
+  club: BookingLimits,
 ): number {
   let best = 0;
-  for (const hours of DURATIONS) {
+  for (const hours of durationOptions(club)) {
     if (freeStations(stations, dayBookings, from, hours, closeMin, filter, timezone).length === 0)
       break;
     best = hours;
@@ -175,8 +231,9 @@ export function freeSlotCount(
   dayIndex: number,
   nowMin: number,
   timezone: string,
+  club: BookingLimits,
 ): number {
-  return slotTimes(openMin, closeMin).filter(
+  return slotTimes(openMin, closeMin, club).filter(
     (from) =>
       !isPast(dayIndex, from, nowMin) &&
       freeStations(stations, dayBookings, from, hours, closeMin, filter, timezone).length > 0,
@@ -244,4 +301,66 @@ export function isoDateOf(dayIndex: number, timezone: string): string {
 export function startInstantIso(dayIndex: number, startMin: number, timezone: string): string {
   const { year, month, day } = zonedTodayPlusDays(dayIndex, timezone);
   return zonedDateToUtcIso(year, month, day, startMin, timezone);
+}
+
+
+export interface DayOption {
+  /** 0 — bugun. */
+  index: number;
+  /** Qisqartirilgan hafta kuni, joriy tilda. */
+  weekday: string;
+  /** Oy ichidagi kun raqami. */
+  dayNumber: string;
+  /** `Bugun` / `Ertaga` / `15-avg` — tasma ostidagi to'liq yozuv. */
+  label: string;
+}
+
+/**
+ * Kun tasmasi — KLUB vaqt zonasidagi kalendar kunlari.
+ *
+ * Avval `mock/data.ts::dayOptions()` da edi va `new Date().getFullYear()`
+ * kabi BRAUZER zonasidagi chaqiruvlarga tayanardi: mijoz boshqa zonada
+ * bo'lsa tasma "bugun"ni bir kun surib ko'rsatardi, tanlangan sana esa
+ * serverga klub zonasi bo'yicha ketardi. Hafta kuni va oy nomlari ham
+ * qotirilgan uzbekcha massiv edi — endi `Intl` joriy lokalda beradi.
+ */
+export function dayOptions(
+  timezone: string,
+  locale: string,
+  labels: { today: string; tomorrow: string },
+  count: number,
+): DayOption[] {
+  const weekday = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', weekday: 'short' });
+  const dayNumber = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', day: 'numeric' });
+  const short = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', day: 'numeric', month: 'short' });
+
+  return Array.from({ length: count }, (_, index) => {
+    const { year, month, day } = zonedTodayPlusDays(index, timezone);
+    // Kalendar sanasi UTC peshiniga qo'yiladi — formatlash `timeZone: 'UTC'`
+    // bilan bo'lgani uchun kun hech qayerga surilmaydi.
+    const at = new Date(Date.UTC(year, month - 1, day, 12));
+    return {
+      index,
+      weekday: weekday.format(at),
+      dayNumber: dayNumber.format(at),
+      label: index === 0 ? labels.today : index === 1 ? labels.tomorrow : short.format(at),
+    };
+  });
+}
+
+/** Lahza → `DD-MM-YYYY HH:MM → HH:MM`, KLUB vaqt zonasida. */
+export function formatWindow(startsAt: string, endsAt: string, timezone: string): string {
+  const from = zonedParts(new Date(startsAt), timezone);
+  const to = zonedParts(new Date(endsAt), timezone);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${pad(from.day)}-${pad(from.month)}-${from.year}` +
+    `  ${pad(from.hour)}:${pad(from.minute)} → ${pad(to.hour)}:${pad(to.minute)}`
+  );
+}
+
+/** Lahza → `HH:MM`, KLUB vaqt zonasida. */
+export function formatClockAt(iso: string, timezone: string): string {
+  const parts = zonedParts(new Date(iso), timezone);
+  return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
 }

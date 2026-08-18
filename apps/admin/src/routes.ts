@@ -8,7 +8,10 @@ import type { ScreenId } from './mock/data';
  *   • route guard shu qatlamda yoziladi.
  */
 
-export const SCREEN_PATH: Record<ScreenId, string> = {
+/** `mock/data.ts::ScreenId` ning taxallusi — ekran turlari o'sha yerda. */
+export type AppScreenId = ScreenId;
+
+export const SCREEN_PATH: Record<AppScreenId, string> = {
   // Xodim
   live: '/live',
   timeline: '/timeline',
@@ -23,6 +26,7 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   products: '/products',
   reports: '/reports',
   expenses: '/expenses',
+  pricing: '/pricing',
   settings: '/settings',
   // Super admin
   platform: '/platform',
@@ -32,14 +36,14 @@ export const SCREEN_PATH: Record<ScreenId, string> = {
   'platform-settings': '/platform/settings',
 };
 
-const PATH_SCREEN = new Map<string, ScreenId>(
-  Object.entries(SCREEN_PATH).map(([screen, path]) => [path, screen as ScreenId]),
+const PATH_SCREEN = new Map<string, AppScreenId>(
+  Object.entries(SCREEN_PATH).map(([screen, path]) => [path, screen as AppScreenId]),
 );
 
-export const pathOf = (screen: ScreenId): string => SCREEN_PATH[screen];
+export const pathOf = (screen: AppScreenId): string => SCREEN_PATH[screen];
 
 /** Noma'lum manzil — `null`, chaqiruvchi rolga mos boshlang'ich ekranga yo'naltiradi. */
-export function screenOf(pathname: string): ScreenId | null {
+export function screenOf(pathname: string): AppScreenId | null {
   const clean = pathname.replace(/\/+$/, '') || '/';
   return PATH_SCREEN.get(clean) ?? null;
 }

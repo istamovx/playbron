@@ -536,7 +536,7 @@ async def list_open_bookings(session: AsyncSession, club_id: int) -> list[dict[s
     rows = (
         await session.execute(
             text(
-                "SELECT b.id, s.code AS station_code, b.hours, b.rate_snapshot,"
+                "SELECT b.id, s.code AS station_code, b.hours, b.rate_snapshot, b.play_amount,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
                 "       COALESCE(u.display_name, u.first_name, b.guest_name) AS guest_label"
                 " FROM bookings b"
@@ -554,6 +554,7 @@ async def list_open_bookings(session: AsyncSession, club_id: int) -> list[dict[s
             "station_code": r.station_code,
             "hours": r.hours,
             "rate_snapshot": int(r.rate_snapshot),
+            "play_amount": int(r.play_amount),
             "starts_at": r.starts_at.isoformat(),
             "ends_at": r.ends_at.isoformat(),
             "guest_label": r.guest_label,
@@ -566,7 +567,7 @@ async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: in
     row = (
         await session.execute(
             text(
-                "SELECT b.id, b.hours, b.rate_snapshot, b.status, b.closed_at,"
+                "SELECT b.id, b.hours, b.rate_snapshot, b.play_amount, b.status, b.closed_at,"
                 "       b.customer_id, b.payment_proof_status, s.code AS station_code,"
                 "       c.name AS club_name"
                 " FROM bookings b"
@@ -609,7 +610,9 @@ async def _orders_total(session: AsyncSession, *, club_id: int, booking_id: int)
 
 async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> dict[str, Any]:
     booking = await _load_open_booking(session, club_id, booking_id)
-    play_amount = int(booking.rate_snapshot) * booking.hours
+    # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
+    # bo'laklardan iborat bo'ladi (`0033_rooms_tariffs.py`).
+    play_amount = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
 
@@ -680,7 +683,9 @@ async def close_bill(
         raise AppError("Summani tekshiring", code="PAID_AMOUNT_INVALID")
 
     booking = await _load_open_booking(session, club_id, booking_id)
-    play_amount = int(booking.rate_snapshot) * booking.hours
+    # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
+    # bo'laklardan iborat bo'ladi (`0033_rooms_tariffs.py`).
+    play_amount = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
     total = play_amount + orders_total

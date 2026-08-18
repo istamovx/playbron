@@ -90,6 +90,8 @@ class OpenBookingOut(BaseModel):
     station_code: str
     hours: int
     rate_snapshot: int
+    # Oynaning TO'LIQ summasi — hisob-kitob shundan ketadi.
+    play_amount: int
     starts_at: str
     ends_at: str
     guest_label: str | None

@@ -201,6 +201,7 @@ export type ScreenId =
   | 'dashboard'
   | 'staff'
   | 'products'
+  | 'pricing'
   | 'reports'
   | 'expenses'
   | 'settings'
@@ -261,7 +262,10 @@ export const NAV_SUPER_ADMIN: NavItem[] = [
  * nomi endi sessiyadan (`app.tsx`) qo'shiladi, o'zgaruvchan sonlar esa
  * ekranning O'ZIDA real ma'lumotdan ko'rsatiladi.
  */
-export const TITLES: Record<ScreenId, [string, string[]]> = {
+/* `pricing` bu yerda YO'Q — uning sarlavhasi i18n resursidan
+ * (`app.tsx`). Yangi ekranlar ham o'sha yo'ldan boradi, shuning uchun
+ * tur `Partial`. */
+export const TITLES: Partial<Record<ScreenId, [string, string[]]>> = {
   live: ['Live board', ['Xonalar holati va taymerlar']],
   timeline: ['Kunlik timeline', ['Xona bo‘yicha bronlar']],
   orders: ['Buyurtmalar', ['Bar buyurtmalari']],

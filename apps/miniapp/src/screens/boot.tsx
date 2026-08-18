@@ -1,6 +1,7 @@
-import { Button, StatusLine } from '@playbron/ui';
+import { Button, StatusLine, Wordmark } from '@playbron/ui';
 import type { ReactNode } from 'react';
 
+import { useT } from '../i18n';
 import type { BootState } from '../lib/auth';
 import { useProfile } from '../store/app';
 
@@ -18,8 +19,20 @@ import { useProfile } from '../store/app';
  *   `offline`     — `initData` bor (botdan to'g'ri ochilgan), lekin kirish
  *                    vaqtincha muvaffaqiyatsiz (tarmoq/server) — bu HAQIQIY
  *                    holat, qayta urinish tugmasi qoladi.
+ *
+ * Belgi — konsoldagi bilan bitta komponent (`@playbron/ui::Wordmark`).
+ * Avval bu yerda oddiy "PLAYBRON" matni turardi.
  */
-export function BootScreen({ state, error, onRetry }: { state: BootState; error: string | null; onRetry: () => void }): ReactNode {
+export function BootScreen({
+  state,
+  error,
+  onRetry,
+}: {
+  state: BootState;
+  error: string | null;
+  onRetry: () => void;
+}): ReactNode {
+  const t = useT();
   const profile = useProfile((current) => current.profile);
 
   return (
@@ -32,16 +45,7 @@ export function BootScreen({ state, error, onRetry }: { state: BootState; error:
         minHeight: '100%',
       }}
     >
-      <div style={{ display: 'grid', gap: 6 }}>
-        <span
-          style={{
-            font: 'var(--fw-bold) var(--fs-2xl)/1.1 var(--font-display)',
-            color: 'var(--text-title)',
-          }}
-        >
-          PLAYBRON
-        </span>
-      </div>
+      <Wordmark width="min(240px, 64vw)" />
 
       {state === 'no_telegram' ? null : (
         <>
@@ -85,10 +89,10 @@ export function BootScreen({ state, error, onRetry }: { state: BootState; error:
             </div>
           ) : null}
 
-          <StatusLine tone="danger" icon="wifi_off" parts={[error ?? 'Ulanib bo‘lmadi']} />
+          <StatusLine tone="danger" icon="wifi_off" parts={[error ?? t('connectFailed')]} />
 
           <Button variant="primary" size="lg" notch block icon="refresh" onClick={onRetry}>
-            Qayta urinish
+            {t('retry')}
           </Button>
         </>
       )}

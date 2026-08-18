@@ -152,11 +152,11 @@ async def world() -> AsyncIterator[dict[str, int]]:
                     text(
                         "INSERT INTO bookings"
                         " (club_id, station_id, guest_name, guest_phone, source, status,"
-                        "  period, hours, rate_snapshot, console_type)"
+                        "  period, hours, rate_snapshot, play_amount, console_type)"
                         " VALUES (:c, :s, 'Sinov', '+998900000000', 'STAFF', 'CONFIRMED',"
                         "         tstzrange(CAST(:starts AS timestamptz),"
                         "                   CAST(:starts AS timestamptz) + interval '1 hour'),"
-                        "         1, 30000, 'ps5')"
+                        "         1, 30000, 30000, 'ps5')"
                     ),
                     {"c": club_id, "s": station_id, "starts": starts},
                 )

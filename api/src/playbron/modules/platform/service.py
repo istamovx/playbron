@@ -50,7 +50,7 @@ async def get_dashboard(session: AsyncSession) -> dict[str, Any]:
     today = (
         await session.execute(
             text(
-                "SELECT count(*), COALESCE(SUM(rate_snapshot * hours), 0)"
+                "SELECT count(*), COALESCE(SUM(play_amount), 0)"
                 " FROM bookings"
                 " WHERE status = 'CONFIRMED'"
                 "   AND (lower(period) AT TIME ZONE :tz)::date = (now() AT TIME ZONE :tz)::date"
@@ -62,7 +62,7 @@ async def get_dashboard(session: AsyncSession) -> dict[str, Any]:
     month = (
         await session.execute(
             text(
-                "SELECT count(*), COALESCE(SUM(rate_snapshot * hours), 0)"
+                "SELECT count(*), COALESCE(SUM(play_amount), 0)"
                 " FROM bookings"
                 " WHERE status = 'CONFIRMED'"
                 "   AND date_trunc('month', lower(period) AT TIME ZONE :tz)"

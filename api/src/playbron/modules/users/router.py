@@ -57,6 +57,11 @@ class MyBookingOut(BaseModel):
     status: str
     hours: int
     rate_snapshot: int
+    # Oynaning TO'LIQ summasi. `rate_snapshot * hours` bilan hisoblamang:
+    # tarif oyna ichida o'zgarsa ular teng bo'lmaydi.
+    play_amount: int = 0
+    # Hisob yopilgan — bron oyna tugashini kutmasdan tarixga o'tadi.
+    closed: bool = False
     starts_at: str
     ends_at: str
     station_code: str
