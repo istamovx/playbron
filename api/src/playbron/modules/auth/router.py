@@ -458,7 +458,7 @@ async def _handle_link_start(
     """`stafflink.PREFIX` bilan boshlangan nonce — kirish emas, bog'lash."""
     telegram_id = int(sender["id"])
     lang = str(sender.get("language_code") or "uz").split("-")[0].lower()
-    user_id = await stafflink.approve_link(nonce)
+    user_id = await stafflink.peek_link(nonce)
 
     if user_id is None:
         texts = _LINK_EXPIRED_TEXT
@@ -476,12 +476,11 @@ async def _handle_link_start(
     #
     # Nega kerak: konsoldagi poll `stafflink.poll_link()` orqali REDIS'ni
     # o'qiydi, bu yerdagi yozuv esa BAZAGA ketadi — ikki alohida manba.
-    # `approve_link()` Redis'ni allaqachon "ready" qilib qo'ygani uchun,
-    # baza yozuvi yiqilsa ham konsol "Ulandi" deb ko'rsatardi va
-    # foydalanuvchi botdan "ulandi" xabarini olardi. Keyingi kirishda esa
-    # `/me` (`staff_telegram`) bo'sh bo'lgani uchun "ulanmagan" chiqardi —
-    # tashqaridan bu "chiqqach uziladi" bo'lib ko'rinadi (loyiha egasining
-    # hisoboti, 2026-08-17: "bot 1 marta ulandi, log outdan keyin uzildi").
+    # Nonce SHU YERGACHA "approved" qilinmaydi (`peek_link()`), ya'ni
+    # tekshiruv yiqilsa konsol ham, bot ham "ulandi" demaydi. Ilgari
+    # tartib teskari edi va konsol yolg'on "Ulandi" ko'rsatardi
+    # (loyiha egasi, 2026-08-17: "bot 1 marta ulandi, log outdan keyin
+    # uzildi").
     #
     # `staff_telegram_self` policy'si `app.user_id` ni talab qiladi —
     # webhook oqimida u yo'q, shuning uchun tekshiruvni funksiyaning
@@ -499,6 +498,9 @@ async def _handle_link_start(
     if stored is None:
         # Jimgina "muvaffaqiyat" xabarini YUBORMAYMIZ — aks holda nosozlik
         # faqat keyingi kirishda, butunlay boshqa alomat bilan chiqadi.
+        # Nonce ham o'chiriladi: konsol `expired` olsin, `pending` bilan
+        # aylanib qolmasin.
+        await stafflink.fail_link(nonce)
         log.error(
             "staff_telegram_link_confirm yozuvni yaratmadi (user_id=%s) — "
             "ehtimol RLS/GRANT muammosi",
@@ -507,6 +509,9 @@ async def _handle_link_start(
         texts = _LINK_FAILED_TEXT
         await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))
         return
+
+    # Faqat SHU YERDA konsol "Ulandi" ni ko'radi — yozuv bazada turibdi.
+    await stafflink.mark_ready(nonce, user_id)
 
     texts = _LINK_OK_TEXT
     await telegram_api.send_message(_admin_token(), telegram_id, texts.get(lang, texts["uz"]))

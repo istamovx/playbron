@@ -8,7 +8,6 @@
     "./eslint/node": "./eslint/node.js",
     "./tsconfig/base.json": "./tsconfig/base.json",
     "./tsconfig/node.json": "./tsconfig/node.json",
-    "./tsconfig/nest.json": "./tsconfig/nest.json",
     "./tsconfig/react.json": "./tsconfig/react.json"
   },
   "files": ["eslint", "tsconfig"],

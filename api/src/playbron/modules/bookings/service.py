@@ -17,12 +17,17 @@ from playbron.modules.bot.contact import normalize_phone
 
 MIN_HOURS = 1
 MAX_HOURS = 6
-# Bugundan boshlab necha kun oldinga bron qilish mumkin (BUILD-BRIEF §…,
-# yangi narx modeli bilan ziddiyatsiz — faqat oldindan bron oynasi)
+# `bookings_hours_range_ck` (`0009_bookings.py`) DB'da qo'ygan yuqori chegara.
+# Uzaytirish shu qiymatdan oshsa CHECK buziladi — servis buni oldindan
+# ushlaydi, aks holda foydalanuvchi 500 ko'radi.
+MAX_TOTAL_HOURS = 12
+# Bugundan boshlab necha kun oldinga bron qilish mumkin. Klub sozlamasiga
+# ko'chirilishi kerak — `docs/audit-report.md` §2.5.
 MAX_ADVANCE_DAYS = 14
 # Bron boshlanishidan necha daqiqa oldin hali ham qabul qilinadi (soat
 # ustida turgan foydalanuvchi "hozir" ni bir necha soniya kech bosishi mumkin)
 PAST_GRACE_MIN = 2
+MINUTES_PER_DAY = 24 * 60
 
 
 def _station_row_to_dict(row: Any) -> dict[str, Any]:
@@ -461,7 +466,11 @@ async def _load_club_and_station(
 ) -> tuple[Any, Any]:
     club = (
         await session.execute(
-            text("SELECT id, name, timezone, status FROM clubs WHERE id = :id"), {"id": club_id}
+            text(
+                "SELECT id, name, timezone, status, opens_at_min, closes_at_min"
+                " FROM clubs WHERE id = :id"
+            ),
+            {"id": club_id},
         )
     ).first()
     if club is None or club.status != "active":
@@ -495,6 +504,64 @@ def _resolve_console_type(console_type: str | None, station: Any) -> str:
     if station.console_type is not None:
         return str(station.console_type)
     raise AppError("Konsol turini tanlang", code="CONSOLE_TYPE_REQUIRED")
+
+
+def fits_opening_hours(
+    starts_at: datetime, hours: int, *, opens_at_min: int, closes_at_min: int, timezone: str
+) -> bool:
+    """Bron butunlay klubning ish oynasiga sig'adimi.
+
+    Sof funksiya — DB'siz test qilinadi (`tests/test_booking_window.py`).
+
+    `closes_at_min` 1440 dan katta bo'lishi mumkin (`clubs` sukut qiymati
+    1560 = ertalabki 02:00), ya'ni klub kuni yarim tundan o'tadi. Shu sababli
+    ikkita oyna qaraladi: bron BOSHLANGAN kalendar kuniniki va bir kun
+    OLDINGISI (o'sha kunning tungi davomi). Bittasiga to'liq sig'sa — yetarli.
+
+    Hisob klubning O'Z zonasidagi devor soatida (`clubs.timezone`), server
+    yoki brauzer zonasida emas (`CLAUDE.md`, «Vaqt»).
+    """
+    # 24/7 klub — oyna butun sutkani qoplaydi, tekshiradigan narsa yo'q.
+    # Bu shart bo'lmasa `opens=0, closes=1440` bo'lgan klubda ham yarim
+    # tundan o'tuvchi bron rad etilardi.
+    if closes_at_min - opens_at_min >= MINUTES_PER_DAY:
+        return True
+
+    zone = ZoneInfo(timezone)
+    local_start = starts_at.astimezone(zone)
+    # Tugash HAQIQIY lahzadan olinadi, `start + hours*60` devor soatidan
+    # EMAS. DST bo'lgan zonada (funksiya `clubs.timezone`ni parametr
+    # sifatida oladi — ya'ni Toshkent bilan chegaralanmagan) o'tish
+    # kechasi bu ikkisi bir soatga farq qiladi.
+    local_end = (starts_at + timedelta(hours=hours)).astimezone(zone)
+
+    # DEVOR soati bo'yicha: ikki aware datetime AYIRMASI haqiqiy o'tgan
+    # vaqtni beradi (ya'ni doim `hours`), oyna esa mahalliy soatga qarab
+    # tekshiriladi. Shuning uchun tugash mahalliy sana+soatdan quriladi.
+    start_min = local_start.hour * 60 + local_start.minute
+    day_shift = (local_end.date() - local_start.date()).days
+    end_min = day_shift * MINUTES_PER_DAY + local_end.hour * 60 + local_end.minute
+
+    for day_offset in (0, -1):
+        window_start = opens_at_min + day_offset * MINUTES_PER_DAY
+        window_end = closes_at_min + day_offset * MINUTES_PER_DAY
+        if window_start <= start_min and end_min <= window_end:
+            return True
+    return False
+
+
+def _assert_within_opening_hours(club: Any, starts_at: datetime, hours: int) -> None:
+    if fits_opening_hours(
+        starts_at,
+        hours,
+        opens_at_min=int(club.opens_at_min),
+        closes_at_min=int(club.closes_at_min),
+        timezone=club.timezone,
+    ):
+        return
+    raise AppError(
+        "Bron klubning ish vaqtidan tashqarida", code="OUTSIDE_OPENING_HOURS", status_code=422
+    )
 
 
 def _validate_window(starts_at: datetime, hours: int) -> datetime:
@@ -531,6 +598,13 @@ async def create_customer_booking(
 ) -> dict[str, Any]:
     club, station = await _load_club_and_station(session, club_id, station_id)
     _validate_window(starts_at, hours)
+    # Faqat MIJOZ yo'lida. Mini App allaqachon shu oynani filtrlaydi
+    # (`apps/miniapp/src/lib/slots.ts`), lekin u YAGONA to'siq edi —
+    # API'ga to'g'ridan-to'g'ri murojaat qilib klub yopiq vaqtga bron
+    # qilish mumkin edi (`docs/audit-report.md` §2.4).
+    # Xodim yo'lida ATAYLAB tekshirilmaydi: klubda turgan xodim kech
+    # qolgan mijozni yozishi kerak va bu qaror uniki.
+    _assert_within_opening_hours(club, starts_at, hours)
     resolved_console = _resolve_console_type(console_type, station)
 
     ends_at = starts_at + timedelta(hours=hours)
@@ -892,6 +966,16 @@ async def extend_booking(
         raise AppError("Hisob allaqachon yopilgan", code="BILL_ALREADY_CLOSED", status_code=409)
 
     new_hours = booking.hours + extra_hours
+    # `bookings_hours_range_ck` ni servis qatlamida ushlaymiz: 6 soatlik
+    # bron uch marta uzaytirilsa 15 soat bo'lardi va CHECK buzilib xodim
+    # 500 ko'rardi (`docs/audit-report.md` §2.4).
+    if new_hours > MAX_TOTAL_HOURS:
+        raise AppError(
+            f"Bitta seans {MAX_TOTAL_HOURS} soatdan oshmaydi — hozir {booking.hours} soat",
+            code="TOTAL_HOURS_EXCEEDED",
+            status_code=409,
+        )
+
     row = (
         await session.execute(
             text(

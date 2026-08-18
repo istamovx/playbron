@@ -82,9 +82,16 @@ export function PosScreen(): ReactNode {
     setClosing(true);
     setError(null);
     try {
+      // Hisob EKRANGA olingandan keyin barga yangi buyurtma qo'shilgan
+      // bo'lishi mumkin — server `total`ni QAYTA hisoblaydi va eskirgan
+      // summa `422 SHORTFALL_REASON_REQUIRED` bilan rad etiladi. Shuning
+      // uchun yopishdan oldin hisob yangilanadi.
+      const fresh = await getBill(api, clubId, selected.id);
+      setBill(fresh);
+
       const result = await closeBill(api, clubId, selected.id, {
         paymentMethod: payment,
-        paidAmount: bill.total,
+        paidAmount: fresh.total,
       });
       if (result.awaitingProof) {
         // O'tkazma + botga ulangan mijoz — hisob HALI OCHIQ, chek

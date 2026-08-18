@@ -37,6 +37,9 @@ class ExpenseOut(BaseModel):
     status: str
     created_by_name: str | None
     created_at: str
+    # `CASH` — kassadan chiqadi va ochiq smenaga bog'lanadi. `TRANSFER`
+    # yoki `None` (eski yozuvlar) — kassaga tegmaydi.
+    method: str | None = None
 
 
 class ExpenseCreateIn(BaseModel):
@@ -44,6 +47,10 @@ class ExpenseCreateIn(BaseModel):
     category: str = Field(default="Boshqa", max_length=32)
     amount: int = Field(gt=0)
     note: str | None = Field(default=None, max_length=500)
+    method: str | None = Field(default=None, pattern="^(CASH|TRANSFER)$")
+    # Naqd xarajat qaysi smenadan chiqqani. Berilmasa — yozayotganning
+    # o'z ochiq smenasi (admin xodim kassasidan yozsa, uni ko'rsatadi).
+    shift_id: int | None = None
 
 
 class ExpenseUpdateIn(BaseModel):
@@ -85,6 +92,8 @@ async def create_expense(
         category=body.category,
         amount=body.amount,
         note=body.note,
+        method=body.method,
+        shift_id=body.shift_id,
     )
     return ExpenseOut(**row)
 
@@ -278,6 +287,11 @@ class StationLiveOut(BaseModel):
 
 
 class DashboardOut(BaseModel):
+    # `planned_*` — bron/buyurtma jadvalidan hisoblangan summa (mijoz
+    # kelmasa ham sanaladi). `received_*` — `payments` bo'yicha haqiqatan
+    # olingan pul. `revenue_today` — orqaga moslik uchun `planned` bilan bir xil.
+    planned_revenue_today: int
+    received_revenue_today: int
     revenue_today: int
     expenses_today: int
     profit_today: int
@@ -318,6 +332,8 @@ class RevenueBucketOut(BaseModel):
 
 
 class ReportOut(BaseModel):
+    planned_revenue: int = 0
+    received_revenue: int = 0
     period: str
     revenue: int
     expenses: int

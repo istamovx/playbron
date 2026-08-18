@@ -3,9 +3,14 @@
 Manba: `api/migrations/versions/0021_shifts.py`. RLS defense-in-depth —
 bu yerdagi tekshiruvlar HAKAM emas, ikkinchi qatlam.
 
-"Kutilayotgan naqd" — `opening_cash` + qo'lda kirim/chiqim + shu smena
-davomida NAQD yopilgan bronlar yig'indisi (`bookings.paid_amount`,
-`0013_pos.py`dan bor — bu yerda TAKRORLANMAYDI, faqat o'qiladi).
+"Kutilayotgan naqd" = `opening_cash`
+  + qo'lda kirim/chiqim (`shift_cash_movements`)
+  + shu smenaga yozilgan NAQD to'lovlar (`payments`, `0032_payments.py`)
+  − naqd qaytarimlar
+  − shu smenaga yozilgan NAQD xarajatlar (`expenses.shift_id`).
+
+Manba `payments` — `bookings.paid_amount` EMAS. Farqi: `payments` bronsiz
+sotuvni ham qamraydi va smenaga FK bilan bog'langan.
 """
 
 from datetime import UTC, datetime
@@ -18,6 +23,33 @@ from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 
 REASON_MAX = 300
+
+
+async def open_shift_id(session: AsyncSession, *, club_id: int, staff_id: int) -> int | None:
+    """Xodimning HOZIR ochiq smenasi. Yo'q bo'lsa `None`.
+
+    Naqd pulning har bir manbai smenaga bog'lanishi shart (`CLAUDE.md`,
+    «Pul»). "Ochiq smena" ta'rifi FAQAT shu yerda — `pos` va `finance`
+    modullari ikkalasi ham shuni chaqiradi (ilgari nusxasi `pos/service.py`
+    da turardi va qatlam teskari edi: finance -> pos -> shifts).
+    """
+    row = await session.scalar(
+        text(
+            "SELECT id FROM shifts"
+            " WHERE club_id = :club_id AND staff_id = :staff AND status = 'open'"
+        ),
+        {"club_id": club_id, "staff": staff_id},
+    )
+    return int(row) if row is not None else None
+
+
+async def shift_is_open(session: AsyncSession, *, club_id: int, shift_id: int) -> bool:
+    """Berilgan smena shu klubga tegishli va OCHIQmi."""
+    row = await session.scalar(
+        text("SELECT 1 FROM shifts WHERE id = :id AND club_id = :club_id AND status = 'open'"),
+        {"id": shift_id, "club_id": club_id},
+    )
+    return row is not None
 
 
 async def _load_shift(session: AsyncSession, club_id: int, shift_id: int) -> Any:
@@ -46,23 +78,49 @@ async def _expected_cash(session: AsyncSession, *, club_id: int, shift: Any) -> 
         )
     ).scalar_one()
 
-    cash_bills_total = (
+    # `payments.shift_id` — FK. Ilgari bu yerda vaqt oynasi ishlatilardi
+    # ("shu xodim shu oraliqda yopgan bronlar") va u ikki narsani BUTUNLAY
+    # o'tkazib yuborardi: bronsiz sotuv (`orders.booking_id IS NULL` —
+    # `bookings`da umuman yo'q) va smenasiz yopilgan hisob
+    # (`docs/audit-report.md` §2.3).
+    # Kirim va qaytarim bitta so'rovda — `_shift_detail()` har o'qishda
+    # chaqiriladi, ortiqcha borish-kelish shu yerda ko'payadi.
+    # `club_id` — RLS ustiga qo'shimcha qatlam (`CLAUDE.md`, «RLS»).
+    cash = (
         await session.execute(
             text(
-                "SELECT COALESCE(SUM(paid_amount), 0) FROM bookings"
-                " WHERE club_id = :club_id AND closed_by = :staff AND payment_method = 'CASH'"
-                "   AND closed_at BETWEEN :opened AND :until"
+                "SELECT"
+                "  COALESCE(SUM(amount) FILTER (WHERE kind = 'FINAL'), 0)  AS taken,"
+                "  COALESCE(SUM(amount) FILTER (WHERE kind = 'REFUND'), 0) AS refunded"
+                " FROM payments"
+                " WHERE shift_id = :id AND club_id = :club_id AND method = 'CASH'"
             ),
-            {
-                "club_id": club_id,
-                "staff": shift.staff_id,
-                "opened": shift.opened_at,
-                "until": shift.closed_at or datetime.now(UTC),
-            },
+            {"id": shift.id, "club_id": club_id},
+        )
+    ).one()
+    cash_in, cash_refunds = cash.taken, cash.refunded
+
+    # Naqd xarajat kassadan CHIQADI. Ilgari `expenses` smenaga umuman
+    # bog'lanmagan edi — xodim naqd pulga mahsulot olsa kassa kamayardi,
+    # kutilayotgan summa esa o'zgarmasdi va farq har safar manfiy chiqardi.
+    cash_expenses = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(amount), 0) FROM expenses"
+                " WHERE shift_id = :id AND club_id = :club_id"
+                "   AND method = 'CASH' AND status = 'active'"
+            ),
+            {"id": shift.id, "club_id": club_id},
         )
     ).scalar_one()
 
-    return int(shift.opening_cash) + int(movements_total) + int(cash_bills_total)
+    return (
+        int(shift.opening_cash)
+        + int(movements_total)
+        + int(cash_in)
+        - int(cash_refunds)
+        - int(cash_expenses)
+    )
 
 
 def _movement_row(row: Any) -> dict[str, Any]:

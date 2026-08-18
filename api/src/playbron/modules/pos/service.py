@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.core.text import clean_name
+from playbron.modules.finance import shifts
 
 PRODUCT_CATEGORY_MAX = 32
 PRODUCT_NAME_MAX = 120
@@ -224,6 +225,64 @@ async def list_orders(session: AsyncSession, club_id: int) -> list[dict[str, Any
     return [_order_row(r, items_by_order.get(r.id, [])) for r in rows]
 
 
+async def _record_payment(
+    session: AsyncSession,
+    *,
+    club_id: int,
+    staff_id: int,
+    method: str,
+    amount: int,
+    booking_id: int | None = None,
+    order_id: int | None = None,
+    kind: str = "FINAL",
+) -> int | None:
+    """`payments` qatorini yozadi va `shift_id`ni qaytaradi.
+
+    Naqd uchun ochiq smena MAJBURIY — aks holda pul kassadan tashqarida
+    qolardi va smena farqi doim noto'g'ri chiqardi.
+    """
+    if amount <= 0:
+        return None
+
+    shift_id = await shifts.open_shift_id(session, club_id=club_id, staff_id=staff_id)
+    if method == "CASH" and shift_id is None:
+        raise AppError(
+            "Naqd to'lovni qabul qilish uchun avval smenani oching",
+            code="SHIFT_REQUIRED",
+            status_code=409,
+        )
+
+    await session.execute(
+        text(
+            "INSERT INTO payments"
+            " (club_id, shift_id, booking_id, order_id, kind, method, amount, created_by)"
+            " VALUES (:club_id, :shift_id, :booking_id, :order_id, :kind, :method,"
+            "         :amount, :staff)"
+        ),
+        {
+            "club_id": club_id,
+            "shift_id": shift_id,
+            "booking_id": booking_id,
+            "order_id": order_id,
+            "kind": kind,
+            "method": method,
+            "amount": amount,
+            "staff": staff_id,
+        },
+    )
+
+    # `CLAUDE.md`, «Pul»: pulga tegadigan HAR amal audit iziga tushadi.
+    # Nizoli yopishda `payments` qatori bor-u, kim qilgani yo'q bo'lsa —
+    # iz aynan kerak bo'lgan joyda uzilardi.
+    await log_action(
+        action="payment_refunded" if kind == "REFUND" else "payment_recorded",
+        target=f"booking:{booking_id}" if booking_id else f"order:{order_id}",
+        club_id=club_id,
+        after={"method": method, "amount": amount, "shift_id": shift_id, "kind": kind},
+    )
+    return shift_id
+
+
 async def create_order(
     session: AsyncSession,
     *,
@@ -231,9 +290,28 @@ async def create_order(
     created_by: int,
     booking_id: int | None,
     items: list[dict[str, Any]],
+    payment_method: str | None = None,
 ) -> dict[str, Any]:
     if not items:
         raise AppError("Kamida bitta mahsulot tanlang", code="ORDER_EMPTY")
+
+    # Bronsiz sotuv (o'tkinchi mijoz) — hisob yopish bosqichi yo'q, pul
+    # DARHOL olinadi. Ilgari bunday buyurtmada to'lov umuman yozilmasdi:
+    # summa hisobotga tushardi, kassaga esa tushmasdi va smena farqi doim
+    # musbat chiqardi (`docs/audit-report.md` §2.3).
+    if booking_id is None:
+        if payment_method not in ("CASH", "TRANSFER"):
+            raise AppError(
+                "Bronsiz sotuv uchun to'lov turini tanlang",
+                code="PAYMENT_METHOD_REQUIRED",
+                status_code=422,
+            )
+    elif payment_method is not None:
+        raise AppError(
+            "Bronga biriktirilgan buyurtma hisob yopilganda to'lanadi",
+            code="PAYMENT_METHOD_NOT_ALLOWED",
+            status_code=422,
+        )
 
     if booking_id is not None:
         booking = (
@@ -310,6 +388,16 @@ async def create_order(
             {"qty": line["qty"], "id": line["product_id"]},
         )
 
+    if booking_id is None and payment_method is not None:
+        await _record_payment(
+            session,
+            club_id=club_id,
+            staff_id=created_by,
+            method=payment_method,
+            amount=total,
+            order_id=order_id,
+        )
+
     row = (
         await session.execute(
             text(
@@ -334,7 +422,10 @@ _NEXT_STATUS = {"NEW": "ACCEPTED", "ACCEPTED": "PREPARING", "PREPARING": "DELIVE
 async def advance_order(session: AsyncSession, *, club_id: int, order_id: int) -> str:
     row = (
         await session.execute(
-            text("SELECT status FROM orders WHERE id = :id AND club_id = :club_id"),
+            text(
+                "SELECT status, booking_id, total FROM orders"
+                " WHERE id = :id AND club_id = :club_id"
+            ),
             {"id": order_id, "club_id": club_id},
         )
     ).first()
@@ -353,7 +444,9 @@ async def advance_order(session: AsyncSession, *, club_id: int, order_id: int) -
     return nxt
 
 
-async def cancel_order(session: AsyncSession, *, club_id: int, order_id: int) -> None:
+async def cancel_order(
+    session: AsyncSession, *, club_id: int, order_id: int, cancelled_by: int
+) -> None:
     """Buyurtmani bekor qiladi — FAQAT `NEW` holatida.
 
     Loyiha egasi (2026-08-16): "xodim buyurtma kiritganda uni bekor
@@ -366,7 +459,10 @@ async def cancel_order(session: AsyncSession, *, club_id: int, order_id: int) ->
     """
     row = (
         await session.execute(
-            text("SELECT status FROM orders WHERE id = :id AND club_id = :club_id"),
+            text(
+                "SELECT status, booking_id, total FROM orders"
+                " WHERE id = :id AND club_id = :club_id"
+            ),
             {"id": order_id, "club_id": club_id},
         )
     ).first()
@@ -392,7 +488,44 @@ async def cancel_order(session: AsyncSession, *, club_id: int, order_id: int) ->
         text("UPDATE orders SET status = 'CANCELLED' WHERE id = :id"), {"id": order_id}
     )
 
+    # Bronsiz sotuv YARATILGANDA pul olingan edi (`create_order()`), demak
+    # bekor qilinganda u QAYTARILADI. Aks holda to'lov qatori qolib
+    # ketardi: kassa o'sha summaga ko'p kutar, hisobot esa qaytarilgan
+    # pulni "olingan tushum" deb sanayverardi.
+    for payment in await _order_payments(session, club_id=club_id, order_id=order_id):
+        await _record_payment(
+            session,
+            club_id=club_id,
+            staff_id=cancelled_by,
+            method=payment.method,
+            amount=int(payment.amount),
+            order_id=order_id,
+            kind="REFUND",
+        )
+
     await log_action(action="order_cancelled", target=str(order_id), club_id=club_id)
+
+
+async def _order_payments(session: AsyncSession, *, club_id: int, order_id: int) -> list[Any]:
+    """Buyurtmaning hali qaytarilmagan to'lovlari (FINAL − REFUND).
+
+    Bir xil `method` bo'yicha yig'iladi: qisman qaytarim hozircha yo'q,
+    lekin ikki marta qaytarib yuborilmasligi uchun ayirma olinadi.
+    """
+    return list(
+        (
+            await session.execute(
+                text(
+                    "SELECT method,"
+                    "       SUM(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END) AS amount"
+                    " FROM payments WHERE order_id = :id AND club_id = :club_id"
+                    " GROUP BY method HAVING"
+                    "   SUM(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END) > 0"
+                ),
+                {"id": order_id, "club_id": club_id},
+            )
+        ).all()
+    )
 
 
 # ── Kassa (hisob yopish) ─────────────────────────────────────────────────
@@ -527,6 +660,8 @@ async def close_bill(
     closed_by: int,
     payment_method: str,
     paid_amount: int,
+    shortfall_reason: str | None = None,
+    overpay_reason: str | None = None,
 ) -> dict[str, Any]:
     """O'tkazma + botga ulangan mijoz — chek talab qilinadi (reja #37):
 
@@ -567,11 +702,59 @@ async def close_bill(
             "payment_proof_status": booking.payment_proof_status or "PENDING",
         }
 
+    # Hisoblangan summa bilan olingan summa farqi SABABI bilan yoziladi
+    # (loyiha egasining qarori, 2026-08-17). Ilgari `paid_amount` umuman
+    # tekshirilmasdi va farq izsiz yo'qolardi (`docs/audit-report.md` §2.2).
+    shortfall = total - paid_amount
+
+    # Ortiqcha to'lov RAD ETILMAYDI. Mijoz 95 000 lik hisobga 100 000
+    # berib qaytimni olmasa, xodim kassadagi HAQIQIY pulni yozishi kerak —
+    # aks holda u 95 000 deb ko'rsatishga majbur bo'lardi va smena aynan
+    # 5 000 ga "ortiq" chiqib, tushuntirib bo'lmas farq paydo bo'lardi.
+    # Sabab MAJBURIY: usiz 800 000 lik terish xatosi jimgina "choychaqa"
+    # bo'lib qolardi.
+    tip_amount = 0
+    if shortfall < 0:
+        if overpay_reason != "TIP":
+            raise AppError(
+                "Hisobdan ortiq summa sababini tanlang",
+                code="OVERPAY_REASON_REQUIRED",
+                status_code=422,
+            )
+        tip_amount = -shortfall
+        shortfall = 0
+
+    discount_amount = 0
+    debt_amount = 0
+    if shortfall > 0:
+        if shortfall_reason == "DISCOUNT":
+            discount_amount = shortfall
+        elif shortfall_reason == "DEBT":
+            debt_amount = shortfall
+        else:
+            raise AppError(
+                "Kam to'langan summaning sababini tanlang: chegirma yoki qarz",
+                code="SHORTFALL_REASON_REQUIRED",
+                status_code=422,
+            )
+
+    # To'lov yozuvi UPDATE'dan OLDIN — naqd uchun ochiq smena yo'q bo'lsa
+    # `SHIFT_REQUIRED` chiqadi va hisob YOPILMAY qoladi.
+    await _record_payment(
+        session,
+        club_id=club_id,
+        staff_id=closed_by,
+        method=payment_method,
+        amount=paid_amount,
+        booking_id=booking_id,
+    )
+
     final_proof_status = "CONFIRMED" if requires_proof else None
     await session.execute(
         text(
             "UPDATE bookings SET closed_at = :now, payment_method = :method,"
-            " paid_amount = :amount, closed_by = :staff, payment_proof_status = :proof"
+            " paid_amount = :amount, closed_by = :staff, payment_proof_status = :proof,"
+            " discount_amount = :discount, debt_amount = :debt, tip_amount = :tip"
             " WHERE id = :id"
         ),
         {
@@ -580,6 +763,9 @@ async def close_bill(
             "amount": paid_amount,
             "staff": closed_by,
             "proof": final_proof_status,
+            "discount": discount_amount,
+            "debt": debt_amount,
+            "tip": tip_amount,
             "id": booking_id,
         },
     )
@@ -594,6 +780,9 @@ async def close_bill(
         "total": total,
         "awaiting_proof": False,
         "payment_proof_status": final_proof_status,
+        "discount_amount": discount_amount,
+        "debt_amount": debt_amount,
+        "tip_amount": tip_amount,
     }
 
 

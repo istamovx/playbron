@@ -87,6 +87,35 @@ xabari boradi va `log.error` yoziladi. Sinov ham qo'shildi —
 > logidan `staff_telegram_link_confirm yozuvni yaratmadi` qatorini
 > qidiring — u chiqsa sabab RLS/GRANT, chiqmasa boshqa yo'nalish.
 
+**Tuzatish YARIM edi (2026-08-17, ikkinchi tekshiruv).** Yuqoridagi
+o'zgarish faqat BOTNING xabarini to'g'riladi. Konsol polli esa Redis'ni
+o'qiydi, `approve_link()` esa nonce'ni DB yozuvidan **OLDIN** "approved"
+qilib qo'yardi — ya'ni yozuv yiqilganda bot "saqlanmadi" desa ham konsol
+baribir «Ulandi» ko'rsatardi. Ya'ni asosiy alomat saqlanib qolgan edi.
+
+Endi tartib to'g'ri:
+
+1. `stafflink.peek_link()` — nonce'ni faqat O'QIYDI, holatga tegmaydi
+   (eski `approve_link()` olib tashlandi, qayta ishlatib bo'lmaydi);
+2. `staff_telegram_link_confirm()` chaqiriladi;
+3. yozuv haqiqatan turgani tekshiriladi;
+4. faqat shundan keyin `mark_ready()` — konsol «Ulandi» ni ko'radi;
+5. yiqilsa `fail_link()` nonce'ni o'chiradi — konsol `expired` oladi va
+   `pending` bilan aylanib qolmaydi.
+
+Sinovlar: `test_peek_does_not_mark_console_ready`,
+`test_failed_link_leaves_console_not_ready`.
+
+> **Qolgan noma'lum o'zgarmadi:** yozuv NEGA yiqilishi. Farqi shundaki,
+> endi u yashirinmaydi — konsol ham, bot ham muvaffaqiyat demaydi va
+> `log.error` yoziladi. SQL yo'lining o'zi (`SECURITY DEFINER` +
+> `app.telegram_link_user` GUC + `staff_telegram_link_write` policy +
+> `GRANT EXECUTE`) kod bo'yicha tekshirildi va CI'ning
+> `api-render-shape` job'ida — superuser'siz, BYPASSRLS'siz — migratsiya
+> self-testi bilan isbotlangan. Ya'ni sabab SQL qatlamida emas.
+> Keyingi qadam o'zgarmaydi: **Sozlamalar → Telegram botlari**
+> (`GET /platform/bots`) va prod logi.
+
 **Ikkinchi ehtimol** (hali chiqarib tashlanmagan): `main.py` lifespan
 ikkala webhook'ni KETMA-KET ro'yxatdan o'tkazadi. Ikkala yuza bitta
 botga qarasa — yoki `ADMIN_BOT_TOKEN` berilmasa (u holda
@@ -126,23 +155,12 @@ tarmoq xatosiga bog'liq emas (`tests/test_webhook_registration.py`).
 
 ## 3. Qat'iy qoidalar (buzilmaydi)
 
-- **Pul** — `bigint`, so'm, kasrsiz. Float yo'q. JSON'da satr.
-- **Vaqt** — DB'da UTC `timestamptz`, UI'da `Asia/Tashkent`.
-  Hech qachon server yoki brauzer mahalliy vaqtiga tayanmang —
-  doim `clubs.timezone` orqali.
-- **Tenant izolyatsiyasi** — Postgres RLS. Qo'lda `where club_id`
-  yozib chetlab o'tilmaydi.
-- Yangi tenant-scoped jadval → **o'sha migratsiyada** `FORCE ROW
-  LEVEL SECURITY` va `tenant_isolation` policy'si ham yoziladi.
-- **Bron to'qnashuvi** — `bookings_no_overlap` EXCLUDE konstreyni,
-  `23P01` → `409 SLOT_TAKEN`.
-- Rang/spacing/typography — faqat dizayn tokenlari.
-- `any` yo'q. Matn literal yo'q (i18n: uz/ru/en).
-- **Migratsiyalar faqat oldinga** (`downgrade()` → `NotImplementedError`).
+Yagona manba — **`CLAUDE.md`, «INVARIANTLAR» bo'limi**. Ilgari o'sha
+ro'yxat shu yerda ham takrorlangan edi va ikki nusxa bir-biridan uzilib
+ketdi (masalan «pul JSON'da satr» — kodda hech qachon shunday
+bo'lmagan). Qoida qo'shish yoki o'zgartirish FAQAT `CLAUDE.md` da.
 
-### Tegilmaydi
-
-`packages/ui/src/tokens/**`, mavjud migratsiyalar, `.env`.
+«Tegilmaydi» ro'yxati ham o'sha yerda.
 
 ---
 
@@ -304,7 +322,8 @@ python api/scripts/check_render_shape.py
 | Fayl | Nima uchun |
 |---|---|
 | `CLAUDE.md` | Loyiha qoidalari (avtomatik yuklanadi) |
-| `docs/BUILD-BRIEF.md` | To'liq spetsifikatsiya |
+| `docs/audit-report.md` | Gap-analiz: nima bor, nima yo'q, modul qarorlari |
+| `docs/07-patterns.md` | Yangi jadval / yangi endpoint shablonlari |
 | `docs/01-architecture.md` | Arxitektura |
 | `docs/05-auth-redesign.md` | Autentifikatsiya dizayni (qadamlar tartibi muhim) |
 | `deploy/README.md` | VPS'ga ko'chish |

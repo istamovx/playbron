@@ -96,8 +96,13 @@ async def world() -> AsyncIterator[dict[str, int]]:
             )
             ids["club"] = await conn.scalar(
                 text(
-                    "INSERT INTO clubs (org_id, name, status)"
-                    " VALUES (:o, 'Bkg Club', 'active') RETURNING id"
+                    # 24/7 (`opens=0, closes=1440`) — ATAYLAB. Testlar
+                    # bronni "hozir + N soat" bilan yaratadi, sukut oyna esa
+                    # 10:00–02:00. CI kunning qaysi soatida yurishiga qarab
+                    # bron oynadan chiqib ketardi va `422
+                    # OUTSIDE_OPENING_HOURS` bilan TASODIFIY yiqilardi.
+                    "INSERT INTO clubs (org_id, name, status, opens_at_min, closes_at_min)"
+                    " VALUES (:o, 'Bkg Club', 'active', 0, 1440) RETURNING id"
                 ),
                 {"o": ids["org"]},
             )
@@ -705,6 +710,45 @@ async def test_extend_out_of_range_is_rejected(
 
 
 @skip_no_db
+async def test_repeated_extends_stop_at_db_hours_limit(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Har biri alohida ruxsat etilgan uzaytirishlar YIG'ILIB
+    `bookings_hours_range_ck` (`hours <= 12`) ni buzardi va xodim 500
+    ko'rardi (`docs/audit-report.md` §2.4). Endi 409 va aniq kod."""
+    staff_h = await _staff_headers(client, world["club"])
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(0),
+            "hours": 6,
+            "guest_name": "Uzoq Mehmon",
+            "guest_phone": "+998901234567",
+        },
+        headers=staff_h,
+    )
+    assert created.status_code == 201, created.text
+    booking_id = int(created.json()["id"])
+
+    url = f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend"
+
+    for expected_hours in (9, 12):
+        ok = await client.post(url, json={"extra_hours": 3}, headers=staff_h)
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["hours"] == expected_hours
+
+    blocked = await client.post(url, json={"extra_hours": 3}, headers=staff_h)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["error"]["code"] == "TOTAL_HOURS_EXCEEDED"
+
+    detail = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert detail.json()["hours"] == 12
+
+
+@skip_no_db
 async def test_staff_cancels_confirmed_booking_customer_not_arrived(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:
@@ -824,10 +868,14 @@ async def test_cancel_already_closed_booking_is_rejected(
 
     closed = await client.post(
         f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/close",
-        json={"payment_method": "CASH", "paid_amount": 0},
+        # To'liq chegirma: `paid_amount=0` endi SABAB talab qiladi
+        # (`0032_payments.py`). To'lov yozuvi yaratilmaydi, shuning uchun
+        # ochiq smena ham kerak emas.
+        json={"payment_method": "CASH", "paid_amount": 0, "shortfall_reason": "DISCOUNT"},
         headers=staff_h,
     )
     assert closed.status_code == 200, closed.text
+    assert closed.json()["discount_amount"] == 40000
 
     r = await client.post(
         f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/cancel",

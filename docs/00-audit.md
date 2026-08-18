@@ -67,7 +67,7 @@ Playbron/
 │  ├─ ui/             SystemX design system: 30+ komponent, 8 ta token fayli, styles.css
 │  └─ config/         ESLint + TS konfiguratsiyasi
 └─ docs/
-   ├─ BUILD-BRIEF.md        ESKIRGAN — NestJS + Prisma + RLS stack'ini tavsiflaydi
+   ├─ archive/BUILD-BRIEF.md  ARXIVLANGAN (2026-08-17) — NestJS + Prisma stack'ini tavsiflaydi
    ├─ DESIGN-HANDOFF.md
    └─ designs/              PlayBron Mijoz / Xodim / Xodim Mobil .dc.html + _ds/
 ```
@@ -388,4 +388,4 @@ ular `docs/design-change-requests.md` ga yozildi.
 | ~~`miniapp/screens/bill.tsx`, `confirm` oqimi~~ | **HAL QILINDI:** bron to'lovi ham Click/Payme orqali. Mavjud UI to'g'ri, o'zgarish kerak emas. Backendda ikki to'lov yuzasi ajratiladi (`01-architecture.md` §6.0) |
 | `miniapp` til ro'yxati | `LANGS` da English bor — loyiha faqat uz/ru (DCR-007) |
 | Pul turi | Frontendda `number`. `CLAUDE.md` `bigint` so'm talab qiladi |
-| `docs/BUILD-BRIEF.md` | NestJS + Prisma stack'ini tavsiflaydi — yangi Python qaroriga zid |
+| `docs/archive/BUILD-BRIEF.md` | NestJS + Prisma stack'ini tavsiflaydi — yangi Python qaroriga zid. 2026-08-17 da arxivlandi |

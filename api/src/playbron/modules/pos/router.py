@@ -80,6 +80,9 @@ class OrderItemIn(BaseModel):
 class OrderCreateIn(BaseModel):
     booking_id: int | None = None
     items: list[OrderItemIn] = Field(min_length=1, max_length=30)
+    # Faqat bronsiz sotuv uchun — pul darhol olinadi. Bronga biriktirilgan
+    # buyurtma hisob yopilganda to'lanadi.
+    payment_method: str | None = Field(default=None, pattern="^(CASH|TRANSFER)$")
 
 
 class OpenBookingOut(BaseModel):
@@ -102,11 +105,22 @@ class BillOut(BaseModel):
     # holatini ko'rsatsin.
     awaiting_proof: bool = False
     payment_proof_status: str | None = None
+    # Hisoblangan summa bilan olingan summa farqi — sababi bo'yicha
+    # ajratilgan. `get_bill()` (hali yopilmagan hisob) uchun ikkalasi 0.
+    discount_amount: int = 0
+    debt_amount: int = 0
+    tip_amount: int = 0
 
 
 class CloseBillIn(BaseModel):
     payment_method: str = Field(pattern="^(CASH|TRANSFER)$")
     paid_amount: int = Field(ge=0)
+    # `paid_amount` hisoblangan summadan KAM bo'lsa majburiy: farq
+    # chegirma sifatidami (daromaddan chiqadi) yoki qarz sifatidami
+    # (mijoz zimmasida qoladi) — xodim tanlaydi.
+    shortfall_reason: str | None = Field(default=None, pattern="^(DISCOUNT|DEBT)$")
+    # `paid_amount` hisobdan KO'P bo'lsa majburiy — qaytim olinmagan qism.
+    overpay_reason: str | None = Field(default=None, pattern="^(TIP)$")
 
 
 class LiveStationOut(BaseModel):
@@ -217,6 +231,7 @@ async def create_order(
         created_by=context.current().user_id,
         booking_id=body.booking_id,
         items=[item.model_dump() for item in body.items],
+        payment_method=body.payment_method,
     )
     return OrderOut(**row)
 
@@ -249,7 +264,12 @@ async def cancel_order(
     """Faqat `NEW` holatidagi buyurtma bekor qilinadi (loyiha egasi,
     2026-08-16). Qoldiq qaytariladi — `service.cancel_order()`."""
     _assert_path_matches_header(club_id)
-    await service.cancel_order(session, club_id=club_id, order_id=order_id)
+    await service.cancel_order(
+        session,
+        club_id=club_id,
+        order_id=order_id,
+        cancelled_by=int(context.current().user_id or 0),
+    )
     return {"status": "CANCELLED"}
 
 
@@ -303,6 +323,8 @@ async def close_bill(
         closed_by=context.current().user_id,
         payment_method=body.payment_method,
         paid_amount=body.paid_amount,
+        shortfall_reason=body.shortfall_reason,
+        overpay_reason=body.overpay_reason,
     )
     return BillOut(**row)
 

@@ -1,5 +1,16 @@
 # PlayBron — Claude Code Build Brief
 
+> **ARXIV — 2026-08-17 da `docs/` dan bu yerga ko'chirildi. QAROR MANBAI EMAS.**
+>
+> Bu hujjatdagi stek (NestJS, Prisma, Fastify, Socket.IO, Next.js, BullMQ,
+> MinIO, Payme/Click, Eskiz.uz) loyihada QO'LLANMAGAN — hech biri repoda yo'q.
+> Domen modeli ham qisman boshqacha amalga oshirilgan (`sessions`, `bills`,
+> `payments`, `rooms`, `tariffs` jadvallari yo'q).
+>
+> Amaldagi manba: `CLAUDE.md` (invariantlar), `docs/HOLAT.md` (holat),
+> `docs/audit-report.md` (nima bor / nima yo'q). Bu fayl faqat dastlabki
+> niyatni ko'rish uchun saqlanadi.
+
 > Loyiha nomi `PlayBron` — o'zgartirsang, barcha joyda almashtir.
 
 <context>

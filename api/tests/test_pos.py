@@ -479,6 +479,15 @@ async def test_order_created_advanced_and_billed(
     assert bill.json()["orders_amount"] == 20000
     assert bill.json()["total"] == 100000
 
+    # Naqd to'lov ochiq smenani TALAB QILADI (`0032_payments.py`) — aks
+    # holda pul hech qaysi kassaga tushmasdi.
+    shift = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts",
+        json={"opening_cash": 0},
+        headers=headers,
+    )
+    assert shift.status_code in (200, 201), shift.text
+
     closed = await client.post(
         f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/close",
         json={"payment_method": "CASH", "paid_amount": 100000},
@@ -625,12 +634,17 @@ async def test_transfer_close_on_guest_booking_closes_immediately(
 
     r = await client.post(
         f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/close",
-        json={"payment_method": "TRANSFER", "paid_amount": 40000},
+        # `world` broni 2 soat x 40000 = 80000. Ilgari bu yerda 40000
+        # yozilgan va JIMGINA qabul qilinardi — yetishmagan 40000 izsiz
+        # yo'qolardi (`docs/audit-report.md` §2.2).
+        json={"payment_method": "TRANSFER", "paid_amount": 80000},
         headers=headers,
     )
     assert r.status_code == 200, r.text
     assert r.json()["awaiting_proof"] is False
     assert r.json()["payment_proof_status"] is None
+    assert r.json()["discount_amount"] == 0
+    assert r.json()["debt_amount"] == 0
 
 
 @skip_no_db

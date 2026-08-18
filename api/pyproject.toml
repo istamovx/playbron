@@ -20,6 +20,11 @@ dependencies = [
     "httpx>=0.28",
     # Parol xeshlash — Argon2id (docs/05-auth-redesign.md §7.1)
     "argon2-cffi>=23.1",
+    # `zoneinfo.ZoneInfo("Asia/Tashkent")` uchun zona bazasi. Linux
+    # konteynerida u OS'dan keladi, Windows'da esa UMUMAN yo'q —
+    # `ZoneInfoNotFoundError`. Vaqt hisoblari butun loyihada `clubs.timezone`
+    # orqali ketgani uchun (`CLAUDE.md`, «Vaqt») bu bog'liqlik ixtiyoriy emas.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

@@ -17,7 +17,7 @@ Hali qurilmagan: **admin (klub egasi) paneli**, **landing sayt**, **superadmin**
 
 Paketdagi HTML fayllar — **dizayn referensi**, production kod emas. Ular kutilgan ko'rinish va
 xatti-harakatni ko'rsatuvchi prototiplar: React class komponenti + inline stillar + mock massivlar.
-Vazifa — bu ekranlarni `BUILD-BRIEF.md` da belgilangan real stackda (React 19 + Vite + Tailwind v4 +
+Vazifa — bu ekranlarni loyihaning real stack'ida (React 19 + Vite + Tailwind v4 +
 TanStack Query) qayta qurish, HTML'ni ko'chirib olmaslik.
 
 Ochish: `designs/` papkasini brauzerda oching (`_ds/` yonida turishi shart — dizayn tizimi
@@ -245,8 +245,8 @@ designs/PlayBron Xodim.dc.html          desktop xodim konsoli
 designs/PlayBron Xodim Mobil.dc.html    xodim Mini App
 designs/PlayBron Mijoz.dc.html          mijoz Mini App
 designs/_ds/systemx-.../                SystemX dizayn tizimi (tokenlar, bundle, komponent qo'llanmalari)
-BUILD-BRIEF.md                          to'liq texnik spetsifikatsiya (domen modeli, biznes qoidalari, P0–P9)
-PROJECT-RULES.md                        loyiha qat'iy qoidalari (CLAUDE.md sifatida ko'chiriladi)
+archive/BUILD-BRIEF.md                  dastlabki spetsifikatsiya — ARXIV, qaror manbai emas
+../CLAUDE.md                            loyiha invariantlari
 ```
 
 Har bir `.dc.html` faylning tuzilishi: `<x-dc>` ichida template (inline stillar, `<sc-for>` /
