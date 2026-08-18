@@ -902,6 +902,15 @@ export const listOrders = async (api: ApiClient, clubId: number): Promise<OrderD
 export interface OrderCreateIn {
   bookingId: number | null;
   items: { productId: number; qty: number }[];
+  /** Bronsiz sotuvda MAJBURIY — pul darhol olinadi va ochiq smenaga
+   * yoziladi (`0032_payments.py`). Bronli buyurtmada berilmaydi:
+   * u hisob yopilganda to'lanadi.
+   *
+   * Bu yerda SUKUT QIYMAT YO'Q. Ilgari `?? 'CASH'` turardi va u
+   * serverdagi `PAYMENT_METHOD_REQUIRED` himoyasini bekor qilardi:
+   * o'tkazma bilan sotilgan mahsulot naqd deb yozilib, smena kassasi
+   * o'sha summaga ko'p kutardi. */
+  paymentMethod?: 'CASH' | 'TRANSFER';
 }
 
 export const createOrder = async (
@@ -911,6 +920,7 @@ export const createOrder = async (
 ): Promise<OrderDto> => {
   const row = await api.post<Parameters<typeof fromOrderApi>[0]>(`/clubs/${clubId}/orders`, {
     booking_id: body.bookingId,
+    payment_method: body.paymentMethod ?? null,
     items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
   });
   return fromOrderApi(row);
@@ -968,6 +978,12 @@ export const listOpenBookings = async (
   }));
 };
 
+/** Kam to'langan summaning sababi — xodim tanlaydi. */
+export type ShortfallReason = 'DISCOUNT' | 'DEBT';
+
+/** Ortiqcha to'langan summaning sababi. */
+export type OverpayReason = 'TIP';
+
 export interface BillDto {
   bookingId: number;
   playAmount: number;
@@ -977,6 +993,13 @@ export interface BillDto {
    * kutilmoqda (reja #37, `pos/service.py::close_bill()`). */
   awaitingProof: boolean;
   paymentProofStatus: 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | null;
+  /** Hisoblangan summadan kam to'langan qismi — chegirma sifatida
+   * (`0032_payments.py`). Daromaddan chiqadi. */
+  discountAmount: number;
+  /** Xuddi shunday, lekin mijoz zimmasida qoladi. */
+  debtAmount: number;
+  /** Mijoz hisobdan ko'p berib, qaytimni olmagan qismi. */
+  tipAmount: number;
 }
 
 const fromBillApi = (row: {
@@ -986,6 +1009,9 @@ const fromBillApi = (row: {
   total: number;
   awaiting_proof?: boolean;
   payment_proof_status?: 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | null;
+  discount_amount?: number;
+  debt_amount?: number;
+  tip_amount?: number;
 }): BillDto => ({
   bookingId: row.booking_id,
   playAmount: row.play_amount,
@@ -993,6 +1019,9 @@ const fromBillApi = (row: {
   total: row.total,
   awaitingProof: row.awaiting_proof ?? false,
   paymentProofStatus: row.payment_proof_status ?? null,
+  discountAmount: row.discount_amount ?? 0,
+  debtAmount: row.debt_amount ?? 0,
+  tipAmount: row.tip_amount ?? 0,
 });
 
 export const getBill = async (
@@ -1010,11 +1039,25 @@ export const closeBill = async (
   api: ApiClient,
   clubId: number,
   bookingId: number,
-  body: { paymentMethod: 'CASH' | 'TRANSFER'; paidAmount: number },
+  body: {
+    paymentMethod: 'CASH' | 'TRANSFER';
+    paidAmount: number;
+    /** `paidAmount` hisoblangan summadan KAM bo'lsa majburiy — aks holda
+     * server `422 SHORTFALL_REASON_REQUIRED` qaytaradi. */
+    shortfallReason?: ShortfallReason;
+    /** `paidAmount` hisobdan KO'P bo'lsa majburiy (`422
+     * OVERPAY_REASON_REQUIRED`). */
+    overpayReason?: OverpayReason;
+  },
 ): Promise<BillDto> => {
   const row = await api.post<Parameters<typeof fromBillApi>[0]>(
     `/clubs/${clubId}/bookings/${bookingId}/close`,
-    { payment_method: body.paymentMethod, paid_amount: body.paidAmount },
+    {
+      payment_method: body.paymentMethod,
+      paid_amount: body.paidAmount,
+      shortfall_reason: body.shortfallReason ?? null,
+      overpay_reason: body.overpayReason ?? null,
+    },
   );
   return fromBillApi(row);
 };
@@ -1084,6 +1127,8 @@ export interface ExpenseDto {
   status: 'active' | 'archived';
   createdByName: string | null;
   createdAt: string;
+  /** `CASH` — kassadan chiqqan. Eski yozuvlarda `null`. */
+  method: 'CASH' | 'TRANSFER' | null;
 }
 
 interface ExpenseApi {
@@ -1095,6 +1140,7 @@ interface ExpenseApi {
   status: string;
   created_by_name: string | null;
   created_at: string;
+  method?: 'CASH' | 'TRANSFER' | null;
 }
 
 const fromExpenseApi = (row: ExpenseApi): ExpenseDto => ({
@@ -1106,6 +1152,7 @@ const fromExpenseApi = (row: ExpenseApi): ExpenseDto => ({
   status: row.status === 'archived' ? 'archived' : 'active',
   createdByName: row.created_by_name,
   createdAt: row.created_at,
+  method: row.method ?? null,
 });
 
 export const listExpenses = async (api: ApiClient, clubId: number): Promise<ExpenseDto[]> => {
@@ -1118,6 +1165,12 @@ export interface ExpenseCreateIn {
   category: string;
   amount: number;
   note?: string | null;
+  /** `CASH` kassadan chiqadi va ochiq smenani talab qiladi
+   * (`0032_payments.py`). Berilmasa kassaga tegmaydi. */
+  method?: 'CASH' | 'TRANSFER' | null;
+  /** Naqd xarajat qaysi smenadan chiqqani. Berilmasa — yozayotganning
+   * o'z ochiq smenasi. Admin xodim kassasidan yozsa shu kerak. */
+  shiftId?: number | null;
 }
 
 export const createExpense = async (
@@ -1130,6 +1183,8 @@ export const createExpense = async (
     category: body.category,
     amount: body.amount,
     note: body.note ?? null,
+    method: body.method ?? null,
+    shift_id: body.shiftId ?? null,
   });
   return fromExpenseApi(row);
 };
@@ -1299,7 +1354,12 @@ export interface ClubStationLiveDto {
 }
 
 export interface ClubDashboardDto {
+  /** OLINGAN pul (`payments`). `profit` shu bazadan hisoblanadi. */
   revenueToday: number;
+  /** Bron/buyurtma jadvalidan REJALASHTIRILGAN summa — mijoz kelmasa ham. */
+  plannedRevenueToday: number;
+  /** `revenueToday` bilan bir xil, nomi aniqroq. */
+  receivedRevenueToday: number;
   expensesToday: number;
   profitToday: number;
   sessionsToday: number;
@@ -1315,6 +1375,8 @@ export interface ClubDashboardDto {
 
 interface ClubDashboardApi {
   revenue_today: number;
+  planned_revenue_today?: number;
+  received_revenue_today?: number;
   expenses_today: number;
   profit_today: number;
   sessions_today: number;
@@ -1338,6 +1400,8 @@ export const getClubDashboard = async (api: ApiClient, clubId: number): Promise<
   const row = await api.get<ClubDashboardApi>(`/clubs/${clubId}/dashboard`);
   return {
     revenueToday: row.revenue_today,
+    plannedRevenueToday: row.planned_revenue_today ?? row.revenue_today,
+    receivedRevenueToday: row.received_revenue_today ?? row.revenue_today,
     expensesToday: row.expenses_today,
     profitToday: row.profit_today,
     sessionsToday: row.sessions_today,

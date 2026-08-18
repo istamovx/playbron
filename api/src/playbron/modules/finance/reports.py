@@ -18,9 +18,25 @@ from typing import Any, Literal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Klub `timezone` ustuni bo'sh bo'lsa ishlatiladigan zaxira qiymat.
+# To'g'ridan-to'g'ri ISHLATILMAYDI — `_club_timezone()` orqali.
 TZ = "Asia/Tashkent"
 Period = Literal["day", "week", "month", "year"]
 PERIOD_UNIT: dict[Period, str] = {"day": "day", "week": "week", "month": "month", "year": "year"}
+
+
+async def _club_timezone(session: AsyncSession, club_id: int) -> str:
+    """Hisobot kun chegarasi KLUB zonasida chiziladi.
+
+    Ilgari butun fayl modul darajasidagi `TZ` konstantasiga
+    tayanardi. Endi shu oyna `payments` bo'yicha PUL hisobiga ham tegadi —
+    boshqa zonadagi klubda kechki to'lovlar noto'g'ri kunga tushardi
+    (`CLAUDE.md`, «Vaqt»).
+    """
+    row = await session.scalar(
+        text("SELECT timezone FROM clubs WHERE id = :id"), {"id": club_id}
+    )
+    return str(row or TZ)
 
 
 async def _club_hours(session: AsyncSession, club_id: int) -> tuple[int, int]:
@@ -93,12 +109,30 @@ async def _revenue_expense_for_range(
         )
     ).scalar_one()
 
+    # HAQIQATAN OLINGAN pul — `payments` bo'yicha. Yuqoridagi `play`/`bar`
+    # REJALASHTIRILGAN summa: `play` bron jadvalidan (mijoz kelmasa ham
+    # sanaladi), `bar` esa buyurtma yaratilgan payt bo'yicha. Ikkalasi bir
+    # xil son bermaydi va ilgari faqat rejalashtirilgani "daromad" deb
+    # ko'rsatilardi (`docs/audit-report.md` §2.3, loyiha egasining qarori
+    # 2026-08-17: ikkalasi ham kerak, alohida).
+    received = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END), 0)"
+                " FROM payments"
+                " WHERE club_id = :club_id AND created_at >= :since AND created_at < :until"
+            ),
+            {"club_id": club_id, "since": since, "until": until},
+        )
+    ).scalar_one()
+
     return {
         "play": int(play.amount),
         "bar": int(bar),
         "sessions": int(play.sessions),
         "hours": int(play.hours),
         "expenses": int(expenses),
+        "received": int(received),
     }
 
 
@@ -140,7 +174,7 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
                 "       (((now() AT TIME ZONE :tz)::date) + 1) AT TIME ZONE :tz AS until_utc,"
                 "       ((now() AT TIME ZONE :tz)::date) + 1 AS until_date"
             ),
-            {"tz": TZ},
+            {"tz": await _club_timezone(session, club_id)},
         )
     ).one()
 
@@ -166,7 +200,7 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
                 " GROUP BY 1"
             ),
             {
-                "tz": TZ,
+                "tz": await _club_timezone(session, club_id),
                 "club_id": club_id,
                 "since": today_range.since_utc,
                 "until": today_range.until_utc,
@@ -190,11 +224,22 @@ async def get_dashboard(session: AsyncSession, club_id: int) -> dict[str, Any]:
         )
     ).all()
 
-    revenue_today = totals["play"] + totals["bar"]
+    # `planned` — bugun rejalashtirilgan (bron + buyurtma summasi).
+    # `received` — bugun kassaga/hisobga HAQIQATAN tushgan pul.
+    # Foyda OLINGAN puldan hisoblanadi: rejadan hisoblansa kelmagan
+    # mijozning puli ham foydaga qo'shilib ketardi.
+    planned_today = totals["play"] + totals["bar"]
+    received_today = totals["received"]
     return {
-        "revenue_today": revenue_today,
+        "planned_revenue_today": planned_today,
+        "received_revenue_today": received_today,
+        # `revenue_today` — eski nom, OLINGAN pulni bildiradi. Ilgari u
+        # rejani ko'rsatib turgan, `profit_today` esa olingan puldan
+        # hisoblangan edi: panelda `tushum − xarajat != foyda` chiqardi
+        # va marja ikki xil bazani aralashtirardi.
+        "revenue_today": received_today,
         "expenses_today": totals["expenses"],
-        "profit_today": revenue_today - totals["expenses"],
+        "profit_today": received_today - totals["expenses"],
         "sessions_today": totals["sessions"],
         "hours_today": totals["hours"],
         "occupancy_today": occupancy,
@@ -271,7 +316,13 @@ async def _revenue_series(
                 ORDER BY b.bucket_local
                 """
             ),
-            {"unit": sub_unit, "tz": TZ, "club_id": club_id, "since": since, "until": until},
+            {
+                "unit": sub_unit,
+                "tz": await _club_timezone(session, club_id),
+                "club_id": club_id,
+                "since": since,
+                "until": until,
+            },
         )
     ).all()
     return [{"bucket": r.bucket_local.isoformat(), "amount": int(r.amount)} for r in rows]
@@ -292,7 +343,7 @@ async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> 
                 "       EXTRACT(EPOCH FROM (now() - (date_trunc(:unit, now() AT TIME ZONE :tz)"
                 "         AT TIME ZONE :tz))) / 86400 AS days_elapsed"
             ),
-            {"unit": unit, "tz": TZ},
+            {"unit": unit, "tz": await _club_timezone(session, club_id)},
         )
     ).one()
     days_elapsed = max(float(bounds.days_elapsed), 1 / 24)
@@ -338,12 +389,19 @@ async def get_report(session: AsyncSession, *, club_id: int, period: Period) -> 
         session, club_id=club_id, period=period, since=bounds.since_utc, until=bounds.until_utc
     )
 
-    revenue = totals["play"] + totals["bar"]
+    # `get_dashboard()` bilan bir xil ta'rif: reja va olingan pul alohida.
+    planned = totals["play"] + totals["bar"]
+    received = totals["received"]
+    # `revenue` — `profit` bilan BIR XIL baza (olingan pul). Reja alohida
+    # `planned_revenue` da.
+    revenue = received
     return {
         "period": period,
         "revenue": revenue,
         "expenses": totals["expenses"],
-        "profit": revenue - totals["expenses"],
+        "planned_revenue": planned,
+        "received_revenue": received,
+        "profit": received - totals["expenses"],
         "play_revenue": totals["play"],
         "bar_revenue": totals["bar"],
         "sessions": totals["sessions"],

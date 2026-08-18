@@ -1,7 +1,8 @@
 # PlayBron
 
-PlayStation klublari uchun multi-tenant bron SaaS. To'liq spetsifikatsiya —
-[docs/BUILD-BRIEF.md](docs/BUILD-BRIEF.md), dizayn manbai — [docs/DESIGN-HANDOFF.md](docs/DESIGN-HANDOFF.md).
+PlayStation klublari uchun multi-tenant bron SaaS. Loyiha invariantlari —
+[CLAUDE.md](CLAUDE.md), hozirgi holat — [docs/HOLAT.md](docs/HOLAT.md),
+dizayn manbai — [docs/DESIGN-HANDOFF.md](docs/DESIGN-HANDOFF.md).
 
 ## Talablar
 

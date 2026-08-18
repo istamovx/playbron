@@ -9,9 +9,13 @@ from sqlalchemy.exc import DBAPIError
 
 from playbron.core import context
 
-# PostgreSQL: EXCLUDE konstreynt buzilishi (bron to'qnashuvi)
+# PostgreSQL konstreynt sqlstate'lari. Xaritada YO'Q sqlstate `raise exc`
+# bilan 500 ga aylanadi — ya'ni DB'da qo'yilgan har bir konstreynt shu
+# yerda ham nomlanishi kerak (`CLAUDE.md`, «Xatolar»).
 PG_EXCLUSION_VIOLATION = "23P01"
 PG_UNIQUE_VIOLATION = "23505"
+PG_FK_VIOLATION = "23503"
+PG_CHECK_VIOLATION = "23514"
 
 
 class AppError(Exception):
@@ -116,5 +120,19 @@ def install(app: FastAPI) -> None:
             return JSONResponse(
                 status_code=status.HTTP_409_CONFLICT,
                 content=_body("ALREADY_EXISTS", "Bunday yozuv allaqachon bor"),
+            )
+        # CHECK — kirish qiymati DB qoidasiga sig'madi. Servis qatlami buni
+        # o'z kodi bilan oldindan ushlashi kerak; bu yerdagisi oxirgi to'siq,
+        # foydalanuvchi 500 ko'rmasligi uchun.
+        if sqlstate == PG_CHECK_VIOLATION:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=_body("CONSTRAINT_VIOLATED", "Kiritilgan qiymat qoidaga mos emas"),
+            )
+        # FK — bog'liq yozuv yo'q yoki hali o'chirib bo'lmaydi.
+        if sqlstate == PG_FK_VIOLATION:
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content=_body("RELATED_RECORD_MISSING", "Bog'liq yozuv topilmadi"),
             )
         raise exc

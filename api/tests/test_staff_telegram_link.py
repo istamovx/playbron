@@ -102,8 +102,12 @@ async def world() -> AsyncIterator[dict[str, int]]:
             )
             ids["club"] = await conn.scalar(
                 text(
-                    "INSERT INTO clubs (org_id, name, status)"
-                    " VALUES (:o, 'TgLink Club', 'active') RETURNING id"
+                    # 24/7 — `test_bookings.py::world` dagi bilan bir xil
+                    # sabab: bu fayl ham mijoz bronini "hozir + 3 soat"
+                    # bilan yaratadi va sukut oyna (10:00–02:00) CI'ning
+                    # yurish soatiga qarab uni rad etardi.
+                    "INSERT INTO clubs (org_id, name, status, opens_at_min, closes_at_min)"
+                    " VALUES (:o, 'TgLink Club', 'active', 0, 1440) RETURNING id"
                 ),
                 {"o": ids["org"]},
             )
@@ -183,6 +187,38 @@ async def test_customer_cannot_start_link(client: httpx.AsyncClient) -> None:
     r = await client.post("/api/v1/auth/telegram/link/start", headers=customer_h)
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "STAFF_TOKEN_REQUIRED"
+
+
+@skip_no_db
+async def test_peek_does_not_mark_console_ready() -> None:
+    """Nonce'ni O'QISH uni "ready" qilmaydi.
+
+    Ilgari `approve_link()` DB yozuvidan OLDIN Redis'ni "approved" qilardi,
+    ya'ni yozuv yiqilsa ham konsol "Ulandi" ko'rsatardi — loyiha egasi
+    kuzatgan "bot 1 marta ulandi, log outdan keyin uzildi" alomatining
+    aynan manbai (`docs/audit-report.md`, `docs/HOLAT.md` §2).
+    """
+    from playbron.modules.auth import stafflink
+
+    nonce = await stafflink.start_link(4242)
+
+    assert await stafflink.peek_link(nonce) == 4242
+    assert await stafflink.poll_link(nonce) == "pending", "peek nonce'ni tasdiqlab yubordi"
+
+    await stafflink.mark_ready(nonce, 4242)
+    assert await stafflink.poll_link(nonce) == "ready"
+
+
+@skip_no_db
+async def test_failed_link_leaves_console_not_ready() -> None:
+    """Yozuv yiqilsa nonce o'chiriladi — konsol `expired` oladi, `ready` emas."""
+    from playbron.modules.auth import stafflink
+
+    nonce = await stafflink.start_link(4243)
+    await stafflink.fail_link(nonce)
+
+    assert await stafflink.poll_link(nonce) == "expired"
+    assert await stafflink.peek_link(nonce) is None
 
 
 @skip_no_db

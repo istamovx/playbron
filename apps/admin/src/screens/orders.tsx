@@ -261,6 +261,10 @@ function NewOrderModal({
 }): ReactNode {
   const occupied = stations.filter((s) => s.bookingId !== null);
   const [stationLabel, setStationLabel] = useState('');
+  // Bronsiz (o'tkinchi mijoz) sotuvda pul DARHOL olinadi, shuning uchun
+  // to'lov turi shu yerda tanlanadi. Bronli buyurtma hisob yopilganda
+  // to'lanadi va bu tanlov unga umuman yuborilmaydi.
+  const [walkinPayment, setWalkinPayment] = useState<'CASH' | 'TRANSFER'>('CASH');
   const [cart, setCart] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +277,7 @@ function NewOrderModal({
   useEffect(() => {
     if (open) {
       setStationLabel(occupied.length > 0 ? stationLabelOf(occupied[0] as LiveStationDto) : '');
+      setWalkinPayment('CASH');
       setCart({});
       setError(null);
     }
@@ -305,6 +310,9 @@ function NewOrderModal({
     try {
       await createOrder(api, clubId, {
         bookingId: station?.bookingId ?? null,
+        // Faqat bronsiz sotuvda yuboriladi — server bronli buyurtmada
+        // to'lov turini QABUL QILMAYDI (`PAYMENT_METHOD_NOT_ALLOWED`).
+        paymentMethod: station ? undefined : walkinPayment,
         items: lines.map((line) => ({ productId: (line.product as ProductDto).id, qty: line.qty })),
       });
       toast.success('Buyurtma yuborildi');
@@ -322,7 +330,23 @@ function NewOrderModal({
     <Modal open={open} onClose={onClose} title="Yangi buyurtma" variant="drawer">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
         {occupied.length === 0 ? (
-          <StatusLine tone="warn" icon="warning" parts={['Hozir band xona yo‘q']} />
+          <>
+            <StatusLine
+              tone="warn"
+              icon="warning"
+              parts={['Hozir band xona yo‘q', 'Bronsiz sotuv sifatida yoziladi']}
+            />
+            <Labeled label="To‘lov turi">
+              <Select
+                value={walkinPayment === 'CASH' ? 'Naqd' : 'O‘tkazma'}
+                items={['Naqd', 'O‘tkazma']}
+                onChange={(next) => setWalkinPayment(next === 'Naqd' ? 'CASH' : 'TRANSFER')}
+                size="lg"
+                notch
+                style={{ width: '100%' }}
+              />
+            </Labeled>
+          </>
         ) : (
           <Labeled label="Xona">
             <Select
