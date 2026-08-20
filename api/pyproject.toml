@@ -80,9 +80,7 @@ module = [
     "playbron.modules.auth.service",
     "playbron.modules.bookings.notify",
     "playbron.modules.bookings.router",
-    "playbron.modules.finance.router",
     "playbron.modules.platform.router",
-    "playbron.modules.pos.router",
     "playbron.modules.users.router",
 ]
 ignore_errors = true

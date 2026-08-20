@@ -14,9 +14,11 @@ Smena holatini o'qish — nomlangan GUC claim naqshi bilan
 (`docs/07-patterns.md` §2): trigger chaqiruvchining RLS konteksti ostida
 yuradi, `shifts` esa FORCE ostida. Oddiy SELECT ko'rinmagan qatorda NULL
 qaytarib qo'riqchini JIMGINA o'chirib qo'ygan bo'lardi (masalan STAFF
-boshqa xodimning smenasini ko'rmaydi). Claim policy'si aynan bitta
-qatorning FAQAT holatini ochadi va qiymat trigger ichida o'rnatiladi —
-tashqaridan berib bo'lmaydi.
+boshqa xodimning smenasini ko'rmaydi). Claim policy'si JORIY KLUBNING
+aynan bitta qatorini ochadi; qiymatni ilova kodi hech qayerda o'rnatmaydi
+(faqat trigger ichida, `NEW.shift_id`dan). SQL darajasida GUC'ni qo'lda
+o'rnatish mumkin, lekin bu mavjud kontekst-GUC'lar (`app.club_id` va
+boshqalar) beradigan kuchdan oshmaydi — claim ulardan qat'iy torroq.
 
 Muqobil (yopishda `expected_cash`ni `shifts`ga muzlatish) TANLANMAGAN:
 u hisobni ikki joyda saqlaydi va «hisob bitta manbadan» qoidasiga zid.
@@ -44,8 +46,12 @@ def upgrade() -> None:
                 LANGUAGE sql STABLE PARALLEL SAFE AS
             $$ SELECT NULLIF(current_setting('app.shift_guard_claim', true), '')::bigint $$;
 
+            -- Klub chegarasi — soxta claim begona klubga butunlay yopiq;
+            -- trigger yo'lida bu doim o'tadi, chunki payments/expenses
+            -- WITH CHECK'lari club_id = app_club_id() ni allaqachon majburlaydi.
+            -- Cross-club shift_id esa SHIFT_NOT_FOUND bilan yiqiladi.
             CREATE POLICY shifts_guard_read ON shifts FOR SELECT
-                USING (id = app_shift_guard_claim());
+                USING (id = app_shift_guard_claim() AND club_id = app_club_id());
 
             CREATE OR REPLACE FUNCTION reject_write_to_closed_shift() RETURNS trigger
                 LANGUAGE plpgsql
@@ -59,7 +65,17 @@ def upgrade() -> None:
                 END IF;
 
                 PERFORM set_config('app.shift_guard_claim', NEW.shift_id::text, true);
-                SELECT status INTO shift_status FROM shifts WHERE id = NEW.shift_id;
+                -- club_id mosligi: FK faqat shifts(id)ga — usiz boshqa klub
+                -- smenasiga bog'lash DB darajasida o'tib ketardi.
+                -- FOR SHARE ATAYLAB YO'Q: qator qulfi SELECT policy'dan
+                -- tashqari UPDATE policy'dan ham o'tishni talab qiladi
+                -- (Postgres qoidasi), claim esa ataylab faqat FOR SELECT —
+                -- qulf claim yo'lini sindiradi (render-shape'da isbotlangan).
+                -- Qolgan poyga oynasi (tekshiruv bilan commit orasida smena
+                -- yopilishi) mikroskopik va variance har o'qishda qayta
+                -- hisoblanadi — yozuv yo'qolmaydi, faqat farq ko'rinadi.
+                SELECT status INTO shift_status FROM shifts
+                    WHERE id = NEW.shift_id AND club_id = NEW.club_id;
                 PERFORM set_config('app.shift_guard_claim', '', true);
 
                 IF shift_status IS NULL THEN
@@ -79,6 +95,16 @@ def upgrade() -> None:
             CREATE TRIGGER expenses_closed_shift_guard
                 BEFORE INSERT ON expenses
                 FOR EACH ROW EXECUTE FUNCTION reject_write_to_closed_shift();
+
+            -- `_expected_cash()` movements'ni ham qo'shadi — qo'riqchisiz
+            -- yopiq smenaga kirim/chiqim ham farqni retroaktiv o'zgartirardi
+            CREATE TRIGGER shift_cash_movements_closed_shift_guard
+                BEFORE INSERT ON shift_cash_movements
+                FOR EACH ROW EXECUTE FUNCTION reject_write_to_closed_shift();
+
+            -- Harakat yozuvi o'zgarmas (§Pul: bekor qilish — teskari yozuv
+            -- bilan). Ilova UPDATE ishlatmaydi — ochiq qolgan GRANT olinadi.
+            REVOKE UPDATE ON shift_cash_movements FROM playbron_app;
             """
         )
     )
@@ -256,6 +282,28 @@ def _self_test() -> None:
             raise RuntimeError(
                 "closed_shift_guard: ko'rinmas yopiq smenaga to'lov o'tib ketdi (claim ishlamadi)"
             )
+
+        # 5. Yopiq smenaga kirim/chiqim harakati ham SHIFT_CLOSED —
+        #    `_expected_cash()` movements'ni ham qo'shadi
+        savepoint = conn.begin_nested()
+        try:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO shift_cash_movements"
+                    " (club_id, shift_id, kind, amount, reason, created_by)"
+                    " VALUES (:c, :s, 'IN', 1000, 'probe', :u)"
+                ),
+                {"c": club_id, "s": closed_shift, "u": staff_id},
+            )
+        except sa.exc.DBAPIError as exc:
+            savepoint.rollback()
+            if "SHIFT_CLOSED" not in str(exc.orig):
+                raise RuntimeError(
+                    f"closed_shift_guard: movements'da kutilgan SHIFT_CLOSED emas — {exc.orig}"
+                ) from exc
+        else:
+            savepoint.commit()
+            raise RuntimeError("closed_shift_guard: yopiq smenaga harakat o'tib ketdi")
 
         conn.execute(sa.text("SELECT set_config('app.user_id', '0', true)"))
         conn.execute(sa.text("SELECT set_config('app.club_id', '0', true)"))

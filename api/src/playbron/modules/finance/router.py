@@ -87,7 +87,7 @@ async def create_expense(
     row = await service.create_expense(
         session,
         club_id=club_id,
-        created_by=context.current().user_id,
+        created_by=int(context.current().user_id or 0),
         spent_on=body.spent_on,
         category=body.category,
         amount=body.amount,
@@ -182,7 +182,7 @@ async def current_shift(
 ) -> ShiftOut | None:
     _assert_path_matches_header(club_id)
     row = await shifts.get_current_shift(
-        session, club_id=club_id, staff_id=context.current().user_id
+        session, club_id=club_id, staff_id=int(context.current().user_id or 0)
     )
     return ShiftOut(**row) if row is not None else None
 
@@ -217,7 +217,7 @@ async def open_shift(
     row = await shifts.open_shift(
         session,
         club_id=club_id,
-        staff_id=context.current().user_id,
+        staff_id=int(context.current().user_id or 0),
         opening_cash=body.opening_cash,
     )
     return ShiftOut(**row)
@@ -243,7 +243,7 @@ async def add_shift_movement(
         kind=body.kind,
         amount=body.amount,
         reason=body.reason,
-        created_by=context.current().user_id,
+        created_by=int(context.current().user_id or 0),
     )
     return ShiftOut(**row)
 
@@ -265,7 +265,7 @@ async def close_shift(
         club_id=club_id,
         shift_id=shift_id,
         counted_cash=body.counted_cash,
-        closed_by=context.current().user_id,
+        closed_by=int(context.current().user_id or 0),
     )
     return ShiftOut(**row)
 

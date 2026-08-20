@@ -744,6 +744,23 @@ async def close_bill(
         },
     )
 
+    # Nomlangan farq (chegirma/qarz/choychaqa) audit izida ham qolsin —
+    # `payment_recorded` faqat olingan summani yozadi, `paid_amount = 0`
+    # (to'liq chegirma yoki qarz) holatida esa u umuman yozilmaydi.
+    await log_action(
+        action="bill_closed",
+        target=f"booking:{booking_id}",
+        club_id=club_id,
+        after={
+            "total": total,
+            "paid_amount": paid_amount,
+            "discount_amount": settlement.discount_amount,
+            "debt_amount": settlement.debt_amount,
+            "tip_amount": settlement.tip_amount,
+            "method": payment_method,
+        },
+    )
+
     # `get_bill()` ISHLATILMAYDI — u `_load_open_booking()` orqali "hali
     # ochiqmi" deb tekshiradi; biz esa HOZIRGINA yopdik, o'ziga qarshi
     # BILL_ALREADY_CLOSED qaytarardi.

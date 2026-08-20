@@ -90,6 +90,15 @@ def test_overpayment_without_reason_is_rejected() -> None:
     assert err.value.status_code == 422
 
 
+def test_overpayment_with_unknown_reason_is_rejected() -> None:
+    # Sabab ro'yxatdan tashqarida — faqat TIP qabul qilinadi
+    with pytest.raises(AppError) as err:
+        settle_bill(
+            total=95_000, paid_amount=100_000, shortfall_reason=None, overpay_reason="DISCOUNT"
+        )
+    assert err.value.code == "OVERPAY_REASON_REQUIRED"
+
+
 def test_negative_paid_amount_is_rejected() -> None:
     with pytest.raises(AppError) as err:
         settle_bill(total=10_000, paid_amount=-1, shortfall_reason=None, overpay_reason=None)

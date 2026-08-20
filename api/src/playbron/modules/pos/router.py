@@ -228,7 +228,7 @@ async def create_order(
     row = await service.create_order(
         session,
         club_id=club_id,
-        created_by=context.current().user_id,
+        created_by=int(context.current().user_id or 0),
         booking_id=body.booking_id,
         items=[item.model_dump() for item in body.items],
         payment_method=body.payment_method,
@@ -320,7 +320,7 @@ async def close_bill(
         session,
         club_id=club_id,
         booking_id=booking_id,
-        closed_by=context.current().user_id,
+        closed_by=int(context.current().user_id or 0),
         payment_method=body.payment_method,
         paid_amount=body.paid_amount,
         shortfall_reason=body.shortfall_reason,

@@ -297,6 +297,7 @@ python api/scripts/check_render_shape.py
 | 42 | Kassa: chekni OCR bilan solishtirish (bepul) | boshlanmagan |
 | 55 | Auditdan qolgan MEDIUM/LOW topilmalar | ro'yxat vazifada |
 | 56 | Prod audit: Sentry, log formati, konteyner root, pinning | deploy'ni to'xtatmaydi |
+| 57 | Yopiq smena qo'riqchisi (`0034`) faqat INSERT'da; `expenses` UPDATE yo'li (amount/status/shift_id) DB darajasida ochiq, hozircha ilova qatlami ushlaydi (`update_expense`). `BEFORE UPDATE` trigger o'ylab ko'rilsin | pul-review topilmasi, 2026-08-20 |
 
 ---
 

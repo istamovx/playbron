@@ -139,12 +139,25 @@ def install(app: FastAPI) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 content=_body("RELATED_RECORD_MISSING", "Bog'liq yozuv topilmadi"),
             )
-        # Yopilgan smenaga pul yozuvi — `0034` trigger qo'riqchisi
-        # (CLAUDE.md §Pul: yopilgan smena hisobiga ta'sir qiluvchi yozuv
-        # keyin o'zgartirilmaydi).
-        if sqlstate == PG_RAISED_EXCEPTION and "SHIFT_CLOSED" in str(exc):
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=_body("SHIFT_CLOSED", "Smena yopilgan — unga yozib bo'lmaydi"),
-            )
+        # `0034` trigger qo'riqchisi. Moslash `str(exc)` EMAS, `str(exc.orig)`
+        # ustida: DBAPIError matni SQL va bog'langan PARAMETRLARNI ham o'z
+        # ichiga oladi — `note` maydonida "SHIFT_CLOSED" yozilgan qator boshqa
+        # P0001 bilan yiqilsa yolg'on moslik chiqardi.
+        if sqlstate == PG_RAISED_EXCEPTION:
+            origin = str(getattr(exc, "orig", ""))
+            # Yopilgan smenaga pul yozuvi (CLAUDE.md §Pul: yopilgan smena
+            # hisobiga ta'sir qiluvchi yozuv keyin o'zgartirilmaydi)
+            if "SHIFT_CLOSED" in origin:
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content=_body("SHIFT_CLOSED", "Smena yopilgan — unga yozib bo'lmaydi"),
+                )
+            # Smena umuman topilmadi — 0034'dan oldin bu holat FK (23503)
+            # bilan 409 RELATED_RECORD_MISSING edi; trigger FK'dan oldin
+            # ishlagani uchun xuddi shu shartnoma saqlanadi
+            if "SHIFT_NOT_FOUND" in origin:
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content=_body("RELATED_RECORD_MISSING", "Bog'liq yozuv topilmadi"),
+                )
         raise exc
