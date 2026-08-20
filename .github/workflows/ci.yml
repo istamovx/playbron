@@ -82,6 +82,12 @@ jobs:
       - run: ruff check src tests migrations
         working-directory: api
 
+      # Baseline'dagi 27 eski xato `pyproject.toml` `[[tool.mypy.overrides]]`
+      # bilan chiqarilgan — YANGI modul u ro'yxatga qo'shilmaydi
+      # (CLAUDE.md §"Ma'lum texnik qarz").
+      - run: mypy src/
+        working-directory: api
+
       # `playbron_app`/`playbron_platform` rollari shu qadamda tug'iladi —
       # undan oldin `DATABASE_URL` bilan ulanib bo'lmaydi.
       - run: alembic upgrade head

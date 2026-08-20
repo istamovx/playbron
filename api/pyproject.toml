@@ -66,6 +66,27 @@ python_version = "3.12"
 strict = true
 plugins = []
 
+# Baseline — CI'ga mypy qo'shilgan paytdagi 27 eski xato (asosan
+# `int | None` → `int`) yashaydigan modullar. Qoida: YANGI modul bu
+# ro'yxatga QO'SHILMAYDI; ro'yxatdagi modul tozalansa bandi o'chiriladi.
+# Ro'yxat modul darajasida — bu modullarda YANGI xato ham ko'rinmaydi,
+# shuning uchun ularga tegadigan o'zgarishda lokal `mypy` alohida yuritiladi.
+[[tool.mypy.overrides]]
+module = [
+    "playbron.core.config",
+    "playbron.deps",
+    "playbron.models",
+    "playbron.modules.auth.router",
+    "playbron.modules.auth.service",
+    "playbron.modules.bookings.notify",
+    "playbron.modules.bookings.router",
+    "playbron.modules.finance.router",
+    "playbron.modules.platform.router",
+    "playbron.modules.pos.router",
+    "playbron.modules.users.router",
+]
+ignore_errors = true
+
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
