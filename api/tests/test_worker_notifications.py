@@ -142,6 +142,52 @@ async def test_send_pending_marks_sent(
 
 
 @skip_no_db
+async def test_template_error_is_recorded_not_retried_forever(
+    club: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Buzuq payload — ValueError yo'li: xato yozuvga tushadi, eskalatsiya
+    ishlaydi. Aynan shu yo'l shablon/payload nomuvofiqligini (daily_summary
+    bug'i) ko'rinadigan qiladi."""
+    calls: list[str] = []
+
+    async def fake_call(token: str, method: str, payload: dict[str, Any]) -> dict[str, Any]:
+        calls.append(method)
+        return {"ok": True}
+
+    monkeypatch.setattr(telegram_api, "call", fake_call)
+
+    # payload'da 'station'/'starts_at' yo'q — render ValueError beradi
+    async with AppSession() as session:
+        async with session.begin():
+            await queue_notification(
+                session,
+                club_id=club["club"],
+                recipient_kind="CUSTOMER",
+                chat_id=CHAT,
+                template="booking_reminder_2h",
+                entity_id=77,
+                payload={"club": "Faqat klub"},
+            )
+
+    for expected_attempts in (1, 2, 3):
+        await send_pending({})
+        status, attempts = (await _status(club["club"]))[0]
+        assert attempts == expected_attempts
+        assert status == ("ERROR" if expected_attempts == 3 else "PENDING")
+
+    assert calls == []  # telegram'ga umuman chiqilmadi — xato renderda
+
+    async with AppSession() as session:
+        async with session.begin():
+            await mark_job_writer(session)
+            err = await session.scalar(
+                text("SELECT error FROM notifications WHERE club_id = :c"),
+                {"c": club["club"]},
+            )
+    assert err is not None and "payload" in err
+
+
+@skip_no_db
 async def test_failed_send_escalates_to_error(
     club: dict[str, int], monkeypatch: pytest.MonkeyPatch
 ) -> None:

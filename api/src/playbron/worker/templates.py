@@ -20,7 +20,7 @@ TEMPLATES: dict[str, str] = {
         "📊 {club} — {date} kuni:\n"
         "Tushum (olingan): {received_revenue} so'm\n"
         "Sessiyalar: {sessions} ta\n"
-        "Naqd smenalar farqi: {variance_total} so'm"
+        "Bandlik: {occupancy}%"
     ),
     "shift_variance": (
         "⚠️ {club}: smena yopildi, kassa farqi {variance} so'm"

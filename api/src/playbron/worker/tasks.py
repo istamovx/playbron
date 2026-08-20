@@ -16,7 +16,13 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.worker.base import club_scope, journal_finish, journal_start, run_per_club
+from playbron.worker.base import (
+    club_scope,
+    ensure_club_context,
+    journal_finish,
+    journal_start,
+    run_per_club,
+)
 from playbron.worker.notify import queue_notification
 from playbron.worker.schedule import (
     date_key,
@@ -45,7 +51,14 @@ async def expire_unpaid_bookings(ctx: dict[str, Any]) -> dict[str, int]:
     `cancelled_by = NULL` — aktyor yo'q, tizim bekor qildi.
     """
 
-    async def handler(session: AsyncSession, club: dict[str, Any]) -> int:
+    async def handler(
+        session: AsyncSession, club: dict[str, Any]
+    ) -> tuple[int, dict[str, Any] | None]:
+        await ensure_club_context(session)
+        # `prepaid_amount = 0` to'sig'i: bugun PENDING'da pul bo'lmaydi
+        # (payments faqat settle'da yoziladi), lekin ustun rejada bor —
+        # oldindan to'lov kelgan kuni to'langan bronni REFUND'siz bekor
+        # qilib yubormaslik uchun (pul-review topilmasi).
         rows = (
             await session.execute(
                 text(
@@ -53,12 +66,15 @@ async def expire_unpaid_bookings(ctx: dict[str, Any]) -> dict[str, int]:
                     " cancel_reason = 'PAYMENT_WINDOW_EXPIRED'"
                     " WHERE club_id = :club AND status = 'PENDING'"
                     "   AND created_at < now() - make_interval(mins => :window)"
+                    "   AND prepaid_amount = 0"
                     " RETURNING id"
                 ),
                 {"club": club["id"], "window": PAYMENT_WINDOW_MIN},
             )
         ).all()
-        return len(rows)
+        cancelled = [int(r.id) for r in rows]
+        # Iz jurnalda: tizim qaysi bronlarni bekor qilgani auditsiz qolmasin
+        return len(cancelled), ({"cancelled_ids": cancelled} if cancelled else None)
 
     return await run_per_club("expire_unpaid_bookings", handler)
 
@@ -71,6 +87,7 @@ async def booking_reminders(ctx: dict[str, Any]) -> dict[str, int]:
     """
 
     async def handler(session: AsyncSession, club: dict[str, Any]) -> int:
+        await ensure_club_context(session)
         now = _now()
         rows = (
             await session.execute(
@@ -124,6 +141,7 @@ async def daily_summary(ctx: dict[str, Any]) -> dict[str, int]:
     """
 
     async def handler(session: AsyncSession, club: dict[str, Any]) -> int:
+        await ensure_club_context(session)
         day = summary_date(_now(), club["timezone"])
         if day is None:
             return 0
@@ -152,11 +170,12 @@ async def daily_summary(ctx: dict[str, Any]) -> dict[str, int]:
             )
             or 0
         )
+        # Faqat CONFIRMED — to'lanmagan PENDING bandlikni shishirmasin
         booked_hours = int(
             await session.scalar(
                 text(
                     "SELECT COALESCE(SUM(hours), 0) FROM bookings WHERE club_id = :club"
-                    "   AND status <> 'CANCELLED'"
+                    "   AND status = 'CONFIRMED'"
                     "   AND lower(period) >= :s AND lower(period) < :e"
                 ),
                 params,
@@ -173,7 +192,15 @@ async def daily_summary(ctx: dict[str, Any]) -> dict[str, int]:
             )
             or 0
         )
-        occupancy = min(100, round(booked_hours * 100 / (stations * 24))) if stations else 0
+        # Maxraj — klubning ISH soatlari (24 emas). Yarim tundan oshib
+        # ishlaydigan klub (masalan 10:00-02:00): closes < opens — o'rab olamiz
+        open_minutes = int(club["closes_at_min"]) - int(club["opens_at_min"])
+        if open_minutes <= 0:
+            open_minutes += 24 * 60
+        open_hours = max(1, open_minutes // 60)
+        occupancy = (
+            min(100, round(booked_hours * 100 / (stations * open_hours))) if stations else 0
+        )
 
         chats = (
             await session.execute(
@@ -216,6 +243,7 @@ async def notify_shift_variance(
     job_id = await journal_start("shift_variance_alert", club_id=club_id)
     try:
         async with club_scope(club_id) as session:
+            await ensure_club_context(session)
             chats = (
                 await session.execute(
                     text("SELECT chat_id FROM owner_notify_targets(:club)"), {"club": club_id}

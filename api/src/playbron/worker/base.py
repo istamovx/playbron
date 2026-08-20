@@ -10,6 +10,7 @@ emas, worker'ning texnik yozuvlari — ularga kirish klub policy'si bilan
 emas, `app.job_writer` claim'i bilan ochiladi (`0035`).
 """
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,20 +26,19 @@ log = logging.getLogger("playbron.worker")
 
 
 @asynccontextmanager
-async def club_scope(club_id: int, *, role: str = "ADMIN") -> AsyncIterator[AsyncSession]:
+async def club_scope(club_id: int) -> AsyncIterator[AsyncSession]:
     """Bitta klub uchun worker RLS konteksti ochilgan sessiya.
 
     Klublar bo'ylab aylanadigan vazifa HAR BIR klub uchun alohida chaqiradi —
     kontekst va `SET LOCAL` lar klublar orasida aralashmaydi.
 
-    `user_id = 0` — aktyor yo'q, shuning uchun rol-talab policy'lar
-    (`app_club_role()` — memberships'dan o'qiydi) worker uchun YOPIQ.
-    Kirish `app.worker` claim'i orqali: `0036` dagi tor policy'lar faqat
-    JORIY klub (`app.club_id`) qatorlarini ochadi.
+    `user_id = 0`, `roles` BO'SH — worker hech qanday rol GUC'i ko'tarmaydi:
+    `app.club_role` to'ldirilsa GUC-claim policy'lari (masalan memberships
+    yozuvi, staff provision) ochilib ketardi — worker ularga muhtoj emas
+    (rls-review topilmasi). Butun kirish `app.worker` claim'i (0036, faqat
+    joriy klub) va SECURITY DEFINER funksiyalar orqali.
     """
-    context.set_context(
-        context.RequestContext(user_id=0, club_id=club_id, roles={club_id: role})
-    )
+    context.set_context(context.RequestContext(user_id=0, club_id=club_id, roles={}))
     try:
         async with session_scope() as session:
             await session.execute(text("SELECT set_config('app.worker', 'true', true)"))
@@ -52,6 +52,25 @@ async def mark_job_writer(session: AsyncSession) -> None:
     await session.execute(text("SELECT set_config('app.job_writer', 'true', true)"))
 
 
+async def ensure_club_context(session: AsyncSession) -> None:
+    """Vazifa `club_scope`siz chaqirilsa BAQIRIB xato beradi.
+
+    Skill talabi (§7): GUC o'rnatilmagan holda vazifa 0 qator EMAS, xato
+    berishi kerak — aks holda RLS jimgina bo'sh natija qaytaradi va jurnal
+    yolg'on `done` yozadi. Har vazifa handler'ining birinchi qatori shu.
+    """
+    row = (
+        await session.execute(
+            text("SELECT app_worker() AS w, app_club_id() AS c")
+        )
+    ).one()
+    if not row.w or int(row.c or 0) == 0:
+        raise RuntimeError(
+            "Worker konteksti yo'q — vazifa club_scope'siz chaqirilgan"
+            f" (app_worker={row.w}, app_club_id={row.c})"
+        )
+
+
 async def active_clubs() -> list[dict[str, Any]]:
     """Faol klublar ro'yxati — id, nom, vaqt zonasi.
 
@@ -62,10 +81,24 @@ async def active_clubs() -> list[dict[str, Any]]:
     async with AppSession() as session:
         rows = (
             await session.execute(
-                text("SELECT id, name, timezone FROM clubs WHERE status = 'active' ORDER BY id")
+                text(
+                    "SELECT id, name, timezone,"
+                    "       COALESCE(opens_at_min, 0) AS opens_at_min,"
+                    "       COALESCE(closes_at_min, 1440) AS closes_at_min"
+                    " FROM clubs WHERE status = 'active' ORDER BY id"
+                )
             )
         ).all()
-    return [{"id": int(r.id), "name": r.name, "timezone": r.timezone} for r in rows]
+    return [
+        {
+            "id": int(r.id),
+            "name": r.name,
+            "timezone": r.timezone,
+            "opens_at_min": int(r.opens_at_min),
+            "closes_at_min": int(r.closes_at_min),
+        }
+        for r in rows
+    ]
 
 
 async def journal_start(kind: str, *, club_id: int | None = None) -> int:
@@ -82,8 +115,14 @@ async def journal_start(kind: str, *, club_id: int | None = None) -> int:
     return int(job_id or 0)
 
 
-async def journal_finish(job_id: int, *, error: str | None = None) -> None:
-    """Jurnal yozuvini yakunlaydi. Xato bo'lsa `attempts` oshadi."""
+async def journal_finish(
+    job_id: int, *, error: str | None = None, payload: dict[str, Any] | None = None
+) -> None:
+    """Jurnal yozuvini yakunlaydi. Xato bo'lsa `attempts` oshadi.
+
+    `payload` — bajarilish izi (masalan avto-bekor qilingan bron id'lari):
+    tizim qilgan pul-ta'sirli amallar auditsiz qolmasin (§Pul 11-band).
+    """
     async with AppSession() as session:
         async with session.begin():
             await mark_job_writer(session)
@@ -93,12 +132,15 @@ async def journal_finish(job_id: int, *, error: str | None = None) -> None:
             await session.execute(
                 text(
                     "UPDATE jobs SET status = :status, finished_at = now(),"
-                    " last_error = :error, attempts = attempts + :inc WHERE id = :id"
+                    " last_error = :error, attempts = attempts + :inc,"
+                    " payload = CAST(:payload AS jsonb)"
+                    " WHERE id = :id"
                 ),
                 {
                     "status": "error" if error else "done",
                     "error": error,
                     "inc": 1 if error else 0,
+                    "payload": json.dumps(payload or {}),
                     "id": job_id,
                 },
             )
@@ -115,16 +157,26 @@ async def run_per_club(kind: str, handler: Any) -> dict[str, int]:
     done = 0
     failed = 0
     for club in await active_clubs():
-        job_id = await journal_start(kind, club_id=club["id"])
+        # journal_start ham try ICHIDA — jurnal yozuvi yiqilsa (masalan FK)
+        # butun sikl emas, faqat shu klub yiqilsin
+        job_id = 0
         try:
+            job_id = await journal_start(kind, club_id=club["id"])
             async with club_scope(club["id"]) as session:
-                affected = await handler(session, club)
-            await journal_finish(job_id)
+                result = await handler(session, club)
+            # Handler `int` yoki `(int, iz-payload)` qaytarishi mumkin —
+            # iz jurnalda qoladi (masalan bekor qilingan bron id'lari)
+            if isinstance(result, tuple):
+                affected, trail = result
+            else:
+                affected, trail = result, None
+            await journal_finish(job_id, payload=trail)
             done += 1
             if affected:
                 log.info("%s: club=%s affected=%s", kind, club["id"], affected)
         except Exception as exc:  # noqa: BLE001 — bir klub xatosi siklni to'xtatmaydi
             failed += 1
             log.error("%s: club=%s yiqildi: %s", kind, club["id"], exc, exc_info=True)
-            await journal_finish(job_id, error=str(exc)[:500])
+            if job_id:
+                await journal_finish(job_id, error=str(exc)[:500])
     return {"clubs": done, "failed": failed}

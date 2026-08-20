@@ -16,7 +16,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from playbron.core import context as request_context
-from playbron.core import queue
 from playbron.core.config import settings
 from playbron.core.db import AppSession, session_scope
 from playbron.modules.finance import shifts as shifts_service
@@ -197,8 +196,8 @@ async def _notifications(world: dict[str, int]) -> list[Any]:
                 (
                     await session.execute(
                         text(
-                            "SELECT template, chat_id, entity_id, status FROM notifications"
-                            " WHERE club_id = :c ORDER BY id"
+                            "SELECT template, chat_id, entity_id, status, payload"
+                            " FROM notifications WHERE club_id = :c ORDER BY id"
                         ),
                         {"c": world["club"]},
                     )
@@ -262,10 +261,7 @@ async def test_daily_summary_goes_to_owner_once(
     assert len(rows) == 1  # dedup
 
 
-@skip_no_db
-async def test_variance_alert_enqueued_and_delivered(
-    world: dict[str, int], monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def _open_probe_shift(world: dict[str, int]) -> int:
     engine = create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
     async with engine.begin() as conn:
         async with rls_bypass(conn, "shifts"):
@@ -277,18 +273,12 @@ async def test_variance_alert_enqueued_and_delivered(
                 {"c": world["club"], "s": world["owner"]},
             )
     await engine.dispose()
+    return int(shift_id)
 
-    captured: list[tuple[str, tuple[Any, ...]]] = []
 
-    async def fake_enqueue(job: str, *args: Any, **kwargs: Any) -> bool:
-        captured.append((job, args))
-        return True
-
-    monkeypatch.setattr(queue, "enqueue", fake_enqueue)
-
-    # Kutilgan naqd 0, sanalgan 100 000 — farq limitdan katta.
-    # Yopish — API yo'li: HAQIQIY aktyor konteksti (worker claim'i emas),
-    # chunki shifts policy'lari rolni memberships'dan tekshiradi.
+async def _close_as_owner(world: dict[str, int], shift_id: int, counted: int) -> dict[str, Any]:
+    """Yopish — API yo'li: HAQIQIY aktyor konteksti (worker claim'i emas),
+    chunki shifts policy'lari rolni memberships'dan tekshiradi."""
     request_context.set_context(
         request_context.RequestContext(
             user_id=world["owner"],
@@ -298,23 +288,189 @@ async def test_variance_alert_enqueued_and_delivered(
     )
     try:
         async with session_scope() as session:
-            detail = await shifts_service.close_shift(
+            return await shifts_service.close_shift(
                 session,
                 club_id=world["club"],
-                shift_id=int(shift_id),
-                counted_cash=100_000,
+                shift_id=shift_id,
+                counted_cash=counted,
                 closed_by=world["owner"],
             )
     finally:
         request_context.reset()
+
+
+@skip_no_db
+async def test_variance_alert_built_and_delivered(world: dict[str, int]) -> None:
+    shift_id = await _open_probe_shift(world)
+
+    # Kutilgan naqd 0, sanalgan 100 000 — farq limitdan katta
+    detail = await _close_as_owner(world, shift_id, 100_000)
     assert detail["variance"] == 100_000
-    assert captured and captured[0][0] == "notify_shift_variance"
-    _, args = captured[0]
-    assert args[0] == world["club"] and args[1] == int(shift_id)
-    assert args[2]["variance"] == 100_000
+    # Servis navbatga QO'YMAYDI — payload'ni qaytaradi, router commit'dan
+    # keyin BackgroundTasks bilan navbatlaydi (pul-review: rollback'da
+    # yolg'on xabar ketmasin)
+    alert = detail["variance_alert"]
+    assert alert["variance"] == 100_000
+    assert alert["counted"] == 100_000
+    assert alert["expected"] == 0
+    assert alert["club"] == "WTasks Club"
 
     # Worker vazifasi bildirishnomani egaga navbatlaydi
-    queued = await notify_shift_variance({}, world["club"], int(shift_id), args[2])
+    queued = await notify_shift_variance({}, world["club"], shift_id, alert)
     assert queued == 1
     rows = [r for r in await _notifications(world) if r.template == "shift_variance"]
     assert len(rows) == 1 and int(rows[0].chat_id) == OWNER_CHAT
+
+    # Idempotent: ikkinchi yetkazish dedup tufayli hech narsa qo'shmaydi
+    assert await notify_shift_variance({}, world["club"], shift_id, alert) == 0
+    rows = [r for r in await _notifications(world) if r.template == "shift_variance"]
+    assert len(rows) == 1
+
+
+@skip_no_db
+async def test_small_variance_close_has_no_alert(world: dict[str, int]) -> None:
+    # Chegara: farq roppa-rosa limit (50 000) — xabar YO'Q (qat'iy >)
+    shift_id = await _open_probe_shift(world)
+    detail = await _close_as_owner(world, shift_id, 50_000)
+    assert detail["variance"] == 50_000
+    assert "variance_alert" not in detail
+
+
+@skip_no_db
+async def test_daily_summary_money_math(
+    world: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Olingan tushum REFUND'ni ayiradi; sessiya va bandlik qo'lda hisoblangan.
+
+    Bu test `payments_worker_read`/`stations_worker_read` (0036) uchun ham
+    jonli isbot — policy regressiyasi jimgina 0 bergan bo'lardi
+    (rls-review T2 tavsiyasi).
+    """
+    frozen = datetime(2026, 8, 20, 4, 30, tzinfo=UTC)  # Toshkent 09:30
+    monkeypatch.setattr(tasks, "_now", lambda: frozen)
+
+    # Kechagi (Toshkent 19-avg) kun ichida: CONFIRMED 2 soatlik bron
+    # (closed_at bilan — sessiya), uch to'lov: 100k CASH + 50k TRANSFER
+    # FINAL, 30k CASH REFUND → received = 120 000
+    day_start_utc = datetime(2026, 8, 18, 19, 0, tzinfo=UTC)
+    b_start = day_start_utc + timedelta(hours=15)
+    engine = create_async_engine(settings.direct_url.replace("+psycopg", "+asyncpg"))
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "bookings", "payments"):
+            b_id = await conn.scalar(
+                text(
+                    "INSERT INTO bookings (club_id, station_id, customer_id, source, status,"
+                    " period, hours, rate_snapshot, console_type, closed_at)"
+                    " VALUES (:c, :s, :cust, 'MINIAPP', 'CONFIRMED',"
+                    " tstzrange(:a, :b), 2, :rate, 'ps5', :closed) RETURNING id"
+                ),
+                {
+                    "c": world["club"],
+                    "s": world["station"],
+                    "cust": world["customer"],
+                    "a": b_start,
+                    "b": b_start + timedelta(hours=2),
+                    "rate": RATE,
+                    "closed": b_start + timedelta(hours=2),
+                },
+            )
+            for kind, method, amount in (
+                ("FINAL", "CASH", 100_000),
+                ("FINAL", "TRANSFER", 50_000),
+                ("REFUND", "CASH", 30_000),
+            ):
+                await conn.execute(
+                    text(
+                        "INSERT INTO payments"
+                        " (club_id, booking_id, kind, method, amount, created_by, created_at)"
+                        " VALUES (:c, :b, :k, :m, :a, :u, :at)"
+                    ),
+                    {
+                        "c": world["club"],
+                        "b": b_id,
+                        "k": kind,
+                        "m": method,
+                        "a": amount,
+                        "u": world["owner"],
+                        "at": b_start + timedelta(hours=1),
+                    },
+                )
+    await engine.dispose()
+
+    await daily_summary({})
+    rows = [r for r in await _notifications(world) if r.template == "daily_summary"]
+    assert len(rows) == 1
+    payload = rows[0].payload
+    # Qo'lda: 100 000 + 50 000 − 30 000
+    assert payload["received_revenue"] == 120_000
+    assert payload["sessions"] == 1
+    # Klub defaulti 10:00–02:00 (600..1560) = 16 ish soati.
+    # 2 soat / (1 stansiya × 16) = 12.5 → round = 12 (Python banker's)
+    assert payload["occupancy"] == 12
+
+
+@skip_no_db
+async def test_handler_without_guc_context_fails_loudly(
+    world: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Skill §7: kontekstsiz vazifa 0 qator EMAS, xato berishi kerak.
+
+    `club_scope` GUC'siz sessiya bilan almashtiriladi — har klub handler'i
+    `ensure_club_context` bilan yiqilishi va jurnal `error` yozishi shart.
+    """
+    from contextlib import asynccontextmanager
+
+    from playbron.worker import base
+
+    @asynccontextmanager
+    async def naked_scope(club_id: int) -> Any:
+        async with AppSession() as session:
+            async with session.begin():
+                yield session
+
+    monkeypatch.setattr(base, "club_scope", naked_scope)
+
+    result = await expire_unpaid_bookings({})
+    assert result["clubs"] == 0 and result["failed"] >= 1
+
+    async with AppSession() as session:
+        async with session.begin():
+            await mark_job_writer(session)
+            err = await session.scalar(
+                text(
+                    "SELECT last_error FROM jobs WHERE club_id = :c"
+                    " AND kind = 'expire_unpaid_bookings' ORDER BY id DESC LIMIT 1"
+                ),
+                {"c": world["club"]},
+            )
+    assert err is not None and "kontekst" in err.lower()
+
+
+@skip_no_db
+async def test_run_per_club_isolates_failing_club(
+    world: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bir klub xatosi boshqasini to'xtatmaydi (skill ro'yxati)."""
+    from playbron.worker import base
+
+    async def two_clubs() -> list[dict[str, Any]]:
+        return [
+            {"id": 999_999_999, "name": "Yiqiladigan", "timezone": "Asia/Tashkent",
+             "opens_at_min": 0, "closes_at_min": 1440},
+            {"id": world["club"], "name": "WTasks Club", "timezone": "Asia/Tashkent",
+             "opens_at_min": 0, "closes_at_min": 1440},
+        ]
+
+    monkeypatch.setattr(base, "active_clubs", two_clubs)
+
+    calls: list[int] = []
+
+    async def handler(session: Any, club: dict[str, Any]) -> int:
+        calls.append(club["id"])
+        return 0
+
+    # Birinchi (soxta id'li) klub jurnal FK'sida yiqiladi — handler unga
+    # yetmaydi ham; ikkinchi (haqiqiy) klub BARIBIR bajariladi
+    result = await base.run_per_club("probe_isolation", handler)
+    assert calls == [world["club"]]
+    assert result == {"clubs": 1, "failed": 1}
