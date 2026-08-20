@@ -185,7 +185,6 @@ Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
 - `apps/admin/src/mock/club.ts` — backendda ekvivalenti yo'q entity'larning soxta ma'lumoti.
 - `apps/miniapp` da i18n yo'q; landing'da `en` yo'q.
 - Ish vaqti tekshiruvi FAQAT mijoz yo'lida. Xodim yo'li ataylab cheklanmagan — kech qolgan mijozni yozish uning qarori.
-- `shifts_staff_one_open_uk` klub bo'yicha emas, global — ikki klubda ishlaydigan xodim ikkinchi smenani ocholmaydi.
 - Fon vazifalari yo'q: avto-bekor, no-show, eslatma ishlamaydi.
 - Telegram botlari jonli muhitda javob bermaydi — `docs/HOLAT.md` §2.
 - `mypy src/` 27 xato beradi (asosan `int | None` → `int`). CI'da mypy qadami YO'Q — faqat `ruff`. Yangi kod bu sonni oshirmaydi.
