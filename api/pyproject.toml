@@ -66,9 +66,10 @@ python_version = "3.12"
 strict = true
 plugins = []
 
-# Baseline — CI'ga mypy qo'shilgan paytdagi 27 eski xato (asosan
-# `int | None` → `int`) yashaydigan modullar. Qoida: YANGI modul bu
-# ro'yxatga QO'SHILMAYDI; ro'yxatdagi modul tozalansa bandi o'chiriladi.
+# Baseline — 20 eski xato (asosan `int | None` → `int`) yashaydigan
+# modullar. Qoida: YANGI modul bu ro'yxatga QO'SHILMAYDI; ro'yxatdagi
+# modul tozalansa bandi o'chiriladi (finance.router va pos.router shu
+# yo'l bilan chiqarilgan).
 # Ro'yxat modul darajasida — bu modullarda YANGI xato ham ko'rinmaydi,
 # shuning uchun ularga tegadigan o'zgarishda lokal `mypy` alohida yuritiladi.
 [[tool.mypy.overrides]]

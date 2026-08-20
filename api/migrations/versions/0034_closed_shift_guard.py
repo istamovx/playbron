@@ -40,8 +40,10 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
-            -- Claim: trigger o'qiyotgan bitta smenani ochadi. Qiymat faqat
-            -- funksiya ichida o'rnatiladi (set_config ... true = LOCAL).
+            -- Claim: trigger o'qiyotgan bitta smenani ochadi. Ilova kodi bu
+            -- GUC'ni o'rnatmaydi — faqat quyidagi trigger funksiyasi
+            -- (set_config ... true = LOCAL; SQL darajasidagi chegara haqida
+            -- migratsiya docstring'iga qarang).
             CREATE OR REPLACE FUNCTION app_shift_guard_claim() RETURNS bigint
                 LANGUAGE sql STABLE PARALLEL SAFE AS
             $$ SELECT NULLIF(current_setting('app.shift_guard_claim', true), '')::bigint $$;

@@ -187,7 +187,7 @@ Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
 - Ish vaqti tekshiruvi FAQAT mijoz yo'lida. Xodim yo'li ataylab cheklanmagan — kech qolgan mijozni yozish uning qarori.
 - Fon vazifalari yo'q: avto-bekor, no-show, eslatma ishlamaydi.
 - Telegram botlari jonli muhitda javob bermaydi — `docs/HOLAT.md` §2.
-- `mypy src/` CI'da yuritiladi; 27 eski xato (asosan `int | None` → `int`) yashaydigan 11 modul `pyproject.toml` `[[tool.mypy.overrides]]` baseline'ida `ignore_errors` bilan turibdi. Yangi modul baseline'ga qo'shilmaydi; baseline moduliga tegilganda lokal `mypy` alohida yuritiladi.
+- `mypy src/` CI'da yuritiladi; 20 eski xato (asosan `int | None` → `int`) yashaydigan 9 modul `pyproject.toml` `[[tool.mypy.overrides]]` baseline'ida `ignore_errors` bilan turibdi (pul routerlari — `finance.router`, `pos.router` — tozalanib chiqarilgan). Yangi modul baseline'ga qo'shilmaydi; baseline moduliga tegilganda lokal `mypy` alohida yuritiladi.
 
 ## Scope
 
