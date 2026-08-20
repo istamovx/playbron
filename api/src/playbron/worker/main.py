@@ -11,11 +11,15 @@ ko'tariladi — konteyner sog'lig'ini tekshirish uchun.
 import logging
 from typing import Any
 
+from arq import cron
 from arq.connections import RedisSettings
 
 from playbron.core.config import settings
+from playbron.worker.notify import send_pending
 
 log = logging.getLogger("playbron.worker")
+
+EVERY_MINUTE = set(range(60))
 
 
 async def ping(ctx: dict[str, Any]) -> str:
@@ -38,8 +42,11 @@ class WorkerSettings:
     """arq konfiguratsiyasi — vazifalar va cron jadval shu yerda ro'yxatlanadi."""
 
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
-    functions: "list[Any]" = [ping]
-    cron_jobs: "list[Any]" = []
+    functions: "list[Any]" = [ping, send_pending]
+    cron_jobs: "list[Any]" = [
+        # Navbatdagi bildirishnomalar har daqiqada yuboriladi
+        cron(send_pending, minute=EVERY_MINUTE, run_at_startup=True),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     # Vazifa yiqilsa arq qayta uradi; jurnal (`jobs.attempts`) buni alohida yozadi
