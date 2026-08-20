@@ -259,6 +259,34 @@ async def platform_logs(
     return [PlatformLogOut(**row) for row in rows]
 
 
+class JobRunOut(BaseModel):
+    """Fon vazifasining bitta bajarilishi (`jobs` jurnali)."""
+
+    id: int
+    kind: str
+    club_id: int | None
+    club_name: str | None
+    status: str
+    run_at: str
+    finished_at: str | None
+    attempts: int
+    last_error: str | None
+
+
+@router.get("/jobs", response_model=list[JobRunOut])
+async def platform_jobs(
+    session: Annotated[AsyncSession, Depends(platform_db)],
+    limit: int = 50,
+) -> list[JobRunOut]:
+    """Fon vazifalarining oxirgi bajarilishlari — worker sog'lig'i (B4).
+
+    Vazifa yiqilsa `last_error` shu yerda ko'rinadi; worker umuman
+    ishlamayotgani ro'yxatning bo'shligidan bilinadi.
+    """
+    rows = await service.list_job_runs(session, limit=max(1, min(limit, 200)))
+    return [JobRunOut(**row) for row in rows]
+
+
 class BotStatusOut(BaseModel):
     """Bitta botning holati. TOKEN HECH QACHON QAYTARILMAYDI."""
 

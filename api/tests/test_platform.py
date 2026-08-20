@@ -212,6 +212,37 @@ async def test_regular_owner_gets_404(client: httpx.AsyncClient, world: dict[str
 
 
 @skip_no_db
+async def test_platform_jobs_lists_worker_runs(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """B4: superadmin fon vazifalari jurnalini ko'radi, oddiy ega — 404.
+
+    Yozuv worker'ning o'z yo'li (`journal_start/finish`) bilan kiritiladi —
+    endpoint aynan jonli oqim yozganini ko'rsatishi tekshiriladi. Qator
+    fixture teardown'ida org kaskadi bilan o'chadi (jobs.club_id CASCADE).
+    """
+    from playbron.worker.base import journal_finish, journal_start
+
+    job_id = await journal_start("probe_job", club_id=world["club_a"])
+    await journal_finish(job_id, error="sinov xatosi")
+
+    sa_h = await _login(client, SA_LOGIN)
+    r = await client.get("/api/v1/platform/jobs", headers=sa_h)
+    assert r.status_code == 200, r.text
+    mine = next(row for row in r.json() if row["id"] == job_id)
+    assert mine["kind"] == "probe_job"
+    assert mine["status"] == "error"
+    assert mine["attempts"] == 1
+    assert mine["last_error"] == "sinov xatosi"
+    assert mine["club_name"] == "Platform Club A"
+    assert mine["finished_at"] is not None
+
+    owner_h = await _login(client, OWNER_A_LOGIN)
+    r = await client.get("/api/v1/platform/jobs", headers=owner_h)
+    assert r.status_code == 404, r.text
+
+
+@skip_no_db
 async def test_super_admin_sees_cross_tenant_stats(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

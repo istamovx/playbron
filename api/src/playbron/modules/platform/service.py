@@ -555,3 +555,36 @@ async def list_platform_logs(session: AsyncSession, *, limit: int) -> list[dict[
         }
         for row in rows
     ]
+
+
+async def list_job_runs(session: AsyncSession, *, limit: int) -> list[dict[str, Any]]:
+    """Fon vazifalarining oxirgi bajarilishlari (`jobs`, 0035 — B4).
+
+    O'qish `jobs_platform_read` policy'si (`app_platform()`) orqali —
+    worker claim'i platforma sessiyasida yo'q va kerak emas.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT j.id, j.kind, j.club_id, c.name AS club_name, j.status,"
+                "       j.run_at, j.finished_at, j.attempts, j.last_error"
+                " FROM jobs j LEFT JOIN clubs c ON c.id = j.club_id"
+                " ORDER BY j.run_at DESC, j.id DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return [
+        {
+            "id": int(row.id),
+            "kind": row.kind,
+            "club_id": int(row.club_id) if row.club_id is not None else None,
+            "club_name": row.club_name,
+            "status": row.status,
+            "run_at": row.run_at.isoformat(),
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+            "attempts": int(row.attempts),
+            "last_error": row.last_error,
+        }
+        for row in rows
+    ]
