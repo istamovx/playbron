@@ -194,6 +194,11 @@ ishlaydi va yiqilsa deploy to'xtaydi.
   → bo'sh ro'yxat (xato emas). GRANT yo'q → `permission denied`.
 - `app_club_role()` ni `memberships` policy'lari ichida chaqirmang —
   rekursiya. `app.club_role` GUC ishlatiladi.
+- `app_club_role()` rolni GUC'dan EMAS, `memberships`dan o'qiydi —
+  sun'iy kontekst (`user_id=0`, fon vazifasi) uchun u HAR DOIM NULL va
+  rol-talab policy'lar jimgina 0 qator qaytaradi. Worker uchun `0036`
+  dagi `app.worker` claim yo'llari bor; yangi fon o'qishi qo'shilsa —
+  o'sha migratsiya naqshida policy qo'shiladi.
 - Test fixture'lari `_owner_engine()` bilan xom yozadi — GUC'siz.
   `conftest.py::rls_bypass()` shuning uchun bor.
 
@@ -284,6 +289,24 @@ python api/scripts/check_render_shape.py
 `backup/install.sh`.
 
 ---
+
+## 5a. Fon vazifalari (B-bosqich, 2026-08-20)
+
+Runner — **arq** (`worker/` moduli, compose'da `worker` servisi). Render
+bepul rejasida worker YO'Q — vazifalar lokal va Hetzner'da ishlaydi.
+Kirish: `app.worker` claim'i (0036) — rol-talab policy'lar worker'ning
+`user_id=0` konteksti uchun yopiq, chunki `app_club_role()` rolni
+memberships'dan o'qiydi (qimmat saboq: §4.1 ga qo'shildi).
+
+| Vazifa | Tayangan jadval/ustun | Holat |
+|---|---|---|
+| `send_pending` | `notifications` (0035) | ishlaydi, har daqiqa |
+| `expire_unpaid_bookings` | `bookings.status/created_at`; oynasi hozircha konstanta (10 daq) | ishlaydi; C'da `club_settings.payment_window_min` |
+| `booking_reminders` | `bookings.period`, `users.telegram_id` | ishlaydi (2 soat / 20 daq) |
+| `daily_summary` | `payments`, `bookings`, `stations`, `owner_notify_targets()` | ishlaydi, klub vaqti 09 |
+| `shift_variance_alert` | `close_shift` → navbat; limit konstanta (50 000) | ishlaydi; C'da `club_settings.variance_limit` |
+| `mark_no_show` | `CHECKED_IN` holati | **D'GA BLOKLANGAN** (skelet bor, ro'yxatda yo'q) |
+| `low_stock_alert` | `products.min_stock` | **C'GA BLOKLANGAN** (skelet bor, ro'yxatda yo'q) |
 
 ## 6. Ochiq ishlar
 

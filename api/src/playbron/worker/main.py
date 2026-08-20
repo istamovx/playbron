@@ -16,10 +16,17 @@ from arq.connections import RedisSettings
 
 from playbron.core.config import settings
 from playbron.worker.notify import send_pending
+from playbron.worker.tasks import (
+    booking_reminders,
+    daily_summary,
+    expire_unpaid_bookings,
+    notify_shift_variance,
+)
 
 log = logging.getLogger("playbron.worker")
 
 EVERY_MINUTE = set(range(60))
+QUARTER_HOURS = {0, 15, 30, 45}
 
 
 async def ping(ctx: dict[str, Any]) -> str:
@@ -42,10 +49,15 @@ class WorkerSettings:
     """arq konfiguratsiyasi — vazifalar va cron jadval shu yerda ro'yxatlanadi."""
 
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
-    functions: "list[Any]" = [ping, send_pending]
+    functions: "list[Any]" = [ping, send_pending, notify_shift_variance]
     cron_jobs: "list[Any]" = [
         # Navbatdagi bildirishnomalar har daqiqada yuboriladi
         cron(send_pending, minute=EVERY_MINUTE, run_at_startup=True),
+        cron(expire_unpaid_bookings, minute=EVERY_MINUTE),
+        cron(booking_reminders, minute=EVERY_MINUTE),
+        # Har chorak soat — klub o'z vaqti bilan 09 ga kirsa yuboradi,
+        # takrorni dedup to'xtatadi
+        cron(daily_summary, minute=QUARTER_HOURS),
     ]
     on_startup = startup
     on_shutdown = shutdown

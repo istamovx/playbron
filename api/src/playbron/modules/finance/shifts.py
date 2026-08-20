@@ -19,11 +19,16 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from playbron.core import queue
 from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.modules.finance import cash as cash_calc
 
 REASON_MAX = 300
+
+# Farq shundan oshsa egaga darhol xabar ketadi (worker orqali).
+# C-bosqichda `club_settings.variance_limit` ga ko'chadi.
+VARIANCE_ALERT_LIMIT = 50_000
 
 
 async def open_shift_id(session: AsyncSession, *, club_id: int, staff_id: int) -> int | None:
@@ -325,5 +330,29 @@ async def close_shift(
         club_id=club_id,
         after={"counted_cash": counted_cash, "variance": detail["variance"]},
     )
+
+    # Katta farq — egaga darhol xabar (B3). Navbat best-effort: yiqilsa
+    # smena yopilishi baribir muvaffaqiyatli. Payload shu yerda yig'iladi —
+    # worker kontekstida xodim ismini o'qib bo'lmasligi mumkin (RLS).
+    variance = detail["variance"]
+    if variance is not None and abs(int(variance)) > VARIANCE_ALERT_LIMIT:
+        staff_name = await session.scalar(
+            text("SELECT first_name FROM users WHERE id = :id"), {"id": shift.staff_id}
+        )
+        club_name = await session.scalar(
+            text("SELECT name FROM clubs WHERE id = :id"), {"id": club_id}
+        )
+        await queue.enqueue(
+            "notify_shift_variance",
+            club_id,
+            shift_id,
+            {
+                "club": club_name or str(club_id),
+                "variance": int(variance),
+                "expected": detail["expected_cash"],
+                "counted": counted_cash,
+                "staff": staff_name or f"#{shift.staff_id}",
+            },
+        )
 
     return detail

@@ -26,17 +26,22 @@ log = logging.getLogger("playbron.worker")
 
 @asynccontextmanager
 async def club_scope(club_id: int, *, role: str = "ADMIN") -> AsyncIterator[AsyncSession]:
-    """Bitta klub uchun RLS konteksti ochilgan sessiya.
+    """Bitta klub uchun worker RLS konteksti ochilgan sessiya.
 
     Klublar bo'ylab aylanadigan vazifa HAR BIR klub uchun alohida chaqiradi —
-    kontekst va `SET LOCAL` lar klublar orasida aralashmaydi. `user_id = 0`:
-    fon vazifasining "aktyori" yo'q, policy'lar rol orqali o'tadi.
+    kontekst va `SET LOCAL` lar klublar orasida aralashmaydi.
+
+    `user_id = 0` — aktyor yo'q, shuning uchun rol-talab policy'lar
+    (`app_club_role()` — memberships'dan o'qiydi) worker uchun YOPIQ.
+    Kirish `app.worker` claim'i orqali: `0036` dagi tor policy'lar faqat
+    JORIY klub (`app.club_id`) qatorlarini ochadi.
     """
     context.set_context(
         context.RequestContext(user_id=0, club_id=club_id, roles={club_id: role})
     )
     try:
         async with session_scope() as session:
+            await session.execute(text("SELECT set_config('app.worker', 'true', true)"))
             yield session
     finally:
         context.reset()
@@ -82,14 +87,20 @@ async def journal_finish(job_id: int, *, error: str | None = None) -> None:
     async with AppSession() as session:
         async with session.begin():
             await mark_job_writer(session)
+            # Inkrement Python'da: `:error` parametri SQL ichida ham matn, ham
+            # `IS NULL` shartida ishlatilsa asyncpg tipini aniqlay olmaydi
+            # (AmbiguousParameterError)
             await session.execute(
                 text(
                     "UPDATE jobs SET status = :status, finished_at = now(),"
-                    " last_error = :error,"
-                    " attempts = attempts + CASE WHEN :error IS NULL THEN 0 ELSE 1 END"
-                    " WHERE id = :id"
+                    " last_error = :error, attempts = attempts + :inc WHERE id = :id"
                 ),
-                {"status": "error" if error else "done", "error": error, "id": job_id},
+                {
+                    "status": "error" if error else "done",
+                    "error": error,
+                    "inc": 1 if error else 0,
+                    "id": job_id,
+                },
             )
 
 
