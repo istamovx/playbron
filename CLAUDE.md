@@ -172,6 +172,9 @@ Shablonlar: `docs/07-patterns.md`.
 3. `packages/api-client/src/endpoints.ts` — tipli funksiya va DTO, `snake_case` → `camelCase`
 4. Uchta test (§Testlar)
 
+Bosqich briflari: `tasks/`. Sessiya boshida kerakli brifga `@` bilan
+havola qilinadi, CLAUDE.md ga ko'chirilmaydi.
+
 ## Ma'lum texnik qarz
 
 Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
