@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
+from playbron.modules.finance import cash as cash_calc
 
 REASON_MAX = 300
 
@@ -114,12 +115,13 @@ async def _expected_cash(session: AsyncSession, *, club_id: int, shift: Any) -> 
         )
     ).scalar_one()
 
-    return (
-        int(shift.opening_cash)
-        + int(movements_total)
-        + int(cash_in)
-        - int(cash_refunds)
-        - int(cash_expenses)
+    # Formula sof funksiyada (`finance/cash.py`) — DB'siz test bilan qoplangan
+    return cash_calc.expected_cash(
+        opening_cash=int(shift.opening_cash),
+        movements_total=int(movements_total),
+        cash_in=int(cash_in),
+        cash_refunds=int(cash_refunds),
+        cash_expenses=int(cash_expenses),
     )
 
 
@@ -152,7 +154,10 @@ async def _list_movements(session: AsyncSession, shift_id: int) -> list[dict[str
 async def _shift_detail(session: AsyncSession, *, club_id: int, shift: Any) -> dict[str, Any]:
     expected = await _expected_cash(session, club_id=club_id, shift=shift)
     movements = await _list_movements(session, shift.id)
-    variance = None if shift.counted_cash is None else int(shift.counted_cash) - expected
+    variance = cash_calc.cash_variance(
+        int(shift.counted_cash) if shift.counted_cash is not None else None,
+        expected,
+    )
     return {
         "id": shift.id,
         "staff_id": shift.staff_id,
