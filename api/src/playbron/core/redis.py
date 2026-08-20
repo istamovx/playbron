@@ -9,7 +9,9 @@ from playbron.core.config import settings
 
 @lru_cache
 def redis_client() -> Redis:
-    return Redis.from_url(settings.redis_url, decode_responses=True)
+    # Alohida o'zgaruvchi — yangi redis stub'larida `from_url` Any qaytaradi
+    client: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    return client
 
 
 async def ping() -> bool:

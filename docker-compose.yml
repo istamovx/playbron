@@ -59,13 +59,28 @@ services:
     # `.env` dagi manzillar HOST uchun (`localhost`). Konteyner ichida
     # `localhost` — konteynerning o'zi, shuning uchun servis nomlari bilan
     # ustidan yoziladi. `environment` `env_file` dan ustun turadi.
-    environment:
+    environment: &api-env
       DATABASE_URL: postgresql+asyncpg://playbron_app:app@postgres:5432/playbron
       DIRECT_URL: postgresql+psycopg://playbron:playbron@postgres:5432/playbron
       PLATFORM_DATABASE_URL: postgresql+asyncpg://playbron_platform:platform@postgres:5432/playbron
       REDIS_URL: redis://redis:6379/0
     ports:
       - '8000:8000'
+    volumes:
+      - ./api/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Fon vazifalari (B-bosqich). `--watch` — kod o'zgarsa qayta yuklaydi
+  # (lokal qulaylik; prod'da yo'q).
+  worker:
+    build: ./api
+    command: ['arq', 'playbron.worker.main.WorkerSettings', '--watch', '/app/src']
+    env_file: ./api/.env
+    environment: *api-env
     volumes:
       - ./api/src:/app/src
     depends_on:

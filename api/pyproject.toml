@@ -15,6 +15,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
     "redis>=5.2",
+    # Fon vazifalari (B-bosqich): alohida worker jarayoni — bir nechta API
+    # instansiyasida vazifa ikki marta bajarilmaydi. Redis allaqachon bor.
+    "arq>=0.26",
     "pyjwt>=2.10",
     # Telegram Bot API chaqiruvlari (setWebhook, sendMessage)
     "httpx>=0.28",

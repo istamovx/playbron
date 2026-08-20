@@ -64,7 +64,8 @@ async def failure_delay(scope: str, key: str, *, window_sec: int) -> float:
     redis = redis_client()
     full = f"{PREFIX}{scope}:fail:{key}"
 
-    count = await redis.incr(full)
+    # `int(...)` — yangi redis stub'lari `incr` uchun Any qaytaradi
+    count = int(await redis.incr(full))
     if count == 1:
         await redis.expire(full, window_sec)
 
