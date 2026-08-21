@@ -569,7 +569,7 @@ async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: in
             text(
                 "SELECT b.id, b.hours, b.rate_snapshot, b.play_amount, b.status, b.closed_at,"
                 "       b.customer_id, b.payment_proof_status, s.code AS station_code,"
-                "       c.name AS club_name"
+                "       c.name AS club_name, c.staff_max_discount_percent"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
                 " JOIN clubs c ON c.id = b.club_id"
@@ -655,6 +655,41 @@ async def _request_payment_proof(session: AsyncSession, booking: Any) -> None:
     )
 
 
+def _assert_discount_allowed(
+    *,
+    actor_role: str | None,
+    discount_amount: int,
+    total: int,
+    limit_percent: int,
+) -> None:
+    """Xodim chegirmasi klub chegarasidan oshmasin (`0035_discount_policy`).
+
+    Rol auditi topilmasi (2026-08-18): `STAFF` roli `paid_amount = 0` +
+    `DISCOUNT` bilan istalgan hisobni to'liq nolga yopa olardi — chegara
+    ham, tasdiq ham yo'q edi.
+
+    `OWNER`/`ADMIN` chegaradan TASHQARIDA: chegirma ularning biznes qarori.
+    Rol noma'lum bo'lsa (`None`) eng qattiq yo'l tanlanadi — xodim deb
+    hisoblanadi. Teskarisi yozilsa, klaymi buzilgan chaqiruv jimgina
+    cheklovsiz o'tib ketardi.
+
+    Sof funksiya — DB'siz test bilan qoplanadi (`CLAUDE.md` §Testlar).
+    """
+    if actor_role in ("OWNER", "ADMIN"):
+        return
+    if discount_amount <= 0:
+        return
+    # `total == 0` da har qanday chegirma 100% — foizga bo'linish emas,
+    # aniq taqqoslash kerak, aks holda nolga bo'linish chiqardi.
+    if total <= 0 or discount_amount * 100 > total * limit_percent:
+        raise AppError(
+            f"Xodim chegirmasi {limit_percent}% dan oshmasligi kerak —"
+            " kattaroq chegirmani klub egasi yoki admin beradi",
+            code="DISCOUNT_LIMIT_EXCEEDED",
+            status_code=422,
+        )
+
+
 async def close_bill(
     session: AsyncSession,
     *,
@@ -665,6 +700,7 @@ async def close_bill(
     paid_amount: int,
     shortfall_reason: str | None = None,
     overpay_reason: str | None = None,
+    actor_role: str | None = None,
 ) -> dict[str, Any]:
     """O'tkazma + botga ulangan mijoz — chek talab qilinadi (reja #37):
 
@@ -734,6 +770,12 @@ async def close_bill(
     if shortfall > 0:
         if shortfall_reason == "DISCOUNT":
             discount_amount = shortfall
+            _assert_discount_allowed(
+                actor_role=actor_role,
+                discount_amount=discount_amount,
+                total=total,
+                limit_percent=int(booking.staff_max_discount_percent),
+            )
         elif shortfall_reason == "DEBT":
             debt_amount = shortfall
         else:
@@ -772,6 +814,25 @@ async def close_bill(
             "debt": debt_amount,
             "tip": tip_amount,
             "id": booking_id,
+        },
+    )
+
+    # Hisob yopilishining O'ZI audit izini qoldiradi — `_record_payment()`
+    # ga tayanib bo'lmaydi: u `amount <= 0` da darhol qaytadi, ya'ni 100%
+    # chegirma bilan yopilgan hisob (rol auditi topilmasi, 2026-08-18)
+    # `payments` da ham, jurnalda ham UMUMAN ko'rinmasdi. Farq va uning
+    # sababi shu yerda — `CLAUDE.md` §Pul.
+    await log_action(
+        action="bill_closed",
+        target=f"booking:{booking_id}",
+        club_id=club_id,
+        after={
+            "total": total,
+            "paid_amount": paid_amount,
+            "method": payment_method,
+            "discount_amount": discount_amount,
+            "debt_amount": debt_amount,
+            "tip_amount": tip_amount,
         },
     )
 
