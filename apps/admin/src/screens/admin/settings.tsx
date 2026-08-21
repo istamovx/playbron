@@ -127,7 +127,10 @@ function AccountTab(): ReactNode {
           <FieldLadder>
             <FieldRow label="Ism" value={session.name} />
             <FieldRow label="Login" value={session.login ?? '—'} />
-            <FieldRow label="Rol" value={ROLE_LABEL[session.role]} />
+            <FieldRow
+              label="Rol"
+              value={session.isSuperAdmin ? 'Super admin' : ROLE_LABEL[session.role]}
+            />
             <FieldRow label="Klublar" value={String(session.clubs.length)} />
             <FieldRow label="Sessiya tugashiga" value={remainingText(session.expiresAt)} />
           </FieldLadder>

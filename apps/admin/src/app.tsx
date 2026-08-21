@@ -104,12 +104,11 @@ export function App(): ReactNode {
       : [item],
   );
 
-  const items: AppNavItem[] =
-    session?.role === 'SUPER_ADMIN'
-      ? NAV_SUPER_ADMIN
-      : session && session.role !== 'STAFF'
-        ? adminItems
-        : NAV_STAFF;
+  const items: AppNavItem[] = session?.isSuperAdmin
+    ? NAV_SUPER_ADMIN
+    : session && session.role !== 'STAFF'
+      ? adminItems
+      : NAV_STAFF;
 
   // Manba — URL. Noma'lum yoki rolga tegishli bo'lmagan manzil bo'lsa rolning
   // birinchi bo'limi ochiladi (route guard shu yerda).
