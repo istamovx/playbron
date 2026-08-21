@@ -187,12 +187,18 @@ export function PosScreen(): ReactNode {
         return;
       }
 
-      const result = await closeBill(api, clubId, selected.id, {
-        paymentMethod: payment,
-        paidAmount: paid,
-        shortfallReason: shortfall > 0 && shortfallReason !== null ? shortfallReason : undefined,
-        overpayReason: overpay > 0 && overpayReason !== null ? overpayReason : undefined,
-      });
+      const result = await closeBill(
+        api,
+        clubId,
+        selected.id,
+        {
+          paymentMethod: payment,
+          paidAmount: paid,
+          shortfallReason: shortfall > 0 && shortfallReason !== null ? shortfallReason : undefined,
+          overpayReason: overpay > 0 && overpayReason !== null ? overpayReason : undefined,
+        },
+        crypto.randomUUID(),
+      );
       if (result.awaitingProof) {
         // O'tkazma + botga ulangan mijoz — hisob HALI OCHIQ, chek
         // kutilmoqda (reja #37). Kartochka ro'yxatidan ham chiqarilmaydi.

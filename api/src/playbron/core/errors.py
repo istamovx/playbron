@@ -81,6 +81,18 @@ class FeatureNotInPlan(Forbidden):
     code = "FEATURE_NOT_IN_PLAN"
 
 
+class IdempotencyKeyReused(Conflict):
+    """`Idempotency-Key` avval BOSHQA so'rov (boshqa body) bilan ishlatilgan.
+
+    `core/idempotency.py` bu xatoni servis `23505`ni tutgandan keyin
+    o'zi chiqaradi — `SHIFT_ALREADY_OPEN` bilan bir xil naqsh
+    (`finance/shifts.py::open_shift()`) — shuning uchun umumiy
+    `DBAPIError` sqlstate xaritasiga hech narsa qo'shilmaydi.
+    """
+
+    code = "IDEMPOTENCY_KEY_REUSED"
+
+
 def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {"code": code, "message": message}
     if details:

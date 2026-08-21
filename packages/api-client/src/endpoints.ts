@@ -868,15 +868,20 @@ export const createStaffBooking = async (
   api: ApiClient,
   clubId: number,
   body: StaffBookingIn,
+  idempotencyKey?: string,
 ): Promise<void> => {
-  await api.post(`/clubs/${clubId}/bookings/staff`, {
-    station_id: body.stationId,
-    starts_at: body.startsAt,
-    hours: body.hours,
-    guest_name: body.guestName,
-    guest_phone: body.guestPhone,
-    console_type: body.consoleType,
-  });
+  await api.post(
+    `/clubs/${clubId}/bookings/staff`,
+    {
+      station_id: body.stationId,
+      starts_at: body.startsAt,
+      hours: body.hours,
+      guest_name: body.guestName,
+      guest_phone: body.guestPhone,
+      console_type: body.consoleType,
+    },
+    { idempotencyKey },
+  );
 };
 
 // ── Xodim ro'yxati ───────────────────────────────────────────────────────
@@ -1181,12 +1186,17 @@ export const createOrder = async (
   api: ApiClient,
   clubId: number,
   body: OrderCreateIn,
+  idempotencyKey?: string,
 ): Promise<OrderDto> => {
-  const row = await api.post<Parameters<typeof fromOrderApi>[0]>(`/clubs/${clubId}/orders`, {
-    booking_id: body.bookingId,
-    payment_method: body.paymentMethod ?? null,
-    items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
-  });
+  const row = await api.post<Parameters<typeof fromOrderApi>[0]>(
+    `/clubs/${clubId}/orders`,
+    {
+      booking_id: body.bookingId,
+      payment_method: body.paymentMethod ?? null,
+      items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
+    },
+    { idempotencyKey },
+  );
   return fromOrderApi(row);
 };
 
@@ -1203,8 +1213,11 @@ export const cancelOrder = (
   api: ApiClient,
   clubId: number,
   orderId: number,
+  idempotencyKey?: string,
 ): Promise<{ status: string }> =>
-  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/cancel`);
+  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/cancel`, undefined, {
+    idempotencyKey,
+  });
 
 export interface OpenBookingDto {
   id: number;
@@ -1313,6 +1326,7 @@ export const closeBill = async (
      * OVERPAY_REASON_REQUIRED`). */
     overpayReason?: OverpayReason;
   },
+  idempotencyKey?: string,
 ): Promise<BillDto> => {
   const row = await api.post<Parameters<typeof fromBillApi>[0]>(
     `/clubs/${clubId}/bookings/${bookingId}/close`,
@@ -1322,6 +1336,7 @@ export const closeBill = async (
       shortfall_reason: body.shortfallReason ?? null,
       overpay_reason: body.overpayReason ?? null,
     },
+    { idempotencyKey },
   );
   return fromBillApi(row);
 };

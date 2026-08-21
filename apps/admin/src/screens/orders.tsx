@@ -95,7 +95,7 @@ export function OrdersScreen(): ReactNode {
     if (clubId === null) return;
     setBusy(order.id);
     try {
-      await cancelOrder(api, clubId, order.id);
+      await cancelOrder(api, clubId, order.id, crypto.randomUUID());
       toast.success('Buyurtma bekor qilindi');
       await reload();
     } catch (cause) {
@@ -308,13 +308,21 @@ function NewOrderModal({
     setSubmitting(true);
     setError(null);
     try {
-      await createOrder(api, clubId, {
-        bookingId: station?.bookingId ?? null,
-        // Faqat bronsiz sotuvda yuboriladi — server bronli buyurtmada
-        // to'lov turini QABUL QILMAYDI (`PAYMENT_METHOD_NOT_ALLOWED`).
-        paymentMethod: station ? undefined : walkinPayment,
-        items: lines.map((line) => ({ productId: (line.product as ProductDto).id, qty: line.qty })),
-      });
+      await createOrder(
+        api,
+        clubId,
+        {
+          bookingId: station?.bookingId ?? null,
+          // Faqat bronsiz sotuvda yuboriladi — server bronli buyurtmada
+          // to'lov turini QABUL QILMAYDI (`PAYMENT_METHOD_NOT_ALLOWED`).
+          paymentMethod: station ? undefined : walkinPayment,
+          items: lines.map((line) => ({
+            productId: (line.product as ProductDto).id,
+            qty: line.qty,
+          })),
+        },
+        crypto.randomUUID(),
+      );
       toast.success('Buyurtma yuborildi');
       onCreated();
     } catch (cause) {

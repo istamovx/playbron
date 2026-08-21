@@ -353,18 +353,27 @@ export function ManualBookingPanel({
     setSubmitting(true);
     setError(null);
     setDone(false);
+    // Bosilgan tugma bo'yicha BIR marta — ichki 401-yangilash qayta
+    // urinishi shu kalitni takrorlaydi, yangi bosish esa yangisini oladi
+    // (`packages/api-client/src/client.ts::send()`).
+    const idempotencyKey = crypto.randomUUID();
     try {
-      await createStaffBooking(api, clubId, {
-        stationId: selectedStation.id,
-        // `DatePicker`/`TimeSelect` — mahalliy vaqt, `Z` yo'q; `Date` shuni
-        // brauzer zonasida talqin qiladi, ISO'ga aylantirilganda UTC'ga
-        // to'g'ri o'giradi.
-        startsAt: new Date(`${start.date}T${start.time}`).toISOString(),
-        hours: hoursNum,
-        guestName: guestName.trim(),
-        guestPhone,
-        consoleType: consoleType || undefined,
-      });
+      await createStaffBooking(
+        api,
+        clubId,
+        {
+          stationId: selectedStation.id,
+          // `DatePicker`/`TimeSelect` — mahalliy vaqt, `Z` yo'q; `Date` shuni
+          // brauzer zonasida talqin qiladi, ISO'ga aylantirilganda UTC'ga
+          // to'g'ri o'giradi.
+          startsAt: new Date(`${start.date}T${start.time}`).toISOString(),
+          hours: hoursNum,
+          guestName: guestName.trim(),
+          guestPhone,
+          consoleType: consoleType || undefined,
+        },
+        idempotencyKey,
+      );
       setGuestName('');
       setGuestPhone(PHONE_PREFIX);
       setStart(defaultStart());

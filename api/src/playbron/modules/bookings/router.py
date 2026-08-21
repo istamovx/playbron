@@ -10,14 +10,16 @@ Uch guruh:
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Header, Path, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context
+from playbron.core import context, idempotency
 from playbron.core.errors import BadRequest, Forbidden, NotFound
 from playbron.deps import db, public_db, require_admin, require_customer_token, require_staff
 from playbron.modules.bookings import service
+
+STAFF_BOOKING_ROUTE = "POST /bookings/staff"
 
 router = APIRouter(prefix="/clubs", tags=["bookings"])
 
@@ -659,16 +661,35 @@ async def create_staff_booking(
     body: StaffBookingIn,
     club_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> BookingOut:
     """Xodim qo'lda bron ochadi — telefon/kelib bron qiladigan mijoz uchun.
 
     Darhol `CONFIRMED`: xodimning o'zi tasdiqlovchi.
+
+    `Idempotency-Key` — tarmoq sekin bo'lib qayta yuborilsa yoki tugma ikki
+    marta bosilsa, ikkinchi bron OCHILMASIN (`core/idempotency.py`).
     """
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=STAFF_BOOKING_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return BookingOut(**outcome.replay["body"])
+
     result = await service.create_staff_booking(
         session,
         club_id=club_id,
-        created_by=context.current().user_id,
+        created_by=user_id,
         station_id=body.station_id,
         starts_at=body.starts_at,
         hours=body.hours,
@@ -676,6 +697,7 @@ async def create_staff_booking(
         guest_phone=body.guest_phone,
         console_type=body.console_type,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=result)
     return BookingOut(**result)
 
 
