@@ -1,4 +1,5 @@
 import {
+  ApiError,
   cancelBooking,
   errorText,
   extendBooking,
@@ -289,12 +290,20 @@ export function BookingDetailPanel({
   const extend = async (hours: number): Promise<void> => {
     setBusy(true);
     try {
-      await extendBooking(api, clubId, bookingId, hours);
+      await extendBooking(api, clubId, bookingId, hours, crypto.randomUUID(), detail?.version);
       toast.success(`${hours} soatga uzaytirildi`);
       await load();
       onChanged();
     } catch (cause) {
-      toast.error(errorText(cause));
+      // `VERSION_CONFLICT` (409) — boshqa xodim shu bronni allaqachon
+      // o'zgartirgan (audit §15/16). Xodimga tushunarli xabar bilan eng
+      // so'nggi holatni qayta yuklaymiz — jimgina ustidan yozib yubormaymiz.
+      if (cause instanceof ApiError && cause.code === 'VERSION_CONFLICT') {
+        toast.error('Bron boshqa xodim tomonidan o‘zgartirilgan — yangilandi, qayta urinib ko‘ring');
+        await load();
+      } else {
+        toast.error(errorText(cause));
+      }
     } finally {
       setBusy(false);
     }
@@ -303,7 +312,7 @@ export function BookingDetailPanel({
   const cancel = async (): Promise<void> => {
     setBusy(true);
     try {
-      await cancelBooking(api, clubId, bookingId, cancelReason.trim() || undefined);
+      await cancelBooking(api, clubId, bookingId, cancelReason.trim() || undefined, crypto.randomUUID());
       toast.success('Bron bekor qilindi');
       onChanged();
       onClose();

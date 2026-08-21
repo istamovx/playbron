@@ -20,6 +20,10 @@ from playbron.deps import db, public_db, require_admin, require_customer_token, 
 from playbron.modules.bookings import service
 
 STAFF_BOOKING_ROUTE = "POST /bookings/staff"
+BOOKING_CONFIRM_ROUTE = "POST /bookings/{booking_id}/confirm"
+BOOKING_REJECT_ROUTE = "POST /bookings/{booking_id}/reject"
+BOOKING_EXTEND_ROUTE = "POST /bookings/{booking_id}/extend"
+BOOKING_CANCEL_ROUTE = "POST /bookings/{booking_id}/cancel"
 
 router = APIRouter(prefix="/clubs", tags=["bookings"])
 
@@ -724,11 +728,26 @@ async def confirm(
     club_id: Annotated[int, Path()],
     booking_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> None:
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=BOOKING_CONFIRM_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"booking_id": booking_id},
+        body={},
+    )
+    if outcome.replay is not None:
+        return
+
     await service.confirm_booking(
         session, club_id=club_id, booking_id=booking_id, staff_id=context.current().user_id
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=204, response_body={})
 
 
 @router.post(
@@ -741,8 +760,22 @@ async def reject(
     club_id: Annotated[int, Path()],
     booking_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> None:
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=BOOKING_REJECT_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"booking_id": booking_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        return
+
     await service.reject_booking(
         session,
         club_id=club_id,
@@ -750,6 +783,7 @@ async def reject(
         staff_id=context.current().user_id,
         reason=body.reason,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=204, response_body={})
 
 
 class OrderItemOut(BaseModel):
@@ -773,6 +807,9 @@ class BookingDetailOut(BaseModel):
     play_amount: int
     orders_amount: int
     total: int
+    # Optimistik konkurrensiya — `extend`ga shu qiymat `expected_version`
+    # sifatida yuboriladi (`0041_booking_version_command_id.py`, audit §15).
+    version: int
 
 
 @router.get(
@@ -796,6 +833,10 @@ class ExtendIn(BaseModel):
     # chegarasi (`clubs.extend_max_hours`) servisda tekshiriladi — import
     # paytida o'qiladigan konstanta tenantga qarab o'zgara olmaydi.
     extra_hours: int = Field(ge=1, le=service.EXTEND_HARD_MAX_HOURS)
+    # Ixtiyoriy — `BookingDetailOut.version`dan olinadi. Berilmasa eski
+    # (tekshiruvsiz) xatti-harakat, berilib mos kelmasa `409 VERSION_CONFLICT`
+    # (`0041_booking_version_command_id.py`, audit §15).
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class ExtendOut(BaseModel):
@@ -803,6 +844,7 @@ class ExtendOut(BaseModel):
     hours: int
     starts_at: str
     ends_at: str
+    version: int
 
 
 @router.post(
@@ -815,16 +857,35 @@ async def extend(
     club_id: Annotated[int, Path()],
     booking_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ExtendOut:
     """Mijoz iltimosiga ko'ra vaqtni uzaytirish (reja #36)."""
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=BOOKING_EXTEND_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"booking_id": booking_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return ExtendOut(**outcome.replay["body"])
+
     row = await service.extend_booking(
         session,
         club_id=club_id,
         booking_id=booking_id,
         staff_id=context.current().user_id,
         extra_hours=body.extra_hours,
+        expected_version=body.expected_version,
+        command_id=idempotency_key,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=200, response_body=row)
     return ExtendOut(**row)
 
 
@@ -838,14 +899,30 @@ async def cancel(
     club_id: Annotated[int, Path()],
     booking_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> None:
     """Mijoz kelmagan — tasdiqlangan bronni Live Board/Timeline'dan bekor
     qilish (reja #36). `reject`dan farqli, PENDING emas, CONFIRMED uchun."""
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=BOOKING_CANCEL_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"booking_id": booking_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        return
+
     await service.cancel_confirmed_booking(
         session,
         club_id=club_id,
         booking_id=booking_id,
         staff_id=context.current().user_id,
         reason=body.reason,
+        command_id=idempotency_key,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=204, response_body={})

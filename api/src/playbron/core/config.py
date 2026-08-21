@@ -188,5 +188,16 @@ if not _is_local:
         raise RuntimeError("DEBUG prod'da yoqilgan bo‘lmasligi kerak")
     if any("localhost" in origin or "127.0.0.1" in origin for origin in settings.cors_origin_list):
         raise RuntimeError("CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)")
+    if not settings.platform_ip_allowlist.strip():
+        # Hozircha CRASH emas — bo'sh bo'lsa /platform/* xatti-harakati o'zgarmaydi
+        # (deps.py::require_super_admin, allowlist bo'sh bo'lsa cheklamaydi).
+        # IP ro'yxati ma'lum bo'lgach bu ogohlantirish RuntimeError'ga aylantiriladi.
+        import warnings
+
+        warnings.warn(
+            "PLATFORM_IP_ALLOWLIST prod'da bo'sh — /platform/* har qanday IP'dan "
+            "ochiq (faqat super-admin auth bilan cheklangan)",
+            stacklevel=2,
+        )
 
 __all__ = ["Settings", "get_settings", "settings", "Field"]

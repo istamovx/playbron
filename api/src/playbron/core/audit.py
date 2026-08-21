@@ -48,12 +48,20 @@ async def log_action(
     after: dict[str, Any] | None = None,
     ip: str | None = None,
     user_agent: str | None = None,
+    command_id: str | None = None,
 ) -> None:
     """`audit_log`ga bitta yozuv qo'shadi — chaqiruvchini HECH QACHON to'xtatmaydi.
 
     RLS `audit_log_insert` policy'si yagona shartni tekshiradi:
     `WITH CHECK (actor_user_id = app_user_id())` — shuning uchun bu yerda
     HAR DOIM joriy `context.current().user_id` ishlatiladi.
+
+    `command_id` — mijoz yuborgan xom `Idempotency-Key` (bor bo'lsa). FK
+    EMAS, oddiy matn: `idempotency_keys` qatori bu funksiya chaqirilgan
+    paytda chaqiruvchining ALI COMMIT bo'lmagan tranzaksiyasida yaratilgan
+    bo'ladi va bu funksiya ALOHIDA ulanishda yozadi (fayl boshidagi izoh)
+    — FK qo'yilsa har safar buzilardi. Faqat qo'lda korrelyatsiya uchun:
+    "bu audit yozuvi qaysi offline buyruqdan kelgan?" (audit §18).
     """
     actor_user_id = context.current().user_id
     try:
@@ -66,9 +74,9 @@ async def log_action(
                 text(
                     "INSERT INTO audit_log"
                     " (actor_user_id, org_id, club_id, action, target, before, after,"
-                    "  ip, user_agent)"
+                    "  ip, user_agent, command_id)"
                     " VALUES (:actor, :org, :club, :action, :target,"
-                    "         CAST(:before AS jsonb), CAST(:after AS jsonb), :ip, :ua)"
+                    "         CAST(:before AS jsonb), CAST(:after AS jsonb), :ip, :ua, :cmd)"
                 ),
                 {
                     "actor": actor_user_id,
@@ -80,6 +88,7 @@ async def log_action(
                     "after": json.dumps(after) if after is not None else None,
                     "ip": ip,
                     "ua": user_agent,
+                    "cmd": command_id[:128] if command_id else None,
                 },
             )
     except Exception:  # noqa: BLE001 — atayin keng: log yozuvi hech qachon 500 bermasin

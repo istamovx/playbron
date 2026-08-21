@@ -1,0 +1,70 @@
+name: Security scan
+
+# `playbron-security-offline-10-10-audit.md` P2: "CodeQL/SAST",
+# "dependency security scanning", "scheduled security regression".
+# Push/PR uchun tezkor signal + haftalik rejalashtirilgan to'liq skan —
+# ikkalasi ham CI muvaffaqiyatsizligiga OLIB KELMAYDI (`continue-on-error`):
+# maqsad ko'rinuvchanlik, mavjud `ci.yml`ni yangi, kutilmagan qizil bilan
+# bloklamaslik.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Har dushanba 03:00 UTC — yangi CVE'lar deploy'lar orasida ham ko'rinsin.
+    - cron: '0 3 * * 1'
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python', 'javascript-typescript']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Ma'lum zaifliklarni ko'rsatadi, lekin CI'ni to'xtatmaydi — bu
+      # workflow faqat signal beradi, "dependency-ni yangilamaguningcha
+      # merge yo'q" siyosati ATAYLAB kiritilmagan (loyiha egasi qaror qiladi).
+      - name: pnpm audit
+        run: pnpm audit --audit-level high || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e '.[dev]' pip-audit
+        working-directory: api
+      - name: pip-audit
+        run: pip-audit --skip-editable || true
+        working-directory: api

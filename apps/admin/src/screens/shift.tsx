@@ -79,7 +79,7 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      await openShift(api, clubId, Math.round(opening));
+      await openShift(api, clubId, Math.round(opening), crypto.randomUUID());
       toast.success('Smena ochildi');
       setOpenDraft(null);
       await reload();
@@ -106,11 +106,17 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      await addShiftMovement(api, clubId, shift.id, {
-        kind: movementDraft.kind,
-        amount: Math.round(amount),
-        reason: movementDraft.reason.trim(),
-      });
+      await addShiftMovement(
+        api,
+        clubId,
+        shift.id,
+        {
+          kind: movementDraft.kind,
+          amount: Math.round(amount),
+          reason: movementDraft.reason.trim(),
+        },
+        crypto.randomUUID(),
+      );
       toast.success(movementDraft.kind === 'IN' ? 'Kirim qo‘shildi' : 'Chiqim qo‘shildi');
       setMovementDraft(null);
       await reload();
@@ -133,7 +139,7 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      const closed = await closeShift(api, clubId, shift.id, Math.round(counted));
+      const closed = await closeShift(api, clubId, shift.id, Math.round(counted), crypto.randomUUID());
       toast.success(
         closed.variance === 0
           ? 'Smena yopildi — kassa mos keldi'

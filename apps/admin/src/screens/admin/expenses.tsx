@@ -240,12 +240,17 @@ export function ExpensesScreen(): ReactNode {
           continue;
         }
         try {
-          await createExpense(api, clubId, {
-            spentOn,
-            category: row.cat,
-            amount: row.amount,
-            note: row.note.trim() || null,
-          });
+          await createExpense(
+            api,
+            clubId,
+            {
+              spentOn,
+              category: row.cat,
+              amount: row.amount,
+              note: row.note.trim() || null,
+            },
+            crypto.randomUUID(),
+          );
           markMigrated(row.id);
           migrated += 1;
         } catch {
@@ -306,14 +311,19 @@ export function ExpensesScreen(): ReactNode {
     setError(null);
     try {
       if (draft.id === null) {
-        await createExpense(api, clubId, {
-          spentOn: draft.spentOn,
-          category: draft.category,
-          amount,
-          note: draft.note.trim() || null,
-          method: draft.method || null,
-          shiftId: draft.method === 'CASH' ? draft.shiftId : null,
-        });
+        await createExpense(
+          api,
+          clubId,
+          {
+            spentOn: draft.spentOn,
+            category: draft.category,
+            amount,
+            note: draft.note.trim() || null,
+            method: draft.method || null,
+            shiftId: draft.method === 'CASH' ? draft.shiftId : null,
+          },
+          crypto.randomUUID(),
+        );
         toast.success('Xarajat qo‘shildi');
       } else {
         await updateExpense(api, clubId, draft.id, {

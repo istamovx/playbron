@@ -17,9 +17,8 @@
 # Ikkala qadam ham BAJARILGAN: domenlar `domains:` orqali ulangan va tasdiqlangan,
 # env qiymatlari ham yangi manzillarga o'tkazilgan.
 #
-# `CORS_ORIGINS` da eski `.onrender.com` manzillari ATAYLAB qoldirilgan: statik
-# saytlar qayta yig'ilib bo'lgunicha brauzerdagi eski nusxa hali eski manzilni
-# chaqiradi. Hammasi barqaror ishlagach ularni ro'yxatdan olib tashlash mumkin.
+# `CORS_ORIGINS` faqat joriy domenlarni ro'yxatga oladi — o'tish davri
+# tugagan, eski `.onrender.com` originlari olib tashlangan.
 #
 # `VITE_*` build paytida kodga singdiriladi — qiymat o'zgarsa qayta deploy shart.
 
@@ -119,6 +118,13 @@ services:
       # tavsiya etiladi (funksiyaning o'zi buni MAJBURLAMAYDI).
       - key: SUPER_ADMIN_PASSWORD
         sync: false
+
+      # /platform/* uchun IP allowlist. Bo'sh bo'lsa `core/config.py` faqat
+      # WARNING beradi (ilova qulab tushmaydi) — to'ldirilgach kuchga kiradi.
+      # Qiymat: vergul bilan ajratilgan IP'lar (`deps.py::require_super_admin`,
+      # `X-Forwarded-For`ning eng o'ng elementidan olinadi — `core/http.py`).
+      - key: PLATFORM_IP_ALLOWLIST
+        sync: false
       # ──────────────────────────────────────────────────────────────────
 
       # Sir emas — oddiy Telegram ID. Qiymat shu yerda turgani uchun
@@ -142,11 +148,10 @@ services:
       - key: ALLOW_SINGLE_DB_ROLE
         value: '1'
 
-      # Eski `.onrender.com` manzillari ATAYLAB qoldirildi: frontend qayta
-      # yig'ilib bo'lgunicha ular hali eski manzilni ishlatadi. Ikkalasi ham
-      # ruxsat etilgani uchun o'tish paytida uzilish bo'lmaydi.
+      # Domen ko'chirish tugallangan (yuqoridagi izohga qarang) — eski
+      # `.onrender.com` originlari 2026-08-21'da ro'yxatdan olib tashlandi.
       - key: CORS_ORIGINS
-        value: 'https://playbron.uz,https://www.playbron.uz,https://app.playbron.uz,https://mini.playbron.uz,https://playbron-admin.onrender.com,https://playbron-miniapp.onrender.com'
+        value: 'https://playbron.uz,https://www.playbron.uz,https://app.playbron.uz,https://mini.playbron.uz'
 
       # Telegram webhook shu manzilga ro'yxatdan o'tadi. Qo'yilmasa kod
       # `RENDER_EXTERNAL_URL` ga tushadi va webhook eski manzilda qolib ketadi.
@@ -186,9 +191,29 @@ services:
       # sifatida ochiladi, Telegram esa uni Desktop va Web'da IFRAME ichida
       # ko'rsatadi — `SAMEORIGIN` bo'lsa foydalanuvchi bo'sh oyna ko'radi.
       # Mobil mijozlarda webview, u yerda sarlavhaning ahamiyati yo'q.
+      # `frame-ancestors` shu vazifani zamonaviy brauzerlarda CSP orqali
+      # bajaradi — Telegram domenlari ochiq qoldirilgan, boshqa hech kim emas.
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains; preload
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(), payment=()
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self'; style-src 'self'
+          'unsafe-inline' https://fonts.googleapis.com; font-src 'self'
+          https://fonts.gstatic.com; img-src 'self' data: blob: https:;
+          connect-src 'self' https://api.playbron.uz wss://api.playbron.uz;
+          frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;
+          base-uri 'self'; form-action 'self'
 
   # ── Landing (playbron.uz) ────────────────────────────────────────────────
   # Astro statik chiqishi: `/index.html` (uz) va `/ru/index.html`.
@@ -218,6 +243,23 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains; preload
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(), payment=()
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self'; style-src 'self'
+          https://fonts.googleapis.com; font-src 'self'
+          https://fonts.gstatic.com; img-src 'self' data: blob: https:;
+          connect-src 'self'; frame-ancestors 'self'; base-uri 'self';
+          form-action 'self'
 
   # ── Mijoz Mini App ───────────────────────────────────────────────────────
   - type: web
@@ -237,7 +279,27 @@ services:
         source: /*
         destination: /index.html
     headers:
-      # Telegram Mini App'ni iframe'da ochadi — SAMEORIGIN mumkin emas
+      # Telegram Mini App'ni iframe'da ochadi — SAMEORIGIN mumkin emas.
+      # `frame-ancestors` shu vazifani CSP orqali bajaradi.
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains; preload
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(), payment=()
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self' https://telegram.org;
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' https://fonts.gstatic.com; img-src 'self' data:
+          blob: https:; connect-src 'self' https://api.playbron.uz
+          wss://api.playbron.uz; frame-ancestors 'self'
+          https://web.telegram.org https://*.telegram.org; base-uri 'self';
+          form-action 'self'

@@ -132,6 +132,17 @@ async def request_context(request: Request, call_next):  # type: ignore[no-untyp
         context.reset()
 
     response.headers["x-request-id"] = request_id
+    # API faqat JSON qaytaradi — brauzerda sahifa sifatida render qilinmaydi
+    # yoki iframe'ga joylanmaydi. Shunga qaramay javob header'lari
+    # (masalan xato sahifalari, agar proxy orqali HTML'ga o'ralsa) himoyalanadi.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=63072000; includeSubDomains; preload"
+        )
     return response
 
 

@@ -144,8 +144,8 @@ export function BookingsScreen(): ReactNode {
     if (clubId === null) return;
     setActing(id);
     try {
-      if (kind === 'confirm') await confirmBooking(api, clubId, id);
-      else await rejectBooking(api, clubId, id);
+      if (kind === 'confirm') await confirmBooking(api, clubId, id, crypto.randomUUID());
+      else await rejectBooking(api, clubId, id, undefined, crypto.randomUUID());
       toast.success(kind === 'confirm' ? 'Bron tasdiqlandi' : 'Bron rad etildi');
       await reload();
     } catch (cause) {
