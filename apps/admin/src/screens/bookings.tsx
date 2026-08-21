@@ -84,11 +84,14 @@ function formatClock(iso: string): string {
   });
 }
 
+/**
+ * Xona tanlash — faqat kod. `roomLabel` (odatda sukut "Standart") va
+ * konsol turi bu ro'yxatda KO'RSATILMAYDI (loyiha egasi, 2026-08-21):
+ * "1-xona · Standart · PS4 Pro" xodimni chalg'itardi, konsol allaqachon
+ * pastdagi alohida "Konsol" tanlagichida so'raladi.
+ */
 function stationLabelOf(s: StationDto): string {
-  // Yangi (0023'dan keyingi) xonalarda konsol yo'q — bron paytida
-  // ALOHIDA tanlanadi (reja #38), shu yerda ko'rsatilmaydi.
-  const console = s.consoleType ? (CONSOLE_LABEL[s.consoleType] ?? s.consoleType) : null;
-  return console ? `${s.code} · ${s.roomLabel} · ${console}` : `${s.code} · ${s.roomLabel}`;
+  return s.code;
 }
 
 /**

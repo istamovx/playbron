@@ -10,7 +10,7 @@ import {
   type OrderDto,
   type ProductDto,
 } from '@playbron/api-client';
-import { Button, Modal, Panel, Select, StatusLine, toast } from '@playbron/ui';
+import { Button, Modal, Panel, Select, StatusLine, TextField, toast } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../lib/api';
@@ -266,6 +266,7 @@ function NewOrderModal({
   // to'lanadi va bu tanlov unga umuman yuborilmaydi.
   const [walkinPayment, setWalkinPayment] = useState<'CASH' | 'TRANSFER'>('CASH');
   const [cart, setCart] = useState<Record<number, number>>({});
+  const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,6 +280,7 @@ function NewOrderModal({
       setStationLabel(occupied.length > 0 ? stationLabelOf(occupied[0] as LiveStationDto) : '');
       setWalkinPayment('CASH');
       setCart({});
+      setSearch('');
       setError(null);
     }
   }, [open]);
@@ -297,6 +299,15 @@ function NewOrderModal({
     qty,
   }));
   const total = lines.reduce((sum, line) => sum + (line.product?.price ?? 0) * line.qty, 0);
+
+  // Katalog kattalashsa mahsulotni qidirish uchun (loyiha egasi, 2026-08-21) —
+  // faqat NOM bo'yicha, katta-kichik harf farqsiz. Savatga qo'shilgan
+  // mahsulot filtrlanganda ham savatdan chiqib ketmaydi (`cart` alohida
+  // holat), shuning uchun bu yerda faqat RO'YXAT torayadi.
+  const visibleProducts =
+    search.trim().length === 0
+      ? products
+      : products.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   const submit = async (): Promise<void> => {
     if (clubId === null || lines.length === 0) {
@@ -375,8 +386,21 @@ function NewOrderModal({
             parts={['Mahsulot qo‘shilmagan', 'Avval Katalogga mahsulot qo‘shing']}
           />
         ) : (
+        <>
+        {products.length > 8 ? (
+          <TextField
+            label="Mahsulot qidirish"
+            value={search}
+            onChange={setSearch}
+            icon="search"
+            placeholder="Mahsulot nomi"
+          />
+        ) : null}
+        {visibleProducts.length === 0 ? (
+          <StatusLine tone="neutral" icon="search_off" parts={['Mos mahsulot topilmadi']} />
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {products.map((product) => (
+          {visibleProducts.map((product) => (
             <div
               key={product.id}
               style={{
@@ -407,6 +431,8 @@ function NewOrderModal({
             </div>
           ))}
         </div>
+        )}
+        </>
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--type-data)' }}>
