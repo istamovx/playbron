@@ -27,15 +27,19 @@ bu aynan o'sha qiymat edi.
 qatoriga aylanadi va stansiya unga bog'lanadi. Matn ustuni O'CHIRILMAYDI:
 eski kod hali uni o'qiydi va migratsiyalar faqat oldinga.
 
-Revision ID: 0033_rooms_tariffs
-Revises: 0032_payments
+Revision ID: 0037_rooms_tariffs
+Revises: 0036_worker_access
+
+Raqamlash: `main` bilan birlashtirishda `0033`-`0036` boshqa ish (B-bosqich,
+worker) tomonidan band qilingan edi — shu 4 ta migratsiya (`0037`-`0040`)
+o'sha zanjirning davomiga ko'chirildi, mazmuni o'zgarmagan.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0033_rooms_tariffs"
-down_revision = "0032_payments"
+revision = "0037_rooms_tariffs"
+down_revision = "0036_worker_access"
 branch_labels = None
 depends_on = None
 

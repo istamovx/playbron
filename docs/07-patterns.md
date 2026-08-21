@@ -127,7 +127,8 @@ Qoidalar:
 Mavjud claim'lar: `app_booking_notify_claim`, `app_bot_lookup_claim`,
 `app_signup_claim`, `app_club_publish_claim`, `app_login_claim`,
 `app_org_check_claim`, `app_org_revoke_claim`, `app_telegram_link_claim`,
-`app_club_role_claim`.
+`app_club_role_claim`, `app_shift_guard_claim` (0034 — trigger ichida,
+yopiq smena qo'riqchisi).
 
 ---
 

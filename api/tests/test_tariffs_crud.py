@@ -1,4 +1,4 @@
-"""Xonalar va tariflar CRUD — `0033_rooms_tariffs.py` ustidagi boshqaruv yo'li.
+"""Xonalar va tariflar CRUD — `0037_rooms_tariffs.py` ustidagi boshqaruv yo'li.
 
 Jadval, RLS va narx hisobi (`modules/bookings/pricing.py`) `0033` dan beri
 bor edi, lekin tarifni FAQAT xom SQL bilan kiritish mumkin edi

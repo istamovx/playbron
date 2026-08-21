@@ -64,7 +64,7 @@ Taklif qilingan matn — §5.
 | `0029_platform_read_gaps.py` | `memberships`, `stations` uchun platform o'qish | — |
 | `0030_suspend_revokes_sessions.py:102` | `refresh_tokens` — `IF NOT app_platform() THEN` | — |
 | `0032_payments.py:238` | `payments_platform_read` | **Xom to'lov satrlari ochilgan** |
-| `0033_rooms_tariffs.py` | `rooms`/`tariffs` platform o'qish | — |
+| `0037_rooms_tariffs.py` | `rooms`/`tariffs` platform o'qish | — |
 
 **Bazadagi haqiqiy holat** (13 policy, `pg_policies` dan):
 

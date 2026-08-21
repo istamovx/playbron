@@ -1,6 +1,6 @@
 """Bron eslatmasi — fon vazifasi.
 
-Manba: `api/migrations/versions/0034_booking_reminders.py`, loyiha
+Manba: `api/migrations/versions/0038_booking_reminders.py`, loyiha
 egasining so'rovi (2026-08-18).
 
 Loyihada shu paytgacha HECH QANDAY fon vazifasi yo'q edi

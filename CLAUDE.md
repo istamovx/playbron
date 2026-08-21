@@ -184,6 +184,9 @@ Shablonlar: `docs/07-patterns.md`.
 3. `packages/api-client/src/endpoints.ts` — tipli funksiya va DTO, `snake_case` → `camelCase`
 4. Uchta test (§Testlar)
 
+Bosqich briflari: `tasks/`. Sessiya boshida kerakli brifga `@` bilan
+havola qilinadi, CLAUDE.md ga ko'chirilmaydi.
+
 ## Ma'lum texnik qarz
 
 Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
@@ -195,15 +198,13 @@ Batafsil: `docs/audit-report.md`. Yangi kod bu ro'yxatni uzaytirmaydi.
 - `apps/admin/src/mock/club.ts` — backendda ekvivalenti yo'q entity'larning soxta ma'lumoti. `mock/data.ts` da esa `ScreenId`/`TITLES` qolgan (soxta ma'lumot emas, joyi noto'g'ri).
 - Landing'da `en` yo'q (admin va miniapp'da uz/ru/en bor).
 - Ish vaqti tekshiruvi FAQAT mijoz yo'lida. Xodim yo'li ataylab cheklanmagan — kech qolgan mijozni yozish uning qarori.
-- `shifts_staff_one_open_uk` klub bo'yicha emas, global — ikki klubda ishlaydigan xodim ikkinchi smenani ocholmaydi.
-- Fon vazifalaridan faqat bron eslatmasi bor (`modules/bookings/reminders.py`). Avto-bekor va no-show hali yo'q — o'sha naqshni takrorlaydi.
+- Fon vazifalari — B-bosqichda qurildi (`worker/` moduli, `docs/HOLAT.md` §5a): bron eslatmasi, avto-bekor, no-show, bildirishnoma navbati. `reminders.py::run_forever()` supervizor naqshi endi `worker/schedule.py` ga chiqarilgan.
 - Telegram botlari jonli muhitda javob bermaydi — `docs/HOLAT.md` §2.
-- `mypy src/` 27 xato beradi (asosan `int | None` → `int`). CI'da mypy qadami YO'Q — faqat `ruff`. Yangi kod bu sonni oshirmaydi.
+- `mypy src/` CI'da yuritiladi; 20 eski xato (asosan `int | None` → `int`) yashaydigan 9 modul `pyproject.toml` `[[tool.mypy.overrides]]` baseline'ida `ignore_errors` bilan turibdi (pul routerlari — `finance.router`, `pos.router` — tozalanib chiqarilgan). Yangi modul baseline'ga qo'shilmaydi; baseline moduliga tegilganda lokal `mypy` alohida yuritiladi.
 - i18n dvigateli admin va miniapp'da IKKI nusxa (`STORAGE_KEY`, `isLang`, `useI18n`, `useT`) — farqi faqat til aniqlagichda. `packages/ui` ga `createI18n(strings, {detect})` sifatida chiqariladi.
-- `reminders.py::run_forever()` fon vazifasi supervizori — ikkinchi vazifa (avto-bekor, no-show) qo'shilganda `core/jobs.py::run_periodic()` ga chiqariladi, nusxalanmaydi.
 - Miniapp ekranlarida takrorlanadigan komponentlar: xato+qayta urinish bloki (`bookings`/`session`/`clubs`), `InfoLine`/`Line`, `Label`. `src/components/` ga yig'iladi.
 - Test fixture'lari (`skip_no_db`, `_owner_engine`, `client`) har fayl'da qayta yozilgan — `tests/conftest.py` ga ko'chiriladi.
-- `clubs.prepay_hours` — birorta o'quvchisi yo'q (`0033`). Oldindan to'lov mantiqi yozilganda ishlatiladi; qolgan besh sozlama Sozlamalar ekranidan tahrirlanadi.
+- `clubs.prepay_hours` — birorta o'quvchisi yo'q. Oldindan to'lov mantiqi yozilganda ishlatiladi; qolgan besh sozlama Sozlamalar ekranidan tahrirlanadi.
 - `bookings.rate_snapshot` — `play_amount // hours` dan kelib chiqadi va birorta ekran uni o'qimaydi; DTO'lardan chiqarish alohida o'zgarish.
 - Tarif oynani QOPLAMASA `422 NO_TARIFF_FOR_SLOT` — xodim yo'lida ham. Bu ataylab: jimgina `stations.rate` ga tushish ikkinchi narx rejimini tiriltirardi. Klub 24/7 zaxira tarif qo'shib hal qiladi.
 

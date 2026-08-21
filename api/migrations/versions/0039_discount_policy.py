@@ -20,15 +20,15 @@ Foiz — pul emas, shuning uchun `bigint` invariantiga tegishli emas.
 Absolut summa (masalan "20 000 so'mgacha") o'rniga foiz tanlandi: klub
 narxi ko'tarilganda absolut chegara jimgina ma'nosiz bo'lib qolardi.
 
-Revision ID: 0035_discount_policy
-Revises: 0034_booking_reminders
+Revision ID: 0039_discount_policy
+Revises: 0038_booking_reminders
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0035_discount_policy"
-down_revision = "0034_booking_reminders"
+revision = "0039_discount_policy"
+down_revision = "0038_booking_reminders"
 branch_labels = None
 depends_on = None
 

@@ -36,7 +36,7 @@ import { FormGrid, Labeled } from './parts';
 /**
  * Narxlar — xonalar (`rooms`) va soatlik tariflar (`tariffs`).
  *
- * `0033_rooms_tariffs.py` jadvallarni va `pricing.py` narx hisobini bergan
+ * `0037_rooms_tariffs.py` jadvallarni va `pricing.py` narx hisobini bergan
  * edi, lekin boshqaruv yo'li yo'q edi: tarifni faqat xom SQL bilan
  * kiritish mumkin edi (`CLAUDE.md`, «Ma'lum texnik qarz»). Bu ekran o'sha
  * bo'shliqni yopadi.

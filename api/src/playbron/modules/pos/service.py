@@ -14,6 +14,7 @@ from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.core.text import clean_name
 from playbron.modules.finance import shifts
+from playbron.modules.pos.settlement import settle_bill
 
 PRODUCT_CATEGORY_MAX = 32
 PRODUCT_NAME_MAX = 120
@@ -611,16 +612,18 @@ async def _orders_total(session: AsyncSession, *, club_id: int, booking_id: int)
 async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> dict[str, Any]:
     booking = await _load_open_booking(session, club_id, booking_id)
     # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
-    # bo'laklardan iborat bo'ladi (`0033_rooms_tariffs.py`).
-    play_amount = int(booking.play_amount)
+    # bo'laklardan iborat bo'ladi (`0037_rooms_tariffs.py`). `settlement.py::
+    # play_amount()` (`rate_snapshot * hours`) BU YERDA ishlatilmaydi —
+    # o'zgaruvchan tarifda ular teng bo'lmaydi (`CLAUDE.md` §Pul).
+    play_total = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
 
     return {
         "booking_id": booking_id,
-        "play_amount": play_amount,
+        "play_amount": play_total,
         "orders_amount": int(orders_total),
-        "total": play_amount + int(orders_total),
+        "total": play_total + int(orders_total),
         "awaiting_proof": booking.payment_proof_status == "PENDING",
         "payment_proof_status": booking.payment_proof_status,
     }
@@ -662,7 +665,7 @@ def _assert_discount_allowed(
     total: int,
     limit_percent: int,
 ) -> None:
-    """Xodim chegirmasi klub chegarasidan oshmasin (`0035_discount_policy`).
+    """Xodim chegirmasi klub chegarasidan oshmasin (`0039_discount_policy`).
 
     Rol auditi topilmasi (2026-08-18): `STAFF` roli `paid_amount = 0` +
     `DISCOUNT` bilan istalgan hisobni to'liq nolga yopa olardi — chegara
@@ -720,11 +723,13 @@ async def close_bill(
 
     booking = await _load_open_booking(session, club_id, booking_id)
     # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
-    # bo'laklardan iborat bo'ladi (`0033_rooms_tariffs.py`).
-    play_amount = int(booking.play_amount)
+    # bo'laklardan iborat bo'ladi (`0037_rooms_tariffs.py`). `settlement.py::
+    # play_amount()` (`rate_snapshot * hours`) BU YERDA ishlatilmaydi —
+    # o'zgaruvchan tarifda ular teng bo'lmaydi (`CLAUDE.md` §Pul).
+    play_total = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
-    total = play_amount + orders_total
+    total = play_total + orders_total
 
     requires_proof = payment_method == "TRANSFER" and booking.customer_id is not None
     if requires_proof and booking.payment_proof_status != "SUBMITTED":
@@ -736,54 +741,30 @@ async def close_bill(
             await _request_payment_proof(session, booking)
         return {
             "booking_id": booking_id,
-            "play_amount": play_amount,
+            "play_amount": play_total,
             "orders_amount": int(orders_total),
             "total": total,
             "awaiting_proof": True,
             "payment_proof_status": booking.payment_proof_status or "PENDING",
         }
 
-    # Hisoblangan summa bilan olingan summa farqi SABABI bilan yoziladi
-    # (loyiha egasining qarori, 2026-08-17). Ilgari `paid_amount` umuman
-    # tekshirilmasdi va farq izsiz yo'qolardi (`docs/audit-report.md` §2.2).
-    shortfall = total - paid_amount
-
-    # Ortiqcha to'lov RAD ETILMAYDI. Mijoz 95 000 lik hisobga 100 000
-    # berib qaytimni olmasa, xodim kassadagi HAQIQIY pulni yozishi kerak —
-    # aks holda u 95 000 deb ko'rsatishga majbur bo'lardi va smena aynan
-    # 5 000 ga "ortiq" chiqib, tushuntirib bo'lmas farq paydo bo'lardi.
-    # Sabab MAJBURIY: usiz 800 000 lik terish xatosi jimgina "choychaqa"
-    # bo'lib qolardi.
-    tip_amount = 0
-    if shortfall < 0:
-        if overpay_reason != "TIP":
-            raise AppError(
-                "Hisobdan ortiq summa sababini tanlang",
-                code="OVERPAY_REASON_REQUIRED",
-                status_code=422,
-            )
-        tip_amount = -shortfall
-        shortfall = 0
-
-    discount_amount = 0
-    debt_amount = 0
-    if shortfall > 0:
-        if shortfall_reason == "DISCOUNT":
-            discount_amount = shortfall
-            _assert_discount_allowed(
-                actor_role=actor_role,
-                discount_amount=discount_amount,
-                total=total,
-                limit_percent=int(booking.staff_max_discount_percent),
-            )
-        elif shortfall_reason == "DEBT":
-            debt_amount = shortfall
-        else:
-            raise AppError(
-                "Kam to'langan summaning sababini tanlang: chegirma yoki qarz",
-                code="SHORTFALL_REASON_REQUIRED",
-                status_code=422,
-            )
+    # Farq taqsimoti — sof funksiyada (`settlement.py`), sabablari o'sha
+    # yerda hujjatlashtirilgan. Servis faqat o'qiydi, chaqiradi, yozadi.
+    settlement = settle_bill(
+        total=total,
+        paid_amount=paid_amount,
+        shortfall_reason=shortfall_reason,
+        overpay_reason=overpay_reason,
+    )
+    if settlement.discount_amount > 0:
+        # Xodim chegirmasi klub chegarasidan oshmasin (`0039_discount_policy`,
+        # keyinchalik `0039` ga ko'chirildi — raqam to'qnashuvi tufayli).
+        _assert_discount_allowed(
+            actor_role=actor_role,
+            discount_amount=settlement.discount_amount,
+            total=total,
+            limit_percent=int(booking.staff_max_discount_percent),
+        )
 
     # To'lov yozuvi UPDATE'dan OLDIN — naqd uchun ochiq smena yo'q bo'lsa
     # `SHIFT_REQUIRED` chiqadi va hisob YOPILMAY qoladi.
@@ -810,18 +791,19 @@ async def close_bill(
             "amount": paid_amount,
             "staff": closed_by,
             "proof": final_proof_status,
-            "discount": discount_amount,
-            "debt": debt_amount,
-            "tip": tip_amount,
+            "discount": settlement.discount_amount,
+            "debt": settlement.debt_amount,
+            "tip": settlement.tip_amount,
             "id": booking_id,
         },
     )
 
     # Hisob yopilishining O'ZI audit izini qoldiradi — `_record_payment()`
     # ga tayanib bo'lmaydi: u `amount <= 0` da darhol qaytadi, ya'ni 100%
-    # chegirma bilan yopilgan hisob (rol auditi topilmasi, 2026-08-18)
-    # `payments` da ham, jurnalda ham UMUMAN ko'rinmasdi. Farq va uning
-    # sababi shu yerda — `CLAUDE.md` §Pul.
+    # chegirma yoki qarz bilan yopilgan hisob (rol auditi topilmasi,
+    # 2026-08-18) `payments` da ham, jurnalda ham UMUMAN ko'rinmasdi.
+    # Nomlangan farq (chegirma/qarz/choychaqa) va sababi shu yerda —
+    # `CLAUDE.md` §Pul.
     await log_action(
         action="bill_closed",
         target=f"booking:{booking_id}",
@@ -830,9 +812,9 @@ async def close_bill(
             "total": total,
             "paid_amount": paid_amount,
             "method": payment_method,
-            "discount_amount": discount_amount,
-            "debt_amount": debt_amount,
-            "tip_amount": tip_amount,
+            "discount_amount": settlement.discount_amount,
+            "debt_amount": settlement.debt_amount,
+            "tip_amount": settlement.tip_amount,
         },
     )
 
@@ -841,14 +823,14 @@ async def close_bill(
     # BILL_ALREADY_CLOSED qaytarardi.
     return {
         "booking_id": booking_id,
-        "play_amount": play_amount,
+        "play_amount": play_total,
         "orders_amount": int(orders_total),
         "total": total,
         "awaiting_proof": False,
         "payment_proof_status": final_proof_status,
-        "discount_amount": discount_amount,
-        "debt_amount": debt_amount,
-        "tip_amount": tip_amount,
+        "discount_amount": settlement.discount_amount,
+        "debt_amount": settlement.debt_amount,
+        "tip_amount": settlement.tip_amount,
     }
 
 

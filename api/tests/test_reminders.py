@@ -1,6 +1,6 @@
 """Bron eslatmasi — da'vo (claim) va yuborish.
 
-Manba: `api/migrations/versions/0034_booking_reminders.py`.
+Manba: `api/migrations/versions/0038_booking_reminders.py`.
 
 Eng muhim invariant: eslatma BIR MARTA ketadi. Da'vo `UPDATE ...
 RETURNING` bilan atomar bo'lgani uchun ikkinchi chaqiruv bo'sh qaytishi

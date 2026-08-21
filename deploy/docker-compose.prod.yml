@@ -102,7 +102,7 @@ services:
       - --forwarded-allow-ips
       - '*'
     env_file: .env.prod
-    environment:
+    environment: &api-env
       # `environment:` `env_file` dan USTUN turadi. `ENV` va `DEBUG` shu
       # yerda QATTIQ qulflanadi: `.env.prod` ga tasodifan `ENV=local`
       # tushib qolsa (masalan `api/.env` dan nusxa olinsa), `config.py`
@@ -135,6 +135,24 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging: *logging
+
+  # ── Worker: fon vazifalari (arq) ────────────────────────────────────────
+  # API bilan bitta image — alohida build yo'q. Migratsiyani API kabi
+  # KUTADI (deploy.sh avval `migrate` ni yuritadi). Bir nechta API
+  # instansiyasida ham vazifa bir marta bajarilishini arq'ning o'zi
+  # (Redis navbati) kafolatlaydi.
+  worker:
+    image: playbron-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ['arq', 'playbron.worker.main.WorkerSettings']
+    env_file: .env.prod
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     logging: *logging
 
   # ── Caddy: teskari proksi + AVTOMATIK HTTPS ─────────────────────────────

@@ -16,6 +16,10 @@ PG_EXCLUSION_VIOLATION = "23P01"
 PG_UNIQUE_VIOLATION = "23505"
 PG_FK_VIOLATION = "23503"
 PG_CHECK_VIOLATION = "23514"
+# plpgsql `RAISE EXCEPTION '<LITERAL>'` — trigger qo'riqchilari shu bilan
+# gapiradi. Literal doim o'zgarmas, chaqiruvchi qiymati aralashmaydi,
+# shuning uchun matn bo'yicha moslash barqaror (`staff/router.py` asosi).
+PG_RAISED_EXCEPTION = "P0001"
 
 
 class AppError(Exception):
@@ -147,4 +151,25 @@ def install(app: FastAPI) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 content=_body("RELATED_RECORD_MISSING", "Bog'liq yozuv topilmadi"),
             )
+        # `0034` trigger qo'riqchisi. Moslash `str(exc)` EMAS, `str(exc.orig)`
+        # ustida: DBAPIError matni SQL va bog'langan PARAMETRLARNI ham o'z
+        # ichiga oladi — `note` maydonida "SHIFT_CLOSED" yozilgan qator boshqa
+        # P0001 bilan yiqilsa yolg'on moslik chiqardi.
+        if sqlstate == PG_RAISED_EXCEPTION:
+            origin = str(getattr(exc, "orig", ""))
+            # Yopilgan smenaga pul yozuvi (CLAUDE.md §Pul: yopilgan smena
+            # hisobiga ta'sir qiluvchi yozuv keyin o'zgartirilmaydi)
+            if "SHIFT_CLOSED" in origin:
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content=_body("SHIFT_CLOSED", "Smena yopilgan — unga yozib bo'lmaydi"),
+                )
+            # Smena umuman topilmadi — 0034'dan oldin bu holat FK (23503)
+            # bilan 409 RELATED_RECORD_MISSING edi; trigger FK'dan oldin
+            # ishlagani uchun xuddi shu shartnoma saqlanadi
+            if "SHIFT_NOT_FOUND" in origin:
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content=_body("RELATED_RECORD_MISSING", "Bog'liq yozuv topilmadi"),
+                )
         raise exc

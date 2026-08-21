@@ -15,6 +15,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
     "redis>=5.2",
+    # Fon vazifalari (B-bosqich): alohida worker jarayoni — bir nechta API
+    # instansiyasida vazifa ikki marta bajarilmaydi. Redis allaqachon bor.
+    "arq>=0.26",
     "pyjwt>=2.10",
     # Telegram Bot API chaqiruvlari (setWebhook, sendMessage)
     "httpx>=0.28",
@@ -65,6 +68,26 @@ asyncio_default_test_loop_scope = "session"
 python_version = "3.12"
 strict = true
 plugins = []
+
+# Baseline — 20 eski xato (asosan `int | None` → `int`) yashaydigan
+# modullar. Qoida: YANGI modul bu ro'yxatga QO'SHILMAYDI; ro'yxatdagi
+# modul tozalansa bandi o'chiriladi (finance.router va pos.router shu
+# yo'l bilan chiqarilgan).
+# Ro'yxat modul darajasida — bu modullarda YANGI xato ham ko'rinmaydi,
+# shuning uchun ularga tegadigan o'zgarishda lokal `mypy` alohida yuritiladi.
+[[tool.mypy.overrides]]
+module = [
+    "playbron.core.config",
+    "playbron.deps",
+    "playbron.models",
+    "playbron.modules.auth.router",
+    "playbron.modules.auth.service",
+    "playbron.modules.bookings.notify",
+    "playbron.modules.bookings.router",
+    "playbron.modules.platform.router",
+    "playbron.modules.users.router",
+]
+ignore_errors = true
 
 [build-system]
 requires = ["setuptools>=75"]

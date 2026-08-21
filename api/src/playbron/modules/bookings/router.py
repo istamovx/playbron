@@ -136,7 +136,7 @@ class BookingOut(BaseModel):
     rate_snapshot: int
     # Oynaning TO'LIQ narxi. Tarif vaqtga qarab o'zgarsa
     # `rate_snapshot * hours` unga teng bo'lmaydi — hisob-kitob doim shu
-    # ustundan ketadi (`0033_rooms_tariffs.py`).
+    # ustundan ketadi (`0037_rooms_tariffs.py`).
     play_amount: int
     console_type: str
     prepaid_amount: int = 0
@@ -337,7 +337,7 @@ async def update_station(
 
 
 # ── Xonalar va tariflar ───────────────────────────────────────────────────
-# Jadvallar `0033_rooms_tariffs.py` da tayyor va `pricing.py` ularni
+# Jadvallar `0037_rooms_tariffs.py` da tayyor va `pricing.py` ularni
 # o'qiydi, lekin boshqaruv yo'li yo'q edi — tarif faqat xom SQL bilan
 # kiritilardi (`CLAUDE.md`, «Ma'lum texnik qarz»).
 #
@@ -632,7 +632,7 @@ async def quote_booking(
 ) -> QuoteOut:
     """Narxni bron QILMASDAN hisoblaydi.
 
-    `0033_rooms_tariffs.py` dan keyin narx vaqtga qarab o'zgaradi —
+    `0037_rooms_tariffs.py` dan keyin narx vaqtga qarab o'zgaradi —
     mijoz ilovasi uni o'zi hisoblab bera olmaydi va `CLAUDE.md`
     («Frontend») bo'yicha hisoblamasligi ham kerak. Usiz mijoz jami
     summani faqat bron qilib bo'lgandan keyin bilardi.

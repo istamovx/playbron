@@ -307,7 +307,7 @@ async def update_station(
 
 
 # ── Xonalar va tariflar ───────────────────────────────────────────────────
-# Jadval, RLS va konstreyntlar `0033_rooms_tariffs.py` da. `0033` ularni
+# Jadval, RLS va konstreyntlar `0037_rooms_tariffs.py` da. `0033` ularni
 # ochib qo'ygan, lekin BOSHQARUV yo'li qolmagan edi: tarifni faqat xom SQL
 # bilan kiritish mumkin edi (`CLAUDE.md`, «Ma'lum texnik qarz»). Quyidagi
 # CRUD o'sha bo'shliqni yopadi.
@@ -976,7 +976,7 @@ def _assert_within_opening_hours(club: Any, starts_at: datetime, hours: int) -> 
 
 
 def _validate_window(starts_at: datetime, hours: int, club: Any) -> datetime:
-    """Chegaralar KLUB sozlamasidan (`0033_rooms_tariffs.py`).
+    """Chegaralar KLUB sozlamasidan (`0037_rooms_tariffs.py`).
 
     `club` MAJBURIY va ustunlar `NOT NULL DEFAULT` — shuning uchun bu yerda
     zaxira konstanta YO'Q. Bo'lsa edi, SELECT'dan ustun tushib qolganda
@@ -1478,7 +1478,7 @@ async def get_booking_detail(
     orders_amount = sum(i["price_snapshot"] * i["qty"] for i in items)
     # Ustundan — `rate_snapshot * hours` EMAS: tarif vaqtga qarab
     # o'zgarganda bron ikki xil narxdagi bo'laklardan iborat bo'ladi
-    # (`0033_rooms_tariffs.py`).
+    # (`0037_rooms_tariffs.py`).
     play_amount = int(booking.play_amount)
 
     return {

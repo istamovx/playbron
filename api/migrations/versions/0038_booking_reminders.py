@@ -23,15 +23,15 @@ o'rnata olmaydi.
 ishga tushirish) bitta bronga ikki marta xabar yuborardi. `FOR UPDATE
 SKIP LOCKED` — parallel nusxalar bir-birini kutmasin.
 
-Revision ID: 0034_booking_reminders
-Revises: 0033_rooms_tariffs
+Revision ID: 0038_booking_reminders
+Revises: 0037_rooms_tariffs
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0034_booking_reminders"
-down_revision = "0033_rooms_tariffs"
+revision = "0038_booking_reminders"
+down_revision = "0037_rooms_tariffs"
 branch_labels = None
 depends_on = None
 

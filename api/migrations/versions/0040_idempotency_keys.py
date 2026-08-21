@@ -8,16 +8,16 @@ Stage 1 — faqat 4 endpoint himoyalanadi (`bookings/router.py::create_staff_boo
 `pos/router.py::create_order/close_bill/cancel_order`); jadval va modul
 qolgan endpoint'lar uchun ham qayta ishlatiladi (keyingi PR).
 
-Revision ID: 0036_idempotency_keys
-Revises: 0035_discount_policy
+Revision ID: 0040_idempotency_keys
+Revises: 0039_discount_policy
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0036_idempotency_keys"
-down_revision = "0035_discount_policy"
+revision = "0040_idempotency_keys"
+down_revision = "0039_discount_policy"
 branch_labels = None
 depends_on = None
 

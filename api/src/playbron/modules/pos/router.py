@@ -382,7 +382,7 @@ async def close_bill(
         paid_amount=body.paid_amount,
         shortfall_reason=body.shortfall_reason,
         overpay_reason=body.overpay_reason,
-        # Chegirma chegarasi rolga bog'liq (`0035_discount_policy`) —
+        # Chegirma chegarasi rolga bog'liq (`0039_discount_policy`) —
         # `require_staff` uchtala rolni ham o'tkazadi.
         actor_role=context.role_in(club_id),
     )

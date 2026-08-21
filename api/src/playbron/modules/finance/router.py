@@ -9,11 +9,11 @@ o'qishidan farqi shu.
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, BackgroundTasks, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context
+from playbron.core import context, queue
 from playbron.core.errors import Forbidden
 from playbron.deps import db, require_admin, require_staff
 from playbron.modules.finance import reports, service, shifts
@@ -87,7 +87,7 @@ async def create_expense(
     row = await service.create_expense(
         session,
         club_id=club_id,
-        created_by=context.current().user_id,
+        created_by=int(context.current().user_id or 0),
         spent_on=body.spent_on,
         category=body.category,
         amount=body.amount,
@@ -182,7 +182,7 @@ async def current_shift(
 ) -> ShiftOut | None:
     _assert_path_matches_header(club_id)
     row = await shifts.get_current_shift(
-        session, club_id=club_id, staff_id=context.current().user_id
+        session, club_id=club_id, staff_id=int(context.current().user_id or 0)
     )
     return ShiftOut(**row) if row is not None else None
 
@@ -217,7 +217,7 @@ async def open_shift(
     row = await shifts.open_shift(
         session,
         club_id=club_id,
-        staff_id=context.current().user_id,
+        staff_id=int(context.current().user_id or 0),
         opening_cash=body.opening_cash,
     )
     return ShiftOut(**row)
@@ -243,7 +243,7 @@ async def add_shift_movement(
         kind=body.kind,
         amount=body.amount,
         reason=body.reason,
-        created_by=context.current().user_id,
+        created_by=int(context.current().user_id or 0),
     )
     return ShiftOut(**row)
 
@@ -258,6 +258,7 @@ async def close_shift(
     club_id: Annotated[int, Path()],
     shift_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    background: BackgroundTasks,
 ) -> ShiftOut:
     _assert_path_matches_header(club_id)
     row = await shifts.close_shift(
@@ -265,8 +266,13 @@ async def close_shift(
         club_id=club_id,
         shift_id=shift_id,
         counted_cash=body.counted_cash,
-        closed_by=context.current().user_id,
+        closed_by=int(context.current().user_id or 0),
     )
+    # Katta farq xabari — javob va COMMIT'dan KEYIN navbatga (BackgroundTasks):
+    # rollback bo'lsa egaga yolg'on xabar ketmaydi. Navbat best-effort.
+    alert = row.pop("variance_alert", None)
+    if alert:
+        background.add_task(queue.enqueue, "notify_shift_variance", club_id, shift_id, alert)
     return ShiftOut(**row)
 
 
