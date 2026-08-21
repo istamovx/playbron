@@ -2,17 +2,21 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, Header, Path, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context, telegram_api
+from playbron.core import context, idempotency, telegram_api
 from playbron.core.config import settings
 from playbron.core.errors import Forbidden, NotFound
 from playbron.deps import db, require_admin, require_staff
 from playbron.modules.pos import service
 
 router = APIRouter(prefix="/clubs", tags=["pos"])
+
+ORDER_CREATE_ROUTE = "POST /orders"
+ORDER_CANCEL_ROUTE = "POST /orders/{order_id}/cancel"
+BILL_CLOSE_ROUTE = "POST /bookings/{booking_id}/close"
 
 
 def _assert_path_matches_header(club_id: int) -> None:
@@ -90,6 +94,8 @@ class OpenBookingOut(BaseModel):
     station_code: str
     hours: int
     rate_snapshot: int
+    # Oynaning TO'LIQ summasi — hisob-kitob shundan ketadi.
+    play_amount: int
     starts_at: str
     ends_at: str
     guest_label: str | None
@@ -223,16 +229,33 @@ async def create_order(
     body: OrderCreateIn,
     club_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> OrderOut:
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=ORDER_CREATE_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return OrderOut(**outcome.replay["body"])
+
     row = await service.create_order(
         session,
         club_id=club_id,
-        created_by=int(context.current().user_id or 0),
+        created_by=user_id,
         booking_id=body.booking_id,
         items=[item.model_dump() for item in body.items],
         payment_method=body.payment_method,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=row)
     return OrderOut(**row)
 
 
@@ -260,17 +283,33 @@ async def cancel_order(
     club_id: Annotated[int, Path()],
     order_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, str]:
     """Faqat `NEW` holatidagi buyurtma bekor qilinadi (loyiha egasi,
-    2026-08-16). Qoldiq qaytariladi — `service.cancel_order()`."""
+    2026-08-16). Qoldiq qaytariladi — `service.cancel_order()`.
+
+    `Idempotency-Key` — takroriy so'rov ikkinchi `REFUND` yozuvi yaratmasin.
+    """
     _assert_path_matches_header(club_id)
-    await service.cancel_order(
+    user_id = int(context.current().user_id or 0)
+    outcome = await idempotency.begin(
         session,
+        key=idempotency_key,
+        route=ORDER_CANCEL_ROUTE,
         club_id=club_id,
-        order_id=order_id,
-        cancelled_by=int(context.current().user_id or 0),
+        user_id=user_id,
+        path_params={"order_id": order_id},
+        body={},
     )
-    return {"status": "CANCELLED"}
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return dict(outcome.replay["body"])
+
+    await service.cancel_order(session, club_id=club_id, order_id=order_id, cancelled_by=user_id)
+    result = {"status": "CANCELLED"}
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=200, response_body=result)
+    return result
 
 
 # ── Kassa ─────────────────────────────────────────────────────────────────
@@ -314,18 +353,40 @@ async def close_bill(
     club_id: Annotated[int, Path()],
     booking_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> BillOut:
+    """`Idempotency-Key` — takroriy so'rov ikkinchi `FINAL` to'lov yozmasin
+    (bu 4 endpoint ichida eng katta pul xavfi)."""
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=BILL_CLOSE_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"booking_id": booking_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return BillOut(**outcome.replay["body"])
+
     row = await service.close_bill(
         session,
         club_id=club_id,
         booking_id=booking_id,
-        closed_by=int(context.current().user_id or 0),
+        closed_by=user_id,
         payment_method=body.payment_method,
         paid_amount=body.paid_amount,
         shortfall_reason=body.shortfall_reason,
         overpay_reason=body.overpay_reason,
+        # Chegirma chegarasi rolga bog'liq (`0039_discount_policy`) —
+        # `require_staff` uchtala rolni ham o'tkazadi.
+        actor_role=context.role_in(club_id),
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=200, response_body=row)
     return BillOut(**row)
 
 

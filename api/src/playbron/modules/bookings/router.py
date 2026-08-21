@@ -10,14 +10,16 @@ Uch guruh:
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Header, Path, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context
+from playbron.core import context, idempotency
 from playbron.core.errors import BadRequest, Forbidden, NotFound
 from playbron.deps import db, public_db, require_admin, require_customer_token, require_staff
 from playbron.modules.bookings import service
+
+STAFF_BOOKING_ROUTE = "POST /bookings/staff"
 
 router = APIRouter(prefix="/clubs", tags=["bookings"])
 
@@ -44,10 +46,20 @@ class ClubOut(BaseModel):
     timezone: str
     google_maps_url: str | None
     yandex_maps_url: str | None
+    # Bron oynasi chegaralari — mijoz ilovasi davomiylik va kun tasmasini
+    # SHULARDAN quradi. Ilgari ular klientda qotirilgan edi (`1..6`, `14`)
+    # va klub sozlamasini o'zgartirsa ilova baribir eski variantni
+    # ko'rsatib, so'rov serverda 422 bo'lardi.
+    min_booking_hours: int
+    max_booking_hours: int
+    max_advance_days: int
+    slot_step_min: int
 
 
 class ClubDetailOut(ClubOut):
     status: str
+    # Faqat xodim yo'lida — mijoz uzaytirmaydi.
+    extend_max_hours: int
 
 
 class StationOut(BaseModel):
@@ -80,17 +92,38 @@ _CONSOLE_TYPE_PATTERN = "^(ps3|ps4|ps4pro|ps5|ps5pro)$"
 class CustomerBookingIn(BaseModel):
     station_id: int
     starts_at: datetime
-    hours: int = Field(ge=1, le=6)
+    # Yuqori chegara — DB'ning MUTLAQ shifti (`bookings_hours_range_ck`),
+    # klub sozlamasi emas. Haqiqiy oraliq `service._validate_window()` da
+    # `clubs.min_booking_hours/max_booking_hours` bo'yicha tekshiriladi va
+    # barqaror `HOURS_OUT_OF_RANGE` kodi bilan qaytadi. Bu yerda `6`
+    # turgan edi: 8 soatga sozlangan klub Pydantic darajasida, kodsiz
+    # 422 bilan rad etilardi va sozlama jimgina ishlamasdi.
+    hours: int = Field(ge=1, le=service.MAX_TOTAL_HOURS)
     console_type: str | None = Field(default=None, pattern=_CONSOLE_TYPE_PATTERN)
 
 
 class StaffBookingIn(BaseModel):
     station_id: int
     starts_at: datetime
-    hours: int = Field(ge=1, le=6)
+    # Yuqori chegara — DB'ning MUTLAQ shifti (`bookings_hours_range_ck`),
+    # klub sozlamasi emas. Haqiqiy oraliq `service._validate_window()` da
+    # `clubs.min_booking_hours/max_booking_hours` bo'yicha tekshiriladi va
+    # barqaror `HOURS_OUT_OF_RANGE` kodi bilan qaytadi. Bu yerda `6`
+    # turgan edi: 8 soatga sozlangan klub Pydantic darajasida, kodsiz
+    # 422 bilan rad etilardi va sozlama jimgina ishlamasdi.
+    hours: int = Field(ge=1, le=service.MAX_TOTAL_HOURS)
     guest_name: str = Field(min_length=1, max_length=128)
     guest_phone: str = Field(min_length=1, max_length=32)
     console_type: str | None = Field(default=None, pattern=_CONSOLE_TYPE_PATTERN)
+
+
+class QuoteOut(BaseModel):
+    """Bron qilinmasdan hisoblangan narx."""
+
+    play_amount: int
+    rate_snapshot: int
+    hours: int
+    console_type: str
 
 
 class BookingOut(BaseModel):
@@ -101,6 +134,10 @@ class BookingOut(BaseModel):
     ends_at: str
     hours: int
     rate_snapshot: int
+    # Oynaning TO'LIQ narxi. Tarif vaqtga qarab o'zgarsa
+    # `rate_snapshot * hours` unga teng bo'lmaydi — hisob-kitob doim shu
+    # ustundan ketadi (`0037_rooms_tariffs.py`).
+    play_amount: int
     console_type: str
     prepaid_amount: int = 0
     guest_name: str | None = None
@@ -115,6 +152,9 @@ class PendingBookingOut(BaseModel):
     ends_at: str
     hours: int
     rate_snapshot: int
+    # Oynaning TO'LIQ summasi. `rate_snapshot * hours` bilan hisoblamang:
+    # tarif oyna ichida o'zgarsa ular teng bo'lmaydi.
+    play_amount: int
     customer_name: str | None
     customer_phone: str | None
 
@@ -130,6 +170,12 @@ class ClubUpdateIn(BaseModel):
     about: str = Field(default="", max_length=2000)
     opens_at_min: int = Field(ge=0, le=1559)
     closes_at_min: int = Field(ge=1, le=1560)
+    # Chegaralar `0033` dagi CHECK konstreyntlari bilan bir xil.
+    min_booking_hours: int = Field(default=1, ge=1, le=service.MAX_TOTAL_HOURS)
+    max_booking_hours: int = Field(default=6, ge=1, le=service.MAX_TOTAL_HOURS)
+    max_advance_days: int = Field(default=14, ge=1, le=365)
+    extend_max_hours: int = Field(default=3, ge=1, le=service.EXTEND_HARD_MAX_HOURS)
+    slot_step_min: int = Field(default=30, ge=15, le=60)
     # Xom havola — mijoz ilovasidagi "Manzil" tugmasi to'g'ridan-to'g'ri shuni
     # ochadi. Https tekshiruvi servis qatlamida (`service.py::update_club`).
     google_maps_url: str | None = Field(default=None, max_length=500)
@@ -205,6 +251,11 @@ async def update_club(
         about=body.about,
         opens_at_min=body.opens_at_min,
         closes_at_min=body.closes_at_min,
+        min_booking_hours=body.min_booking_hours,
+        max_booking_hours=body.max_booking_hours,
+        max_advance_days=body.max_advance_days,
+        extend_max_hours=body.extend_max_hours,
+        slot_step_min=body.slot_step_min,
         google_maps_url=body.google_maps_url,
         yandex_maps_url=body.yandex_maps_url,
     )
@@ -283,6 +334,208 @@ async def update_station(
         status=body.status,
     )
     return StationOut(**row)
+
+
+# ── Xonalar va tariflar ───────────────────────────────────────────────────
+# Jadvallar `0037_rooms_tariffs.py` da tayyor va `pricing.py` ularni
+# o'qiydi, lekin boshqaruv yo'li yo'q edi — tarif faqat xom SQL bilan
+# kiritilardi (`CLAUDE.md`, «Ma'lum texnik qarz»).
+#
+# Hammasi `require_admin`: `rooms_write`/`tariffs_write` policy'lari ham
+# faqat OWNER/ADMIN ga ochiq, guard esa uning USTIGA qo'shimcha qatlam.
+# Ro'yxatlar ham admin ostida — `0033` dagi ochiq `*_read` policy'si
+# MIJOZ yo'li uchun (narxni bron qilishdan oldin ko'rish), bu yerdagisi
+# esa boshqaruv ro'yxati: nofaol qatorlarni ham qaytaradi.
+#
+# O'chirish YO'Q — `is_active` bilan arxivlanadi (`products` naqshi):
+# yopilgan bronlarning narxi shu qatorlar orqali hisoblangan.
+
+
+class RoomOut(BaseModel):
+    id: int
+    name: str
+    # Erkin matn: klub o'zi nomlaydi. Tarif shu qiymatga qarab
+    # yo'naltiriladi (`tariffs.room_kind`).
+    kind: str
+    sort: int
+    is_active: bool
+
+
+class RoomCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    kind: str = Field(default="Standart", max_length=32)
+    sort: int = Field(default=0, ge=0, le=9999)
+
+
+class RoomUpdateIn(RoomCreateIn):
+    is_active: bool = True
+
+
+class TariffOut(BaseModel):
+    id: int
+    name: str
+    days_mask: int
+    from_min: int
+    to_min: int
+    price_per_hour: int
+    priority: int
+    console_type: str | None
+    room_kind: str | None
+    is_active: bool
+
+
+class TariffCreateIn(BaseModel):
+    """Chegaralar `tariffs_*_ck` (`0033`) bilan bir xil.
+
+    `to_min` 1440 dan katta bo'lishi MUMKIN — yarim tundan o'tuvchi oyna
+    (22:00–02:00 → 1320..1560) shunday ifodalanadi.
+    """
+
+    name: str = Field(min_length=1, max_length=64)
+    # Dushanba = 1-bit ... yakshanba = 64-bit. `0` — hech qanday kun,
+    # ya'ni tarif hech qachon qo'llanmasdi.
+    days_mask: int = Field(ge=1, le=127)
+    from_min: int = Field(ge=0, le=1439)
+    to_min: int = Field(ge=1, le=2880)
+    price_per_hour: int = Field(gt=0)
+    priority: int = Field(default=0, ge=0, le=1000)
+    # `None` — har qanday konsolga / xonaga.
+    console_type: str | None = Field(default=None, pattern=_CONSOLE_TYPE_PATTERN)
+    room_kind: str | None = Field(default=None, max_length=32)
+
+
+class TariffUpdateIn(TariffCreateIn):
+    is_active: bool = True
+
+
+@router.get(
+    "/{club_id}/rooms",
+    response_model=list[RoomOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_rooms(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> list[RoomOut]:
+    _assert_path_matches_header(club_id)
+    rows = await service.list_rooms(session, club_id)
+    return [RoomOut(**r) for r in rows]
+
+
+@router.post(
+    "/{club_id}/rooms",
+    response_model=RoomOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_room(
+    body: RoomCreateIn,
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> RoomOut:
+    _assert_path_matches_header(club_id)
+    row = await service.create_room(
+        session,
+        club_id=club_id,
+        name=body.name,
+        kind=body.kind,
+        sort=body.sort,
+    )
+    return RoomOut(**row)
+
+
+@router.patch(
+    "/{club_id}/rooms/{room_id}",
+    response_model=RoomOut,
+    dependencies=[Depends(require_admin)],
+)
+async def update_room(
+    body: RoomUpdateIn,
+    club_id: Annotated[int, Path()],
+    room_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> RoomOut:
+    _assert_path_matches_header(club_id)
+    row = await service.update_room(
+        session,
+        club_id=club_id,
+        room_id=room_id,
+        name=body.name,
+        kind=body.kind,
+        sort=body.sort,
+        is_active=body.is_active,
+    )
+    return RoomOut(**row)
+
+
+@router.get(
+    "/{club_id}/tariffs",
+    response_model=list[TariffOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_tariffs(
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> list[TariffOut]:
+    _assert_path_matches_header(club_id)
+    rows = await service.list_tariffs(session, club_id)
+    return [TariffOut(**r) for r in rows]
+
+
+@router.post(
+    "/{club_id}/tariffs",
+    response_model=TariffOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_tariff(
+    body: TariffCreateIn,
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> TariffOut:
+    _assert_path_matches_header(club_id)
+    row = await service.create_tariff(
+        session,
+        club_id=club_id,
+        name=body.name,
+        days_mask=body.days_mask,
+        from_min=body.from_min,
+        to_min=body.to_min,
+        price_per_hour=body.price_per_hour,
+        priority=body.priority,
+        console_type=body.console_type,
+        room_kind=body.room_kind,
+    )
+    return TariffOut(**row)
+
+
+@router.patch(
+    "/{club_id}/tariffs/{tariff_id}",
+    response_model=TariffOut,
+    dependencies=[Depends(require_admin)],
+)
+async def update_tariff(
+    body: TariffUpdateIn,
+    club_id: Annotated[int, Path()],
+    tariff_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> TariffOut:
+    _assert_path_matches_header(club_id)
+    row = await service.update_tariff(
+        session,
+        club_id=club_id,
+        tariff_id=tariff_id,
+        name=body.name,
+        days_mask=body.days_mask,
+        from_min=body.from_min,
+        to_min=body.to_min,
+        price_per_hour=body.price_per_hour,
+        priority=body.priority,
+        console_type=body.console_type,
+        room_kind=body.room_kind,
+        is_active=body.is_active,
+    )
+    return TariffOut(**row)
 
 
 @router.get("/{club_id}/bookings/day", response_model=list[DayBookingOut])
@@ -367,6 +620,34 @@ async def create_booking(
     return BookingOut(**result)
 
 
+@router.post(
+    "/{club_id}/bookings/quote",
+    response_model=QuoteOut,
+    dependencies=[Depends(require_customer_token)],
+)
+async def quote_booking(
+    body: CustomerBookingIn,
+    club_id: Annotated[int, Path()],
+    session: Annotated[AsyncSession, Depends(db)],
+) -> QuoteOut:
+    """Narxni bron QILMASDAN hisoblaydi.
+
+    `0037_rooms_tariffs.py` dan keyin narx vaqtga qarab o'zgaradi —
+    mijoz ilovasi uni o'zi hisoblab bera olmaydi va `CLAUDE.md`
+    («Frontend») bo'yicha hisoblamasligi ham kerak. Usiz mijoz jami
+    summani faqat bron qilib bo'lgandan keyin bilardi.
+    """
+    result = await service.quote_booking(
+        session,
+        club_id=club_id,
+        station_id=body.station_id,
+        starts_at=body.starts_at,
+        hours=body.hours,
+        console_type=body.console_type,
+    )
+    return QuoteOut(**result)
+
+
 # ── Xodim ─────────────────────────────────────────────────────────────────
 
 
@@ -380,16 +661,35 @@ async def create_staff_booking(
     body: StaffBookingIn,
     club_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> BookingOut:
     """Xodim qo'lda bron ochadi — telefon/kelib bron qiladigan mijoz uchun.
 
     Darhol `CONFIRMED`: xodimning o'zi tasdiqlovchi.
+
+    `Idempotency-Key` — tarmoq sekin bo'lib qayta yuborilsa yoki tugma ikki
+    marta bosilsa, ikkinchi bron OCHILMASIN (`core/idempotency.py`).
     """
     _assert_path_matches_header(club_id)
+    user_id = context.current().user_id or 0
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=STAFF_BOOKING_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return BookingOut(**outcome.replay["body"])
+
     result = await service.create_staff_booking(
         session,
         club_id=club_id,
-        created_by=context.current().user_id,
+        created_by=user_id,
         station_id=body.station_id,
         starts_at=body.starts_at,
         hours=body.hours,
@@ -397,6 +697,7 @@ async def create_staff_booking(
         guest_phone=body.guest_phone,
         console_type=body.console_type,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=result)
     return BookingOut(**result)
 
 
@@ -491,7 +792,10 @@ async def booking_detail(
 
 
 class ExtendIn(BaseModel):
-    extra_hours: int = Field(ge=1, le=service.EXTEND_MAX_HOURS)
+    # DTO faqat DB darajasidagi QATTIQ chegarani biladi. Klubning o'z
+    # chegarasi (`clubs.extend_max_hours`) servisda tekshiriladi — import
+    # paytida o'qiladigan konstanta tenantga qarab o'zgara olmaydi.
+    extra_hours: int = Field(ge=1, le=service.EXTEND_HARD_MAX_HOURS)
 
 
 class ExtendOut(BaseModel):

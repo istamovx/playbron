@@ -434,7 +434,8 @@ body {
   clip-path: var(--clip-tr);
 }
 
-.pbl-card h3 {
+.pbl-card h3,
+.pbl-card h4 {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--fs-lg);
@@ -442,6 +443,22 @@ body {
   line-height: var(--lh-snug);
   letter-spacing: var(--ls-title);
   color: var(--text-title);
+}
+
+/* Imkoniyatlar bo'limi — mavzu bo'yicha guruhlangan kartalar */
+.pbl-feature-groups {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 3.6vw, 44px);
+}
+
+.pbl-feature-group__title {
+  margin: 0 0 var(--sp-5);
+  font: var(--type-label);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-accent);
 }
 
 .pbl-card p {
@@ -636,7 +653,7 @@ body {
 /* KPI kartalari */
 .pbl-kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(9em, 1fr));
   gap: var(--sp-4);
 }
 .pbl-kpi {
@@ -709,13 +726,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pbl-station__time {
-  font-family: var(--font-mono);
-  font-size: 1em;
-  letter-spacing: var(--ls-mono);
-  color: var(--fg-2);
-  flex: none;
-}
 .pbl-station__room {
   font: var(--type-label);
   font-size: 0.8em;
@@ -740,6 +750,31 @@ body {
   box-shadow: 0 0 6px currentColor;
 }
 
+.pbl-station__divider {
+  height: 1px;
+  background: var(--line-1);
+}
+
+.pbl-station__guest {
+  font-family: var(--font-ui);
+  font-size: 0.92em;
+  color: var(--fg-2);
+}
+
+.pbl-station__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.1em;
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  font-weight: var(--fw-medium);
+  color: var(--text-accent);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+}
+
 .pbl-station[data-state='free'] {
   color: var(--slot-free);
   background: var(--slot-free-bg);
@@ -750,75 +785,13 @@ body {
   background: var(--slot-assigned-bg);
   border-color: color-mix(in srgb, var(--slot-assigned) 46%, transparent);
 }
-.pbl-station[data-state='soon'] {
-  color: var(--amber-400);
-  background: color-mix(in srgb, var(--amber-400) 12%, transparent);
-  border-color: color-mix(in srgb, var(--amber-400) 46%, transparent);
-}
-.pbl-station[data-state='booked'] {
+.pbl-station[data-state='maintenance'] {
   color: var(--fg-3);
   background: var(--surface-panel-quiet);
   border-style: dashed;
   border-color: var(--line-2);
 }
 
-/* Bandlik ustunlari */
-.pbl-chart {
-  padding: var(--sp-6);
-  background: var(--surface-panel);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-1);
-  clip-path: var(--clip-tr);
-}
-.pbl-chart__title {
-  font: var(--type-label);
-  font-size: 0.8em;
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.pbl-bars {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  align-items: end;
-  gap: var(--sp-3);
-  height: 5.6em;
-  margin-top: var(--sp-5);
-}
-.pbl-bars i {
-  display: block;
-  background: var(--surface-accent);
-  border-top: 1px solid var(--border-accent);
-  border-radius: var(--r-1) var(--r-1) 0 0;
-  transform-origin: bottom;
-  animation: pbl-rise var(--dur-4) var(--ease-out) backwards;
-}
-.pbl-bars i:nth-child(2n) {
-  background: color-mix(in srgb, var(--primary-100) 42%, transparent);
-}
-.pbl-hours {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: var(--sp-3);
-  margin-top: var(--sp-3);
-  font-family: var(--font-mono);
-  font-size: 0.82em;
-  color: var(--fg-5);
-  text-align: center;
-}
-
-@keyframes pbl-rise {
-  from {
-    transform: scaleY(0);
-    opacity: 0;
-  }
-  to {
-    transform: scaleY(1);
-    opacity: 1;
-  }
-}
 
 /* Kassa paneli */
 .pbl-bill {
@@ -1633,8 +1606,5 @@ body {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
-  }
-  .pbl-bars i {
-    animation: none;
   }
 }

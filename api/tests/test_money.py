@@ -150,10 +150,11 @@ async def world() -> AsyncIterator[dict[str, int]]:
             ids["booking"] = await conn.scalar(
                 text(
                     "INSERT INTO bookings (club_id, station_id, guest_name, guest_phone,"
-                    " source, status, period, hours, rate_snapshot, console_type, created_by,"
-                    " confirmed_by, confirmed_at)"
+                    " source, status, period, hours, rate_snapshot, play_amount,"
+                    " console_type, created_by, confirmed_by, confirmed_at)"
                     " VALUES (:c, :s, 'Mehmon', '+998900000000', 'STAFF', 'CONFIRMED',"
-                    " tstzrange(:starts, :ends), :hours, :rate, 'ps5', :u, :u, now())"
+                    " tstzrange(:starts, :ends), :hours, :rate, :play, 'ps5',"
+                    " :u, :u, now())"
                     " RETURNING id"
                 ),
                 {
@@ -163,6 +164,7 @@ async def world() -> AsyncIterator[dict[str, int]]:
                     "ends": starts + timedelta(hours=BOOKING_HOURS),
                     "hours": BOOKING_HOURS,
                     "rate": RATE,
+                    "play": PLAY_TOTAL,
                     "u": ids["owner"],
                 },
             )
@@ -380,6 +382,64 @@ async def test_discount_is_recorded_and_only_paid_cash_counted(
     # Kassaga FAQAT haqiqatan olingan pul tushadi
     shift = await _current_shift(client, headers, world["club"])
     assert shift["expected_cash"] == 10_000 + (PLAY_TOTAL - 20_000)
+
+
+@skip_no_db
+async def test_staff_cannot_zero_the_bill_with_a_discount(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Rol auditi topilmasi (2026-08-18) — chegaraga qadar chek yo'q edi.
+
+    Klub sukuti 20% (`clubs.staff_max_discount_percent`), ya'ni 80 000 lik
+    hisobda xodimning eng katta chegirmasi 16 000.
+    """
+    staff_h = await _headers(client, world["club"], STAFF_LOGIN)
+    await _open_shift(client, staff_h, world["club"])
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/close",
+        json={"payment_method": "CASH", "paid_amount": 0, "shortfall_reason": "DISCOUNT"},
+        headers=staff_h,
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "DISCOUNT_LIMIT_EXCEEDED"
+
+    # Hisob YOPILMAY qolgan bo'lishi shart — rad etish yarim holat
+    # qoldirmasin (`payments` yozuvi ham bo'lmasin).
+    engine = _owner_engine()
+    try:
+        async with engine.begin() as conn, rls_bypass(conn, "bookings"):
+            row = (
+                await conn.execute(
+                    text("SELECT closed_at, discount_amount FROM bookings WHERE id = :b"),
+                    {"b": world["booking"]},
+                )
+            ).one()
+            assert row.closed_at is None
+            assert row.discount_amount == 0
+    finally:
+        await engine.dispose()
+
+
+@skip_no_db
+async def test_staff_discount_within_the_limit_passes(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Chegara ichidagi chegirma xodimga OCHIQ qoladi — bu qulf emas."""
+    staff_h = await _headers(client, world["club"], STAFF_LOGIN)
+    await _open_shift(client, staff_h, world["club"], opening_cash=0)
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{world['booking']}/close",
+        json={
+            "payment_method": "CASH",
+            "paid_amount": PLAY_TOTAL - 16_000,
+            "shortfall_reason": "DISCOUNT",
+        },
+        headers=staff_h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["discount_amount"] == 16_000
 
 
 @skip_no_db

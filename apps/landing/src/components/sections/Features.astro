@@ -19,16 +19,23 @@ const f = c.features;
       <div class="pbl-rule" aria-hidden="true"><i></i><i></i><i></i></div>
     </div>
 
-    <div class="pbl-grid">
+    <div class="pbl-feature-groups">
       {
-        f.items.map((item) => (
-          <article class="pbl-card">
-            <span class="pbl-card__icon">
-              <Icon name={item.icon} size="lg" />
-            </span>
-            <h3>{item.title}</h3>
-            <p>{item.text}</p>
-          </article>
+        f.groups.map((group) => (
+          <div class="pbl-feature-group">
+            <h3 class="pbl-feature-group__title">{group.title}</h3>
+            <div class="pbl-grid">
+              {group.items.map((item) => (
+                <article class="pbl-card">
+                  <span class="pbl-card__icon">
+                    <Icon name={item.icon} size="lg" />
+                  </span>
+                  <h4>{item.title}</h4>
+                  <p>{item.text}</p>
+                </article>
+              ))}
+            </div>
+          </div>
         ))
       }
     </div>

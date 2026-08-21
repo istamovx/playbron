@@ -1,20 +1,26 @@
+import { CLUB_TIMEZONE } from '@playbron/ui';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { BASE, EXTEND_STEP_MIN, MENU, SESSION_END, type CustomerOrder, type ScreenId } from '../mock/data';
 import { ANY } from '../lib/slots';
+import type { ScreenId } from '../nav';
 
 /**
- * Mijoz ilovasining holati — prototipdagi `Component.state` ning o'zi
- * (`docs/designs/PlayBron Mijoz.dc.html`).
+ * Mijoz ilovasining KO'RINISH holati — navigatsiya va bron oqimidagi tanlov.
+ *
+ * Bu yerda ma'lumot SAQLANMAYDI: klublar, xonalar, bandlik va bronlar
+ * `store/booking.ts` orqali serverdan keladi. Avval shu faylda savat, bar
+ * buyurtmalari va "aktiv seans" simulyatsiyasi ham bor edi (`mock/data.ts`
+ * konstantalaridan) — mijoz rolida ular soxta hisob ko'rsatardi, shuning
+ * uchun butunlay olib tashlandi (loyiha egasi, 2026-08-17).
  */
 interface AppState {
   screen: ScreenId;
-  /** Push navigatsiya tarixi — BackButton shundan ishlaydi. */
+  /** Push navigatsiya tarixi — «orqaga» shundan ishlaydi. */
   stack: ScreenId[];
+  /** Soniyalik takt — taymer va soat shu bilan qayta chiziladi. */
   tick: number;
-  sort: string;
   /** Ko'rilayotgan/tanlangan klub — `clubs.tsx`da tanlanadi, `null` — hali yo'q. */
   clubId: number | null;
   /** Slot filtri: xona turi va konsol (`ANY` — barchasi). */
@@ -36,23 +42,10 @@ interface AppState {
    * (`CONSOLE_TYPE_REQUIRED`) — audit topilmasi, 2026-08-16: shusiz
    * yangi klublarda mijoz umuman bron qila olmasdi. */
   bookingConsole: string;
-  pay: string;
-  cat: string;
-  payFinal: string;
-  receipt: 'none' | 'sent';
-  cart: Record<string, number>;
-  /** Aktiv seansga qo'shilgan vaqt, daqiqa. */
-  extendMin: number;
-  /** Yuborilgan bildirishnomalar — takrorlanmasligi uchun. */
-  notified: string[];
-  /** Barga yuborilgan buyurtmalar. */
-  orders: CustomerOrder[];
 
   go: (screen: ScreenId) => void;
   back: () => void;
   tab: (screen: ScreenId) => void;
-  bump: (id: string, delta: number) => void;
-  setSort: (sort: string) => void;
   setClubId: (clubId: number) => void;
   setRoom: (room: string) => void;
   setConsole: (console: string) => void;
@@ -61,14 +54,6 @@ interface AppState {
   setStart: (start: number) => void;
   setStation: (station: number | null) => void;
   setBookingConsole: (consoleType: string) => void;
-  setPay: (pay: string) => void;
-  setCat: (cat: string) => void;
-  setPayFinal: (pay: string) => void;
-  setReceipt: (receipt: 'none' | 'sent') => void;
-  extend: () => void;
-  markNotified: (key: string) => void;
-  /** Savatni barga yuboradi va bo'shatadi. */
-  sendOrder: () => void;
   tickOnce: () => void;
 }
 
@@ -76,96 +61,49 @@ export const useApp = create<AppState>()((set) => ({
   screen: 'clubs',
   stack: [],
   tick: 0,
-  sort: 'Yaqin',
   clubId: null,
   room: ANY,
   console: ANY,
   hours: 2,
   day: 0,
-  start: 21 * 60 + 30,
+  // Klub yuklangach `slots.tsx` uni birinchi BO'SH slotga tuzatadi.
+  start: 20 * 60,
   station: null,
   bookingConsole: '',
-  pay: 'Payme',
-  cat: 'Ichimliklar',
-  payFinal: 'Naqd',
-  receipt: 'none',
-  // Savat BO'SH boshlanadi. Avval `{ m1: 2, m7: 1 }` edi — prototip
-  // qoldig'i: ilova har ochilganda savatda "2× Pepsi + 1× Lay's"
-  // oldindan turardi (audit topilmasi, 2026-08-16).
-  cart: {},
-  extendMin: 0,
-  notified: [],
-  orders: [],
 
   go: (screen) => set((state) => ({ screen, stack: [...state.stack, state.screen] })),
   back: () =>
     set((state) =>
       state.stack.length
-        ? { screen: state.stack[state.stack.length - 1] as ScreenId, stack: state.stack.slice(0, -1) }
+        ? {
+            screen: state.stack[state.stack.length - 1] as ScreenId,
+            stack: state.stack.slice(0, -1),
+          }
         : state,
     ),
   tab: (screen) => set({ screen, stack: [] }),
 
-  bump: (id, delta) =>
-    set((state) => {
-      const cart = { ...state.cart };
-      cart[id] = Math.max(0, (cart[id] ?? 0) + delta);
-      if (!cart[id]) delete cart[id];
-      return { cart };
-    }),
-
-  setSort: (sort) => set({ sort }),
   setClubId: (clubId) => set({ clubId, station: null, bookingConsole: '' }),
   setRoom: (room) => set({ room }),
   setConsole: (console) => set({ console }),
   setHours: (hours) => set({ hours }),
   setDay: (day) => set({ day }),
   setStart: (start) => set({ start }),
-  setStation: (station) => set({ station }),
+  // Konsol tanlovi HAR stansiya almashganda tozalanadi: konsolsiz
+  // stansiyada 'ps5' tanlab, keyin ps4 stansiyaga o'tilsa narx ps5
+  // tarifi bo'yicha so'ralib, bron ps4 bo'yicha yaratilardi.
+  setStation: (station) => set({ station, bookingConsole: '' }),
   setBookingConsole: (bookingConsole) => set({ bookingConsole }),
-  setPay: (pay) => set({ pay }),
-  setCat: (cat) => set({ cat }),
-  setPayFinal: (payFinal) => set({ payFinal }),
-  setReceipt: (receipt) => set({ receipt }),
-
-  // Uzaytirilgach ogohlantirishlar yangi tugash vaqti bo'yicha qaytadan yuboriladi
-  extend: () =>
-    set((state) => ({ extendMin: state.extendMin + EXTEND_STEP_MIN, notified: [] })),
-  markNotified: (key) =>
-    set((state) => (state.notified.includes(key) ? state : { notified: [...state.notified, key] })),
-
-  sendOrder: () =>
-    set((state) => {
-      const lines = Object.entries(state.cart)
-        .filter(([, qty]) => qty > 0)
-        .map(([id, qty]) => ({ id, qty }));
-      if (lines.length === 0) return state;
-
-      const amount = lines.reduce(
-        (sum, line) => sum + (MENU.find((item) => item.id === line.id)?.price ?? 0) * line.qty,
-        0,
-      );
-
-      return {
-        cart: {},
-        orders: [
-          ...state.orders,
-          {
-            code: `B-${101 + state.orders.length}`,
-            at: BASE + state.tick,
-            lines,
-            amount,
-          },
-        ],
-      };
-    }),
 
   tickOnce: () => set((state) => ({ tick: state.tick + 1 })),
 }));
 
 /**
- * Mijoz profili — bir marta ro'yxatdan o'tadi va saqlanib qoladi.
- * Xodimdan farqli o'laroq bu yerda qayta kirish va sessiya muddati yo'q.
+ * Mijoz profili — Telegram orqali bir marta olinadi va qurilmada qoladi.
+ *
+ * Ism va telefon SERVERNIKI (`initData` → `signInWithInitData`): bu yerda
+ * ular faqat ko'rsatish uchun saqlanadi, tahrirlanmaydi — `PATCH /me`
+ * endpoint'i yo'q va avvalgi "Saqlash" tugmasi hech qayerga yubormasdi.
  */
 export interface Profile {
   name: string;
@@ -178,26 +116,17 @@ interface ProfileState {
   profile: Profile | null;
   /** Profilga kirilganmi. Chiqish faqat shuni o'chiradi. */
   signedIn: boolean;
-  /** Interfeys tili — `LANGS` dagi id. */
-  lang: string;
-  /** Seans bildirishnomalari yoqilganmi. */
+  /** Seans tugashidan oldingi ILOVA ICHIDAGI ogohlantirish. */
   notify: boolean;
-  /** Bron boshlanishidan oldingi eslatma. */
-  remind: boolean;
   /** Haptik javob — Telegram ichida seziladi. */
   haptics: boolean;
 
   register: (profile: Omit<Profile, 'registeredAt'>) => void;
-  update: (patch: Partial<Omit<Profile, 'registeredAt'>>) => void;
-  setLang: (lang: string) => void;
   setNotify: (notify: boolean) => void;
-  setRemind: (remind: boolean) => void;
   setHaptics: (haptics: boolean) => void;
   /** Profildan chiqish — ma'lumot o'chmaydi, bir bosishda qaytiladi. */
   signOut: () => void;
   signIn: () => void;
-  /** Boshqa raqam bilan boshlash — saqlangan hisob o'chadi. */
-  forget: () => void;
 }
 
 export const useProfile = create<ProfileState>()(
@@ -205,29 +134,30 @@ export const useProfile = create<ProfileState>()(
     (set) => ({
       profile: null,
       signedIn: true,
-      lang: 'uz',
       notify: true,
-      remind: true,
       haptics: true,
 
       register: (profile) =>
-        set({ profile: { ...profile, registeredAt: new Date().toISOString() }, signedIn: true }),
-      update: (patch) =>
-        set((state) => (state.profile ? { profile: { ...state.profile, ...patch } } : state)),
-      setLang: (lang) => set({ lang }),
+        set((state) => ({
+          // `registeredAt` — BIRINCHI kirish sanasi; har ochilishda
+          // yangilansa "N dan beri" doim bugungi kunni ko'rsatardi.
+          profile: {
+            ...profile,
+            registeredAt: state.profile?.registeredAt ?? new Date().toISOString(),
+          },
+          signedIn: true,
+        })),
       setNotify: (notify) => set({ notify }),
-      setRemind: (remind) => set({ remind }),
       setHaptics: (haptics) => set({ haptics }),
       signOut: () => set({ signedIn: false }),
       signIn: () => set({ signedIn: true }),
-      forget: () => set({ profile: null, signedIn: true }),
     }),
     { name: 'playbron.customer' },
   ),
 );
 
 /**
- * Hozirgi lahza — yarim tundan SONIYADA, KLUB vaqt zonasida.
+ * Hozirgi lahza — yarim tundan SONIYADA, berilgan vaqt zonasida.
  *
  * Avval `BASE + tick` edi, ya'ni soat DOIM 20:14:32 dan sanardi
  * (prototip qoldig'i) va header'da HAR BIR ekranda noto'g'ri vaqt
@@ -235,7 +165,7 @@ export const useProfile = create<ProfileState>()(
  * (audit topilmasi, 2026-08-16). `tick` faqat qayta render uchun
  * o'qiladi; qiymat esa har chaqiruvda haqiqiy soatdan olinadi.
  */
-export function useNow(timezone = 'Asia/Tashkent'): number {
+export function useNow(timezone: string = CLUB_TIMEZONE): number {
   useApp((state) => state.tick);
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
@@ -251,9 +181,11 @@ export function useNow(timezone = 'Asia/Tashkent'): number {
   return (Number(raw.hour) % 24) * 3600 + Number(raw.minute) * 60 + Number(raw.second);
 }
 
-/** Uzaytirishlarni hisobga olgan seans tugash lahzasi. */
-export function useSessionEnd(): number {
-  return SESSION_END + useApp((state) => state.extendMin) * 60;
+/** Hozirgi lahza, epoch millisekund. Taymerlar shu bilan sanaydi —
+ * lahzalar taqqoslashda vaqt zonasi qatnashmaydi. */
+export function useNowMs(): number {
+  useApp((state) => state.tick);
+  return Date.now();
 }
 
 export function useClock(): void {

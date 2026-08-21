@@ -14,7 +14,7 @@ from playbron.core.audit import log_action
 from playbron.core.errors import AppError, NotFound
 from playbron.core.text import clean_name
 from playbron.modules.finance import shifts
-from playbron.modules.pos.settlement import play_amount, settle_bill
+from playbron.modules.pos.settlement import settle_bill
 
 PRODUCT_CATEGORY_MAX = 32
 PRODUCT_NAME_MAX = 120
@@ -537,7 +537,7 @@ async def list_open_bookings(session: AsyncSession, club_id: int) -> list[dict[s
     rows = (
         await session.execute(
             text(
-                "SELECT b.id, s.code AS station_code, b.hours, b.rate_snapshot,"
+                "SELECT b.id, s.code AS station_code, b.hours, b.rate_snapshot, b.play_amount,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
                 "       COALESCE(u.display_name, u.first_name, b.guest_name) AS guest_label"
                 " FROM bookings b"
@@ -555,6 +555,7 @@ async def list_open_bookings(session: AsyncSession, club_id: int) -> list[dict[s
             "station_code": r.station_code,
             "hours": r.hours,
             "rate_snapshot": int(r.rate_snapshot),
+            "play_amount": int(r.play_amount),
             "starts_at": r.starts_at.isoformat(),
             "ends_at": r.ends_at.isoformat(),
             "guest_label": r.guest_label,
@@ -567,9 +568,9 @@ async def _load_open_booking(session: AsyncSession, club_id: int, booking_id: in
     row = (
         await session.execute(
             text(
-                "SELECT b.id, b.hours, b.rate_snapshot, b.status, b.closed_at,"
+                "SELECT b.id, b.hours, b.rate_snapshot, b.play_amount, b.status, b.closed_at,"
                 "       b.customer_id, b.payment_proof_status, s.code AS station_code,"
-                "       c.name AS club_name"
+                "       c.name AS club_name, c.staff_max_discount_percent"
                 " FROM bookings b"
                 " JOIN stations s ON s.id = b.station_id"
                 " JOIN clubs c ON c.id = b.club_id"
@@ -610,7 +611,11 @@ async def _orders_total(session: AsyncSession, *, club_id: int, booking_id: int)
 
 async def get_bill(session: AsyncSession, *, club_id: int, booking_id: int) -> dict[str, Any]:
     booking = await _load_open_booking(session, club_id, booking_id)
-    play_total = play_amount(int(booking.rate_snapshot), booking.hours)
+    # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
+    # bo'laklardan iborat bo'ladi (`0037_rooms_tariffs.py`). `settlement.py::
+    # play_amount()` (`rate_snapshot * hours`) BU YERDA ishlatilmaydi —
+    # o'zgaruvchan tarifda ular teng bo'lmaydi (`CLAUDE.md` §Pul).
+    play_total = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
 
@@ -653,6 +658,41 @@ async def _request_payment_proof(session: AsyncSession, booking: Any) -> None:
     )
 
 
+def _assert_discount_allowed(
+    *,
+    actor_role: str | None,
+    discount_amount: int,
+    total: int,
+    limit_percent: int,
+) -> None:
+    """Xodim chegirmasi klub chegarasidan oshmasin (`0039_discount_policy`).
+
+    Rol auditi topilmasi (2026-08-18): `STAFF` roli `paid_amount = 0` +
+    `DISCOUNT` bilan istalgan hisobni to'liq nolga yopa olardi — chegara
+    ham, tasdiq ham yo'q edi.
+
+    `OWNER`/`ADMIN` chegaradan TASHQARIDA: chegirma ularning biznes qarori.
+    Rol noma'lum bo'lsa (`None`) eng qattiq yo'l tanlanadi — xodim deb
+    hisoblanadi. Teskarisi yozilsa, klaymi buzilgan chaqiruv jimgina
+    cheklovsiz o'tib ketardi.
+
+    Sof funksiya — DB'siz test bilan qoplanadi (`CLAUDE.md` §Testlar).
+    """
+    if actor_role in ("OWNER", "ADMIN"):
+        return
+    if discount_amount <= 0:
+        return
+    # `total == 0` da har qanday chegirma 100% — foizga bo'linish emas,
+    # aniq taqqoslash kerak, aks holda nolga bo'linish chiqardi.
+    if total <= 0 or discount_amount * 100 > total * limit_percent:
+        raise AppError(
+            f"Xodim chegirmasi {limit_percent}% dan oshmasligi kerak —"
+            " kattaroq chegirmani klub egasi yoki admin beradi",
+            code="DISCOUNT_LIMIT_EXCEEDED",
+            status_code=422,
+        )
+
+
 async def close_bill(
     session: AsyncSession,
     *,
@@ -663,6 +703,7 @@ async def close_bill(
     paid_amount: int,
     shortfall_reason: str | None = None,
     overpay_reason: str | None = None,
+    actor_role: str | None = None,
 ) -> dict[str, Any]:
     """O'tkazma + botga ulangan mijoz — chek talab qilinadi (reja #37):
 
@@ -681,7 +722,11 @@ async def close_bill(
         raise AppError("Summani tekshiring", code="PAID_AMOUNT_INVALID")
 
     booking = await _load_open_booking(session, club_id, booking_id)
-    play_total = play_amount(int(booking.rate_snapshot), booking.hours)
+    # Ustundan — tarif vaqtga qarab o'zgarsa bron ikki xil narxdagi
+    # bo'laklardan iborat bo'ladi (`0037_rooms_tariffs.py`). `settlement.py::
+    # play_amount()` (`rate_snapshot * hours`) BU YERDA ishlatilmaydi —
+    # o'zgaruvchan tarifda ular teng bo'lmaydi (`CLAUDE.md` §Pul).
+    play_total = int(booking.play_amount)
 
     orders_total = await _orders_total(session, club_id=club_id, booking_id=booking_id)
     total = play_total + orders_total
@@ -711,6 +756,15 @@ async def close_bill(
         shortfall_reason=shortfall_reason,
         overpay_reason=overpay_reason,
     )
+    if settlement.discount_amount > 0:
+        # Xodim chegirmasi klub chegarasidan oshmasin (`0039_discount_policy`,
+        # keyinchalik `0039` ga ko'chirildi — raqam to'qnashuvi tufayli).
+        _assert_discount_allowed(
+            actor_role=actor_role,
+            discount_amount=settlement.discount_amount,
+            total=total,
+            limit_percent=int(booking.staff_max_discount_percent),
+        )
 
     # To'lov yozuvi UPDATE'dan OLDIN — naqd uchun ochiq smena yo'q bo'lsa
     # `SHIFT_REQUIRED` chiqadi va hisob YOPILMAY qoladi.
@@ -744,9 +798,12 @@ async def close_bill(
         },
     )
 
-    # Nomlangan farq (chegirma/qarz/choychaqa) audit izida ham qolsin —
-    # `payment_recorded` faqat olingan summani yozadi, `paid_amount = 0`
-    # (to'liq chegirma yoki qarz) holatida esa u umuman yozilmaydi.
+    # Hisob yopilishining O'ZI audit izini qoldiradi — `_record_payment()`
+    # ga tayanib bo'lmaydi: u `amount <= 0` da darhol qaytadi, ya'ni 100%
+    # chegirma yoki qarz bilan yopilgan hisob (rol auditi topilmasi,
+    # 2026-08-18) `payments` da ham, jurnalda ham UMUMAN ko'rinmasdi.
+    # Nomlangan farq (chegirma/qarz/choychaqa) va sababi shu yerda —
+    # `CLAUDE.md` §Pul.
     await log_action(
         action="bill_closed",
         target=f"booking:{booking_id}",
@@ -754,10 +811,10 @@ async def close_bill(
         after={
             "total": total,
             "paid_amount": paid_amount,
+            "method": payment_method,
             "discount_amount": settlement.discount_amount,
             "debt_amount": settlement.debt_amount,
             "tip_amount": settlement.tip_amount,
-            "method": payment_method,
         },
     )
 

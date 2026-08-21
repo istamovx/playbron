@@ -146,10 +146,11 @@ async def world() -> AsyncIterator[dict[str, int]]:
             ids["booking"] = await conn.scalar(
                 text(
                     "INSERT INTO bookings (club_id, station_id, guest_name, guest_phone,"
-                    " source, status, period, hours, rate_snapshot, console_type, created_by,"
-                    " confirmed_by, confirmed_at)"
+                    " source, status, period, hours, rate_snapshot, play_amount,"
+                    " console_type, created_by, confirmed_by, confirmed_at)"
                     " VALUES (:c, :s, 'Mehmon', '+998900000000', 'STAFF', 'CONFIRMED',"
-                    " tstzrange(:starts, :ends), 2, 40000, 'ps5', :u, :u, now()) RETURNING id"
+                    " tstzrange(:starts, :ends), 2, 40000, 80000, 'ps5', :u, :u, now())"
+                    " RETURNING id"
                 ),
                 {
                     "c": ids["club"],
@@ -545,9 +546,9 @@ async def customer_booking(world: dict[str, int]) -> AsyncIterator[int]:
             booking_id = await conn.scalar(
                 text(
                     "INSERT INTO bookings (club_id, station_id, customer_id, source, status,"
-                    " period, hours, rate_snapshot, console_type)"
+                    " period, hours, rate_snapshot, play_amount, console_type)"
                     " VALUES (:c, :s, :u, 'MINIAPP', 'CONFIRMED',"
-                    " tstzrange(:starts, :ends), 1, 40000, 'ps5') RETURNING id"
+                    " tstzrange(:starts, :ends), 1, 40000, 40000, 'ps5') RETURNING id"
                 ),
                 {
                     "c": world["club"],

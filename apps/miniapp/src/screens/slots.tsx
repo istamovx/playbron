@@ -1,20 +1,23 @@
-import { Panel } from '@playbron/ui';
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { CyberLoader, EmptyState, Panel } from '@playbron/ui';
+import { useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
 
-import { S, dayOptions, HM } from '../mock/data';
+import { useLocale, useT } from '../i18n';
+import { hhmm, money } from '../lib/format';
 import {
   ANY,
   CONSOLE_LABEL,
-  DURATIONS,
   consoleTypes,
+  dayOptions,
   freeStations,
   isPast,
+  durationOptions,
   isoDateOf,
   maxHours,
   nowMinutesOfDay,
   roomTypes,
   slotTimes,
   stationSpec,
+  type BookingLimits,
   type SlotFilter,
 } from '../lib/slots';
 import { useApp } from '../store/app';
@@ -23,16 +26,17 @@ import { useBooking, useDayBookings } from '../store/booking';
 /**
  * Slot tanlash — real stansiya + `GET /clubs/{id}/bookings/day` ustida.
  *
- * Mock versiyada kun tasmasi har bir kun uchun "N bo'sh" hisoblardi — bu
- * 14 kunni OLDINDAN so'rashni talab qilardi (14 so'rov). Soddalik uchun
- * shu bosqichda tasma faqat sana ko'rsatadi, bandlik faqat TANLANGAN kun
- * uchun yuklanadi — asosiy oqim (vaqt tanlash) o'zgarmaydi.
+ * Kun tasmasi faqat sana ko'rsatadi (bandlik faqat TANLANGAN kun uchun
+ * yuklanadi) — 14 kunni oldindan so'rash 14 ta so'rov degani edi.
  */
 export function SlotsScreen(): ReactNode {
+  const t = useT();
+  const locale = useLocale();
   const state = useApp();
   const clubId = state.clubId;
   const club = useBooking((s) => s.clubs.find((item) => item.id === clubId) ?? null);
   const stations = useBooking((s) => s.stations);
+  const stationsLoading = useBooking((s) => s.stationsLoading);
   const loadStations = useBooking((s) => s.loadStations);
   const loadDay = useBooking((s) => s.loadDay);
   const dayLoading = useBooking((s) => s.dayLoading);
@@ -45,6 +49,20 @@ export function SlotsScreen(): ReactNode {
   const openMin = club?.opensAtMin ?? 0;
   const closeMin = club?.closesAtMin ?? 0;
 
+  // Klub hali yuklanmagan bo'lsa ham hook'lar chaqirilishi kerak — pastdagi
+  // erta `return` shartsiz hook tartibini buzardi. Klubsiz holda `openMin`
+  // ham `closeMin` ham 0, ya'ni `slotTimes()` baribir bo'sh ro'yxat beradi.
+  const limits: BookingLimits = useMemo(
+    () => ({
+      minBookingHours: club?.minBookingHours ?? 1,
+      maxBookingHours: club?.maxBookingHours ?? 1,
+      maxAdvanceDays: club?.maxAdvanceDays ?? 1,
+      slotStepMin: club?.slotStepMin ?? 30,
+    }),
+    [club?.minBookingHours, club?.maxBookingHours, club?.maxAdvanceDays, club?.slotStepMin],
+  );
+  const durations = useMemo(() => durationOptions(limits), [limits]);
+
   useEffect(() => {
     if (clubId === null) return;
     if (stations.length === 0) void loadStations(clubId);
@@ -55,38 +73,57 @@ export function SlotsScreen(): ReactNode {
     void loadDay(clubId, dateKey);
   }, [clubId, dateKey, loadDay]);
 
-  const filter: SlotFilter = { room: state.room, console: state.console };
-  const days = dayOptions();
-  const times = slotTimes(openMin, closeMin).filter((from) => !isPast(state.day, from, nowMin));
-  const open = times.filter(
-    (from) => freeStations(stations, dayBookings, from, 1, closeMin, filter, timezone).length > 0,
+  const filter: SlotFilter = useMemo(
+    () => ({ room: state.room, console: state.console }),
+    [state.room, state.console],
   );
-  const limit = maxHours(stations, dayBookings, state.start, closeMin, filter, timezone);
-  const freeNow = freeStations(
-    stations,
-    dayBookings,
-    state.start,
-    state.hours,
-    closeMin,
-    filter,
-    timezone,
+  const days = useMemo(
+    () =>
+      dayOptions(timezone, locale, { today: t('today'), tomorrow: t('tomorrow') }, limits.maxAdvanceDays),
+    [timezone, locale, t, limits.maxAdvanceDays],
+  );
+
+  // Butun bandlik to'ri memolangan. Ekran soat tiki tufayli SEKUNDIGA
+  // qayta render bo'ladi, `freeStations()` esa har slot uchun stansiya ×
+  // bron bo'yicha yuguradi — memosiz bu sekundiga o'n minglab
+  // `Intl.formatToParts` chaqiruvi edi. `nowMin` daqiqa aniqligida,
+  // shuning uchun haqiqiy qayta hisob daqiqada bir marta bo'ladi.
+  const times = useMemo(
+    () => slotTimes(openMin, closeMin, limits).filter((from) => !isPast(state.day, from, nowMin)),
+    [openMin, closeMin, limits, state.day, nowMin],
+  );
+  const open = useMemo(
+    () =>
+      times.filter(
+        (from) =>
+          freeStations(stations, dayBookings, from, 1, closeMin, filter, timezone).length > 0,
+      ),
+    [times, stations, dayBookings, closeMin, filter, timezone],
+  );
+  const limit = useMemo(
+    () => maxHours(stations, dayBookings, state.start, closeMin, filter, timezone, limits),
+    [stations, dayBookings, state.start, closeMin, filter, timezone, limits],
+  );
+  const freeNow = useMemo(
+    () =>
+      freeStations(stations, dayBookings, state.start, state.hours, closeMin, filter, timezone),
+    [stations, dayBookings, state.start, state.hours, closeMin, filter, timezone],
   );
 
   // Tanlangan xona konsolsiz bo'lsa (0023'dan keyingi) — mijoz o'zi tanlaydi
   const selectedStation = stations.find((item) => item.id === state.station);
   const needsConsole = selectedStation !== undefined && selectedStation.consoleType === null;
 
-  const { day, start, hours, station, setDay, setStart, setHours, setStation } = state;
+  const { start, hours, station, setDay, setStart, setHours, setStation } = state;
 
   // Filtr, kun yoki bandlik o'zgarganda tanlov yaroqsiz bo'lib qolmasin.
   useEffect(() => {
     if (stations.length === 0) return;
-    const scope: SlotFilter = { room: state.room, console: state.console };
-    const free = slotTimes(openMin, closeMin).filter(
-      (from) =>
-        !isPast(day, from, nowMin) &&
-        freeStations(stations, dayBookings, from, 1, closeMin, scope, timezone).length > 0,
-    );
+    // `open` render'da allaqachon hisoblangan — bu yerda ikkinchi nusxasi
+    // turardi, ya'ni butun to'r har render'da IKKI marta yugurar va ikki
+    // nusxa bir-biridan ajralib ketishi mumkin edi.
+    const free = open;
+    const scope = filter;
 
     if (free.length === 0) {
       setStation(null);
@@ -98,7 +135,7 @@ export function SlotsScreen(): ReactNode {
       return;
     }
 
-    const max = maxHours(stations, dayBookings, start, closeMin, scope, timezone);
+    const max = maxHours(stations, dayBookings, start, closeMin, scope, timezone, limits);
     if (hours > max) {
       setHours(max);
       return;
@@ -113,15 +150,13 @@ export function SlotsScreen(): ReactNode {
   }, [
     stations,
     dayBookings,
-    day,
+    open,
+    filter,
+    limits,
     start,
     hours,
     station,
-    state.room,
-    state.console,
-    openMin,
     closeMin,
-    nowMin,
     timezone,
     setStation,
     setStart,
@@ -129,15 +164,29 @@ export function SlotsScreen(): ReactNode {
   ]);
 
   if (clubId === null || !club) {
+    return <EmptyState icon="storefront">{t('clubNotSelected')}</EmptyState>;
+  }
+
+  if (stationsLoading && stations.length === 0) {
     return (
-      <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>Klub tanlanmagan</div>
+      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <CyberLoader label={t('loading')} />
+      </div>
+    );
+  }
+
+  if (stations.length === 0) {
+    return (
+      <EmptyState icon="meeting_room" title={t('roomsEmptyTitle')}>
+        {t('roomsEmptyHint')}
+      </EmptyState>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
       <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SectionLabel>Sana</SectionLabel>
+        <SectionLabel>{t('labelDate')}</SectionLabel>
         <div style={STRIP}>
           {days.map((option) => {
             const on = option.index === state.day;
@@ -147,6 +196,8 @@ export function SlotsScreen(): ReactNode {
                 type="button"
                 onClick={() => setDay(option.index)}
                 aria-current={on ? 'date' : undefined}
+                aria-label={option.label}
+                title={option.label}
                 style={{
                   flex: 'none',
                   cursor: 'pointer',
@@ -163,7 +214,7 @@ export function SlotsScreen(): ReactNode {
                 }}
               >
                 <span style={{ font: 'var(--type-label)', color: 'var(--text-dim)' }}>
-                  {option.dow}
+                  {option.weekday}
                 </span>
                 <span
                   style={{
@@ -171,7 +222,7 @@ export function SlotsScreen(): ReactNode {
                     color: on ? 'var(--text-title)' : 'var(--text-body)',
                   }}
                 >
-                  {option.day}
+                  {option.dayNumber}
                 </span>
               </button>
             );
@@ -180,10 +231,10 @@ export function SlotsScreen(): ReactNode {
       </section>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SectionLabel>Xona turi</SectionLabel>
+        <SectionLabel>{t('labelRoomType')}</SectionLabel>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           <Pick on={state.room === ANY} onClick={() => state.setRoom(ANY)}>
-            {ANY}
+            {t('filterAny')}
           </Pick>
           {roomTypes(stations).map((room) => (
             <Pick key={room} on={state.room === room} onClick={() => state.setRoom(room)}>
@@ -194,10 +245,10 @@ export function SlotsScreen(): ReactNode {
       </section>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SectionLabel>Konsol</SectionLabel>
+        <SectionLabel>{t('labelConsole')}</SectionLabel>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           <Pick on={state.console === ANY} onClick={() => state.setConsole(ANY)}>
-            {ANY}
+            {t('filterAny')}
           </Pick>
           {consoleTypes(stations).map((type) => (
             <Pick
@@ -212,30 +263,32 @@ export function SlotsScreen(): ReactNode {
       </section>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SectionLabel hint={limit > 0 ? `Bu vaqtdan ${limit} soatgacha` : undefined}>
-          Davomiylik
+        <SectionLabel hint={limit > 0 ? t('durationLimit', { hours: limit }) : undefined}>
+          {t('labelDuration')}
         </SectionLabel>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {DURATIONS.map((value) => (
+          {durations.map((value) => (
             <Pick
               key={value}
               on={state.hours === value}
               off={value > limit}
               onClick={() => state.setHours(value)}
             >
-              {value} soat
+              {t('hoursUnit', { hours: value })}
             </Pick>
           ))}
         </div>
       </section>
 
-      <Panel title="Bo‘sh vaqt" notch>
-        {dayLoading ? (
-          <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>Yuklanmoqda…</div>
-        ) : open.length === 0 ? (
-          <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-            Bu kunda tanlangan filtr bo‘yicha bo‘sh vaqt yo‘q. Boshqa sana yoki xona turini tanlang.
+      <Panel title={t('freeTimeTitle')} notch>
+        {dayLoading && dayBookings.length === 0 ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
+            <CyberLoader label={t('loading')} />
           </div>
+        ) : open.length === 0 ? (
+          <EmptyState icon="event_busy" title={t('freeTimeEmptyTitle')}>
+            {t('freeTimeEmptyHint')}
+          </EmptyState>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
             {times.map((from) => {
@@ -248,7 +301,10 @@ export function SlotsScreen(): ReactNode {
                 filter,
                 timezone,
               ).length;
-              const fits = count > 0 ? 0 : maxHours(stations, dayBookings, from, closeMin, filter, timezone);
+              const fits =
+                count > 0
+                  ? 0
+                  : maxHours(stations, dayBookings, from, closeMin, filter, timezone, limits);
               const on = from === state.start;
               const usable = count > 0 || fits > 0;
 
@@ -269,12 +325,16 @@ export function SlotsScreen(): ReactNode {
                     gap: 1,
                     background: on ? 'var(--primary-100)' : 'var(--surface-inset)',
                     border: `1px solid ${on ? 'var(--primary-100)' : 'var(--line-1)'}`,
-                    color: on ? 'var(--text-on-accent)' : usable ? 'var(--text-body)' : 'var(--text-dim)',
+                    color: on
+                      ? 'var(--text-on-accent)'
+                      : usable
+                        ? 'var(--text-body)'
+                        : 'var(--text-dim)',
                     opacity: usable ? 1 : 0.45,
                     transition: 'var(--t-control)',
                   }}
                 >
-                  <span style={{ font: 'var(--type-data)' }}>{HM(from)}</span>
+                  <span style={{ font: 'var(--type-data)' }}>{hhmm(from)}</span>
                   <span
                     style={{
                       font: 'var(--type-data-xs)',
@@ -287,7 +347,11 @@ export function SlotsScreen(): ReactNode {
                             : 'var(--text-dim)',
                     }}
                   >
-                    {count > 0 ? `${count} xona` : fits > 0 ? `${fits} soat` : 'band'}
+                    {count > 0
+                      ? t('slotRooms', { count })
+                      : fits > 0
+                        ? t('slotFits', { hours: fits })
+                        : t('slotBusy')}
                   </span>
                 </button>
               );
@@ -297,13 +361,16 @@ export function SlotsScreen(): ReactNode {
       </Panel>
 
       <Panel
-        title={`Bo‘sh xonalar · ${HM(state.start)} → ${HM(state.start + state.hours * 60)}`}
+        title={t('freeRoomsTitle', {
+          from: hhmm(state.start),
+          to: hhmm(state.start + state.hours * 60),
+        })}
         notch
       >
         {freeNow.length === 0 ? (
-          <div style={{ font: 'var(--type-body-sm)', color: 'var(--text-muted)' }}>
-            {state.hours} soatga bo‘sh xona yo‘q — davomiylikni qisqartiring.
-          </div>
+          <EmptyState icon="meeting_room" title={t('freeRoomsEmptyTitle')}>
+            {t('freeRoomsEmptyHint', { hours: state.hours })}
+          </EmptyState>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {freeNow.map((item) => {
@@ -330,10 +397,17 @@ export function SlotsScreen(): ReactNode {
                     <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>
                       {item.code}
                     </span>
+                    {/* Soatlik tarif — server qiymati. Umumiy summa bu yerda
+                        KO'PAYTIRILMAYDI: tarif oyna ichida o'zgarishi mumkin
+                        (`CLAUDE.md` §Pul). */}
                     <span
-                      style={{ font: 'var(--type-data)', color: 'var(--purple-100)', whiteSpace: 'nowrap' }}
+                      style={{
+                        font: 'var(--type-data)',
+                        color: 'var(--purple-100)',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
-                      {S(item.rate * state.hours)} so‘m
+                      {t('perHour', { sum: money(item.rate) })}
                     </span>
                   </span>
                   <span
@@ -345,7 +419,7 @@ export function SlotsScreen(): ReactNode {
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    {`${item.roomLabel} · ${stationSpec(item)}`}
+                    {[item.roomLabel, stationSpec(item)].filter(Boolean).join(' · ')}
                   </span>
                 </button>
               );
@@ -361,8 +435,8 @@ export function SlotsScreen(): ReactNode {
           server o'shani ishlatadi va bu bo'lim ko'rsatilmaydi. */}
       {needsConsole ? (
         <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <SectionLabel hint={state.bookingConsole ? undefined : 'Tanlanishi shart'}>
-            Konsol
+          <SectionLabel hint={state.bookingConsole ? undefined : t('consoleRequired')}>
+            {t('labelConsole')}
           </SectionLabel>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {Object.entries(CONSOLE_LABEL).map(([id, label]) => (
@@ -399,7 +473,9 @@ const STRIP: CSSProperties = {
 
 function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }): ReactNode {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+    <div
+      style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}
+    >
       <span
         style={{
           font: 'var(--type-label)',

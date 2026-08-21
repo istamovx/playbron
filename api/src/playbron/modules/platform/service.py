@@ -50,7 +50,7 @@ async def get_dashboard(session: AsyncSession) -> dict[str, Any]:
     today = (
         await session.execute(
             text(
-                "SELECT count(*), COALESCE(SUM(rate_snapshot * hours), 0)"
+                "SELECT count(*), COALESCE(SUM(play_amount), 0)"
                 " FROM bookings"
                 " WHERE status = 'CONFIRMED'"
                 "   AND (lower(period) AT TIME ZONE :tz)::date = (now() AT TIME ZONE :tz)::date"
@@ -62,7 +62,7 @@ async def get_dashboard(session: AsyncSession) -> dict[str, Any]:
     month = (
         await session.execute(
             text(
-                "SELECT count(*), COALESCE(SUM(rate_snapshot * hours), 0)"
+                "SELECT count(*), COALESCE(SUM(play_amount), 0)"
                 " FROM bookings"
                 " WHERE status = 'CONFIRMED'"
                 "   AND date_trunc('month', lower(period) AT TIME ZONE :tz)"
@@ -147,6 +147,18 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
                 "       (SELECT count(*) FROM bookings b"
                 "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
                 "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d,"
+                # Klub tushumi — "qaysi klub qancha topadi" (loyiha egasi, 2026-08-20):
+                # super admin bron tafsilotini emas, faqat SUMMANI ko'radi. Kalendar
+                # chelagi emas — `bookings_30d`dagi kabi SUROVCHI oyna (kod izchilligi).
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '7 days') AS revenue_7d,"
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '30 days') AS revenue_30d,"
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '365 days') AS revenue_365d,"
                 "       lp.amount AS last_payment_amount, lp.paid_at AS last_payment_at,"
                 "       CASE WHEN lp.period_months IS NOT NULL"
                 "            THEN lp.paid_at + (lp.period_months * interval '1 month')"
@@ -176,6 +188,9 @@ async def list_organizations(session: AsyncSession) -> list[dict[str, Any]]:
             "club_status": row.club_status,
             "stations_count": int(row.stations_count or 0),
             "bookings_30d": int(row.bookings_30d or 0),
+            "revenue_7d": int(row.revenue_7d or 0),
+            "revenue_30d": int(row.revenue_30d or 0),
+            "revenue_365d": int(row.revenue_365d or 0),
             "last_payment_amount": row.last_payment_amount,
             "last_payment_at": row.last_payment_at.isoformat() if row.last_payment_at else None,
             "plan_expires_at": row.plan_expires_at.isoformat() if row.plan_expires_at else None,
@@ -215,7 +230,16 @@ async def get_organization_detail(session: AsyncSession, *, org_id: int) -> dict
                 "       (SELECT count(*) FROM stations s WHERE s.club_id = c.id) AS stations_count,"
                 "       (SELECT count(*) FROM bookings b"
                 "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
-                "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d"
+                "            AND lower(b.period) >= now() - interval '30 days') AS bookings_30d,"
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '7 days') AS revenue_7d,"
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '30 days') AS revenue_30d,"
+                "       (SELECT COALESCE(SUM(b.play_amount), 0) FROM bookings b"
+                "          WHERE b.club_id = c.id AND b.status = 'CONFIRMED'"
+                "            AND lower(b.period) >= now() - interval '365 days') AS revenue_365d"
                 " FROM clubs c WHERE c.org_id = :org ORDER BY c.created_at"
             ),
             {"org": org_id},
@@ -265,6 +289,9 @@ async def get_organization_detail(session: AsyncSession, *, org_id: int) -> dict
                 "phone": row.phone,
                 "stations_count": int(row.stations_count or 0),
                 "bookings_30d": int(row.bookings_30d or 0),
+                "revenue_7d": int(row.revenue_7d or 0),
+                "revenue_30d": int(row.revenue_30d or 0),
+                "revenue_365d": int(row.revenue_365d or 0),
             }
             for row in clubs
         ],

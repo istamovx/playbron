@@ -56,12 +56,16 @@ export function useTelegramAuth(): {
           .join(' ')
           .trim();
 
-        register({ name: name || 'Mijoz', phone: session.user.phone ?? '' });
+        // Ism bo'sh bo'lsa o'rniga matn QO'YILMAYDI — ko'rsatish qatlami
+        // i18n'dan («Mijoz») to'ldiradi, aks holda tanlangan tildan qat'i
+        // nazar o'zbekcha so'z saqlanib qolardi.
+        register({ name, phone: session.user.phone ?? '' });
         signIn();
         setState('authenticated');
       } catch (cause) {
         if (cancelled) return;
-        setError(cause instanceof ApiError ? cause.message : 'Serverga ulanib bo‘lmadi');
+        // Xabarsiz xato — ekran o'z i18n matnini ko'rsatadi (`boot.tsx`).
+        setError(cause instanceof ApiError ? cause.message : null);
         setState('offline');
       }
     })();

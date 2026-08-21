@@ -127,7 +127,10 @@ function AccountTab(): ReactNode {
           <FieldLadder>
             <FieldRow label="Ism" value={session.name} />
             <FieldRow label="Login" value={session.login ?? '—'} />
-            <FieldRow label="Rol" value={ROLE_LABEL[session.role]} />
+            <FieldRow
+              label="Rol"
+              value={session.isSuperAdmin ? 'Super admin' : ROLE_LABEL[session.role]}
+            />
             <FieldRow label="Klublar" value={String(session.clubs.length)} />
             <FieldRow label="Sessiya tugashiga" value={remainingText(session.expiresAt)} />
           </FieldLadder>
@@ -340,6 +343,11 @@ interface ClubDraft {
   about: string;
   opens: string;
   closes: string;
+  minHours: string;
+  maxHours: string;
+  advanceDays: string;
+  extendMax: string;
+  slotStep: string;
   googleMapsUrl: string;
   yandexMapsUrl: string;
 }
@@ -351,6 +359,13 @@ interface ClubDraft {
  * (loyiha egasining topilmasi, 2026-08-16). Endi boshqa CRUD ekranlar bilan
  * bir xil naqsh: jadval/ko'rinish + tahrirlash tugmasi + markazdan modal.
  */
+/** Butun son yoki `null` — chegaradan tashqarisi ham `null`. */
+function num(raw: string, min: number, max: number): number | null {
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value < min || value > max) return null;
+  return value;
+}
+
 function ClubGeneralTab(): ReactNode {
   const session = useSession((state) => state.session);
   // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
@@ -381,6 +396,11 @@ function ClubGeneralTab(): ReactNode {
         about: club.about,
         opens: hm(club.opensAtMin),
         closes: hm(club.closesAtMin),
+        minHours: String(club.minBookingHours),
+        maxHours: String(club.maxBookingHours),
+        advanceDays: String(club.maxAdvanceDays),
+        extendMax: String(club.extendMaxHours),
+        slotStep: String(club.slotStepMin),
         googleMapsUrl: club.googleMapsUrl ?? '',
         yandexMapsUrl: club.yandexMapsUrl ?? '',
       });
@@ -429,6 +449,25 @@ function ClubGeneralTab(): ReactNode {
       return;
     }
 
+    // `0033` bu chegaralarni klub ustuniga ko'chirdi, lekin ularni
+    // YOZADIGAN yo'l yo'q edi — har bir klub 1/6/14/3/30 ga mixlangan
+    // qolgan edi. Oraliqlar migratsiyadagi CHECK'lar bilan bir xil.
+    const limits = {
+      minBookingHours: num(draft.minHours, 1, 12),
+      maxBookingHours: num(draft.maxHours, 1, 12),
+      maxAdvanceDays: num(draft.advanceDays, 1, 365),
+      extendMaxHours: num(draft.extendMax, 1, 12),
+      slotStepMin: num(draft.slotStep, 15, 60),
+    };
+    if (Object.values(limits).some((value) => value === null)) {
+      setError('Bron chegaralari butun son bo‘lsin (soat 1–12, kun 1–365, qadam 15–60)');
+      return;
+    }
+    if ((limits.minBookingHours as number) > (limits.maxBookingHours as number)) {
+      setError('Eng kam davomiylik eng ko‘pdan oshmasin');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -439,6 +478,11 @@ function ClubGeneralTab(): ReactNode {
         about: draft.about,
         opensAtMin: opensMin,
         closesAtMin: closesMin,
+        minBookingHours: limits.minBookingHours as number,
+        maxBookingHours: limits.maxBookingHours as number,
+        maxAdvanceDays: limits.maxAdvanceDays as number,
+        extendMaxHours: limits.extendMaxHours as number,
+        slotStepMin: limits.slotStepMin as number,
         googleMapsUrl: draft.googleMapsUrl.trim() || null,
         yandexMapsUrl: draft.yandexMapsUrl.trim() || null,
       });
@@ -536,6 +580,53 @@ function ClubGeneralTab(): ReactNode {
                 placeholder="26:00"
               />
             </FormGrid>
+
+            <FormGrid>
+              <TextField
+                label="Eng kam davomiylik (soat)"
+                value={draft.minHours}
+                onChange={(value) => setDraft({ ...draft, minHours: value })}
+                icon="hourglass_bottom"
+                inputMode="numeric"
+                placeholder="1"
+              />
+              <TextField
+                label="Eng ko‘p davomiylik (soat)"
+                value={draft.maxHours}
+                onChange={(value) => setDraft({ ...draft, maxHours: value })}
+                icon="hourglass_top"
+                inputMode="numeric"
+                placeholder="6"
+              />
+            </FormGrid>
+            <FormGrid>
+              <TextField
+                label="Oldindan bron (kun)"
+                value={draft.advanceDays}
+                onChange={(value) => setDraft({ ...draft, advanceDays: value })}
+                icon="event"
+                inputMode="numeric"
+                placeholder="14"
+              />
+              <TextField
+                label="Bir marta uzaytirish (soat)"
+                value={draft.extendMax}
+                onChange={(value) => setDraft({ ...draft, extendMax: value })}
+                icon="more_time"
+                inputMode="numeric"
+                placeholder="3"
+              />
+            </FormGrid>
+            <TextField
+              label="Slot qadami (daqiqa)"
+              value={draft.slotStep}
+              onChange={(value) => setDraft({ ...draft, slotStep: value })}
+              icon="grid_view"
+              inputMode="numeric"
+              placeholder="30"
+            />
+            {/* Mijoz ilovasi davomiylik tugmalari, kun tasmasi va slot
+                to'rini SHU sozlamalardan quradi. */}
 
             {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
 

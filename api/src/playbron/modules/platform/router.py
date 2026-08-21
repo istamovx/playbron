@@ -59,6 +59,9 @@ class OrgOut(BaseModel):
     club_status: str | None
     stations_count: int
     bookings_30d: int
+    revenue_7d: int
+    revenue_30d: int
+    revenue_365d: int
     last_payment_amount: int | None
     last_payment_at: str | None
     plan_expires_at: str | None
@@ -78,6 +81,9 @@ class OrgClubOut(BaseModel):
     phone: str | None
     stations_count: int
     bookings_30d: int
+    revenue_7d: int
+    revenue_30d: int
+    revenue_365d: int
 
 
 class OrgPaymentOut(BaseModel):

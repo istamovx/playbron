@@ -90,6 +90,16 @@ export interface ClubDto {
   opensAtMin: number;
   closesAtMin: number;
   timezone: string;
+  /**
+   * Bron oynasi chegaralari — `clubs` ustunlari (`0033`). Mijoz ilovasi
+   * davomiylik tugmalari, slot qadami va kun tasmasini SHULARDAN quradi;
+   * ilgari ular klientda qotirilgan edi va klub sozlamasini o'zgartirsa
+   * ilova eski variantni chizib, so'rov serverda 422 bo'lardi.
+   */
+  minBookingHours: number;
+  maxBookingHours: number;
+  maxAdvanceDays: number;
+  slotStepMin: number;
   googleMapsUrl: string | null;
   yandexMapsUrl: string | null;
 }
@@ -104,6 +114,10 @@ interface ClubApi {
   opens_at_min: number;
   closes_at_min: number;
   timezone: string;
+  min_booking_hours: number;
+  max_booking_hours: number;
+  max_advance_days: number;
+  slot_step_min: number;
   google_maps_url: string | null;
   yandex_maps_url: string | null;
 }
@@ -118,6 +132,10 @@ const fromClubApi = (row: ClubApi): ClubDto => ({
   opensAtMin: row.opens_at_min,
   closesAtMin: row.closes_at_min,
   timezone: row.timezone,
+  minBookingHours: row.min_booking_hours,
+  maxBookingHours: row.max_booking_hours,
+  maxAdvanceDays: row.max_advance_days,
+  slotStepMin: row.slot_step_min,
   googleMapsUrl: row.google_maps_url,
   yandexMapsUrl: row.yandex_maps_url,
 });
@@ -213,6 +231,186 @@ export const updateStation = async (
   return fromStationApi(row);
 };
 
+// ── Xonalar va tariflar ──────────────────────────────────────────────────
+// Manba: `api/src/playbron/modules/bookings/router.py`. Hammasi admin
+// ostida — bular boshqaruv ro'yxatlari, nofaol qatorlarni ham qaytaradi.
+// O'chirish YO'Q: `isActive = false` bilan arxivlanadi, chunki yopilgan
+// bronlarning narxi shu qatorlar orqali hisoblangan.
+
+export interface RoomDto {
+  id: number;
+  name: string;
+  /** Erkin matn — klub o'zi nomlaydi. Tarif shunga qarab yo'naltiriladi
+   * (`TariffDto.roomKind`). */
+  kind: string;
+  sort: number;
+  isActive: boolean;
+}
+
+interface RoomApi {
+  id: number;
+  name: string;
+  kind: string;
+  sort: number;
+  is_active: boolean;
+}
+
+const fromRoomApi = (row: RoomApi): RoomDto => ({
+  id: row.id,
+  name: row.name,
+  kind: row.kind,
+  sort: row.sort,
+  isActive: row.is_active,
+});
+
+export const listRooms = async (api: ApiClient, clubId: number): Promise<RoomDto[]> => {
+  const rows = await api.get<RoomApi[]>(`/clubs/${clubId}/rooms`);
+  return rows.map(fromRoomApi);
+};
+
+export interface RoomCreateIn {
+  name: string;
+  kind: string;
+  sort: number;
+}
+
+export const createRoom = async (
+  api: ApiClient,
+  clubId: number,
+  body: RoomCreateIn,
+): Promise<RoomDto> =>
+  fromRoomApi(
+    await api.post<RoomApi>(`/clubs/${clubId}/rooms`, {
+      name: body.name,
+      kind: body.kind,
+      sort: body.sort,
+    }),
+  );
+
+export interface RoomUpdateIn extends RoomCreateIn {
+  isActive: boolean;
+}
+
+export const updateRoom = async (
+  api: ApiClient,
+  clubId: number,
+  roomId: number,
+  body: RoomUpdateIn,
+): Promise<RoomDto> =>
+  fromRoomApi(
+    await api.request<RoomApi>(`/clubs/${clubId}/rooms/${roomId}`, {
+      method: 'PATCH',
+      body: {
+        name: body.name,
+        kind: body.kind,
+        sort: body.sort,
+        is_active: body.isActive,
+      },
+    }),
+  );
+
+/** Hafta kunlari bitmaskasi: dushanba — 0-bit ... yakshanba — 6-bit.
+ * Backend `datetime.weekday()` bilan bir xil tartibda o'qiydi
+ * (`modules/bookings/pricing.py`). */
+export const TARIFF_ALL_DAYS = 0b111_1111;
+
+export interface TariffDto {
+  id: number;
+  name: string;
+  /** `TARIFF_ALL_DAYS` gacha bitmaska, 1..127. */
+  daysMask: number;
+  /** Yarim tundan daqiqada, 0..1439. */
+  fromMin: number;
+  /** 1440 dan katta bo'lishi mumkin: 22:00–02:00 → 1320..1560. */
+  toMin: number;
+  /** So'm, butun son. */
+  pricePerHour: number;
+  /** Kesishgan tariflardan eng yuqorisi qo'llanadi. */
+  priority: number;
+  /** `null` — har qanday konsolga. */
+  consoleType: string | null;
+  /** `null` — har qanday xonaga (`RoomDto.kind` bilan solishtiriladi). */
+  roomKind: string | null;
+  isActive: boolean;
+}
+
+interface TariffApi {
+  id: number;
+  name: string;
+  days_mask: number;
+  from_min: number;
+  to_min: number;
+  price_per_hour: number;
+  priority: number;
+  console_type: string | null;
+  room_kind: string | null;
+  is_active: boolean;
+}
+
+const fromTariffApi = (row: TariffApi): TariffDto => ({
+  id: row.id,
+  name: row.name,
+  daysMask: row.days_mask,
+  fromMin: row.from_min,
+  toMin: row.to_min,
+  pricePerHour: row.price_per_hour,
+  priority: row.priority,
+  consoleType: row.console_type,
+  roomKind: row.room_kind,
+  isActive: row.is_active,
+});
+
+export const listTariffs = async (api: ApiClient, clubId: number): Promise<TariffDto[]> => {
+  const rows = await api.get<TariffApi[]>(`/clubs/${clubId}/tariffs`);
+  return rows.map(fromTariffApi);
+};
+
+export interface TariffCreateIn {
+  name: string;
+  daysMask: number;
+  fromMin: number;
+  toMin: number;
+  pricePerHour: number;
+  priority: number;
+  consoleType: string | null;
+  roomKind: string | null;
+}
+
+const toTariffApi = (body: TariffCreateIn): Record<string, unknown> => ({
+  name: body.name,
+  days_mask: body.daysMask,
+  from_min: body.fromMin,
+  to_min: body.toMin,
+  price_per_hour: body.pricePerHour,
+  priority: body.priority,
+  console_type: body.consoleType,
+  room_kind: body.roomKind,
+});
+
+export const createTariff = async (
+  api: ApiClient,
+  clubId: number,
+  body: TariffCreateIn,
+): Promise<TariffDto> =>
+  fromTariffApi(await api.post<TariffApi>(`/clubs/${clubId}/tariffs`, toTariffApi(body)));
+
+export interface TariffUpdateIn extends TariffCreateIn {
+  isActive: boolean;
+}
+
+export const updateTariff = async (
+  api: ApiClient,
+  clubId: number,
+  tariffId: number,
+  body: TariffUpdateIn,
+): Promise<TariffDto> =>
+  fromTariffApi(
+    await api.request<TariffApi>(`/clubs/${clubId}/tariffs/${tariffId}`, {
+      method: 'PATCH',
+      body: { ...toTariffApi(body), is_active: body.isActive },
+    }),
+  );
+
 export interface ClubUpdateIn {
   name: string;
   address: string;
@@ -220,18 +418,26 @@ export interface ClubUpdateIn {
   about: string;
   opensAtMin: number;
   closesAtMin: number;
+  minBookingHours: number;
+  maxBookingHours: number;
+  maxAdvanceDays: number;
+  extendMaxHours: number;
+  slotStepMin: number;
   googleMapsUrl?: string | null;
   yandexMapsUrl?: string | null;
 }
 
 export interface ClubDetailDto extends ClubDto {
   status: string;
+  extendMaxHours: number;
 }
 
 /** Xodim/egasi o'z klubini status'i (draft ham) bilan ko'radi. */
 export const getClub = async (api: ApiClient, clubId: number): Promise<ClubDetailDto> => {
-  const row = await api.get<ClubApi & { status: string }>(`/clubs/${clubId}`);
-  return { ...fromClubApi(row), status: row.status };
+  const row = await api.get<ClubApi & { status: string; extend_max_hours: number }>(
+    `/clubs/${clubId}`,
+  );
+  return { ...fromClubApi(row), status: row.status, extendMaxHours: row.extend_max_hours };
 };
 
 /** Draft klubni faollashtiradi — kamida bitta faol xona talab qilinadi. */
@@ -252,6 +458,11 @@ export const updateClub = async (
       about: body.about,
       opens_at_min: body.opensAtMin,
       closes_at_min: body.closesAtMin,
+      min_booking_hours: body.minBookingHours,
+      max_booking_hours: body.maxBookingHours,
+      max_advance_days: body.maxAdvanceDays,
+      extend_max_hours: body.extendMaxHours,
+      slot_step_min: body.slotStepMin,
       google_maps_url: body.googleMapsUrl ?? null,
       yandex_maps_url: body.yandexMapsUrl ?? null,
     },
@@ -397,7 +608,10 @@ export interface BookingDto {
   startsAt: string;
   endsAt: string;
   hours: number;
+  /** Soatlik narx — FAQAT ko'rsatish uchun. */
   rateSnapshot: number;
+  /** Oynaning to'liq summasi. */
+  playAmount: number;
   consoleType: string;
 }
 
@@ -414,6 +628,7 @@ export const createCustomerBooking = async (
     ends_at: string;
     hours: number;
     rate_snapshot: number;
+    play_amount: number;
     console_type: string;
   }>(`/clubs/${clubId}/bookings`, {
     station_id: body.stationId,
@@ -429,6 +644,45 @@ export const createCustomerBooking = async (
     endsAt: row.ends_at,
     hours: row.hours,
     rateSnapshot: row.rate_snapshot,
+    playAmount: row.play_amount,
+    consoleType: row.console_type,
+  };
+};
+
+export interface BookingQuoteDto {
+  /** Oynaning to'liq summasi — mijozga SHU ko'rsatiladi. */
+  playAmount: number;
+  /** O'rtacha soatlik narx, faqat ko'rsatish uchun. */
+  rateSnapshot: number;
+  hours: number;
+  consoleType: string;
+}
+
+/** Bron QILMASDAN narxni so'raydi.
+ *
+ * Tarif vaqtga qarab o'zgargani uchun klient summani o'zi hisoblab bera
+ * olmaydi (`CLAUDE.md` § Frontend). Validatsiya bron yaratish bilan bir
+ * xil, ya'ni bu yerda o'tgan so'rov keyin kutilmagan xato bermaydi. */
+export const quoteBooking = async (
+  api: ApiClient,
+  clubId: number,
+  body: CustomerBookingIn,
+): Promise<BookingQuoteDto> => {
+  const row = await api.post<{
+    play_amount: number;
+    rate_snapshot: number;
+    hours: number;
+    console_type: string;
+  }>(`/clubs/${clubId}/bookings/quote`, {
+    station_id: body.stationId,
+    starts_at: body.startsAt,
+    hours: body.hours,
+    console_type: body.consoleType,
+  });
+  return {
+    playAmount: row.play_amount,
+    rateSnapshot: row.rate_snapshot,
+    hours: row.hours,
     consoleType: row.console_type,
   };
 };
@@ -437,7 +691,13 @@ export interface MyBookingDto {
   id: number;
   status: string;
   hours: number;
+  /** Soatlik narx — FAQAT ko'rsatish uchun. Tarif oyna ichida o'zgarsa
+   * `rateSnapshot * hours` jami summaga TENG EMAS. */
   rateSnapshot: number;
+  /** Oynaning to'liq summasi — hisob-kitob shundan. */
+  playAmount: number;
+  /** Hisob yopilgan: bron oyna tugashini kutmasdan tarixga o'tadi. */
+  closed: boolean;
   startsAt: string;
   endsAt: string;
   stationCode: string;
@@ -453,6 +713,8 @@ export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> =>
       status: string;
       hours: number;
       rate_snapshot: number;
+      play_amount: number;
+      closed: boolean;
       starts_at: string;
       ends_at: string;
       station_code: string;
@@ -465,6 +727,8 @@ export const listMyBookings = async (api: ApiClient): Promise<MyBookingDto[]> =>
     status: row.status,
     hours: row.hours,
     rateSnapshot: row.rate_snapshot,
+    playAmount: row.play_amount,
+    closed: row.closed,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     stationCode: row.station_code,
@@ -604,15 +868,20 @@ export const createStaffBooking = async (
   api: ApiClient,
   clubId: number,
   body: StaffBookingIn,
+  idempotencyKey?: string,
 ): Promise<void> => {
-  await api.post(`/clubs/${clubId}/bookings/staff`, {
-    station_id: body.stationId,
-    starts_at: body.startsAt,
-    hours: body.hours,
-    guest_name: body.guestName,
-    guest_phone: body.guestPhone,
-    console_type: body.consoleType,
-  });
+  await api.post(
+    `/clubs/${clubId}/bookings/staff`,
+    {
+      station_id: body.stationId,
+      starts_at: body.startsAt,
+      hours: body.hours,
+      guest_name: body.guestName,
+      guest_phone: body.guestPhone,
+      console_type: body.consoleType,
+    },
+    { idempotencyKey },
+  );
 };
 
 // ── Xodim ro'yxati ───────────────────────────────────────────────────────
@@ -917,12 +1186,17 @@ export const createOrder = async (
   api: ApiClient,
   clubId: number,
   body: OrderCreateIn,
+  idempotencyKey?: string,
 ): Promise<OrderDto> => {
-  const row = await api.post<Parameters<typeof fromOrderApi>[0]>(`/clubs/${clubId}/orders`, {
-    booking_id: body.bookingId,
-    payment_method: body.paymentMethod ?? null,
-    items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
-  });
+  const row = await api.post<Parameters<typeof fromOrderApi>[0]>(
+    `/clubs/${clubId}/orders`,
+    {
+      booking_id: body.bookingId,
+      payment_method: body.paymentMethod ?? null,
+      items: body.items.map((item) => ({ product_id: item.productId, qty: item.qty })),
+    },
+    { idempotencyKey },
+  );
   return fromOrderApi(row);
 };
 
@@ -939,8 +1213,11 @@ export const cancelOrder = (
   api: ApiClient,
   clubId: number,
   orderId: number,
+  idempotencyKey?: string,
 ): Promise<{ status: string }> =>
-  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/cancel`);
+  api.post<{ status: string }>(`/clubs/${clubId}/orders/${orderId}/cancel`, undefined, {
+    idempotencyKey,
+  });
 
 export interface OpenBookingDto {
   id: number;
@@ -1049,6 +1326,7 @@ export const closeBill = async (
      * OVERPAY_REASON_REQUIRED`). */
     overpayReason?: OverpayReason;
   },
+  idempotencyKey?: string,
 ): Promise<BillDto> => {
   const row = await api.post<Parameters<typeof fromBillApi>[0]>(
     `/clubs/${clubId}/bookings/${bookingId}/close`,
@@ -1058,6 +1336,7 @@ export const closeBill = async (
       shortfall_reason: body.shortfallReason ?? null,
       overpay_reason: body.overpayReason ?? null,
     },
+    { idempotencyKey },
   );
   return fromBillApi(row);
 };
@@ -1553,6 +1832,10 @@ export interface PlatformOrgDto {
   clubStatus: string | null;
   stationsCount: number;
   bookings30d: number;
+  /** Klub tushumi — SURUVCHI oyna (`bookings_30d` bilan bir xil naqsh), so'mda. */
+  revenue7d: number;
+  revenue30d: number;
+  revenue365d: number;
   /** So'nggi qo'lda kiritilgan to'lov summasi — hech qachon to'lanmagan bo'lsa `null`. */
   lastPaymentAmount: number | null;
   lastPaymentAt: string | null;
@@ -1573,6 +1856,9 @@ interface PlatformOrgApi {
   club_status: string | null;
   stations_count: number;
   bookings_30d: number;
+  revenue_7d: number;
+  revenue_30d: number;
+  revenue_365d: number;
   last_payment_amount: number | null;
   last_payment_at: string | null;
   plan_expires_at: string | null;
@@ -1591,6 +1877,9 @@ const fromPlatformOrgApi = (row: PlatformOrgApi): PlatformOrgDto => ({
   clubStatus: row.club_status,
   stationsCount: row.stations_count,
   bookings30d: row.bookings_30d,
+  revenue7d: row.revenue_7d,
+  revenue30d: row.revenue_30d,
+  revenue365d: row.revenue_365d,
   lastPaymentAmount: row.last_payment_amount,
   lastPaymentAt: row.last_payment_at,
   planExpiresAt: row.plan_expires_at,
@@ -1746,6 +2035,9 @@ export interface PlatformOrgClubDto {
   phone: string | null;
   stationsCount: number;
   bookings30d: number;
+  revenue7d: number;
+  revenue30d: number;
+  revenue365d: number;
 }
 
 export interface PlatformOrgPaymentDto {
@@ -1796,6 +2088,9 @@ interface PlatformOrgDetailApi {
     phone: string | null;
     stations_count: number;
     bookings_30d: number;
+    revenue_7d: number;
+    revenue_30d: number;
+    revenue_365d: number;
   }>;
   payments: Array<{
     id: number;
@@ -1835,6 +2130,9 @@ export const getPlatformOrg = async (api: ApiClient, orgId: number): Promise<Pla
       phone: c.phone,
       stationsCount: c.stations_count,
       bookings30d: c.bookings_30d,
+      revenue7d: c.revenue_7d,
+      revenue30d: c.revenue_30d,
+      revenue365d: c.revenue_365d,
     })),
     payments: row.payments.map((p) => ({
       id: p.id,

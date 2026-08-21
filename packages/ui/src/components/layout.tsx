@@ -464,8 +464,30 @@ export function UserMenu({
   );
 }
 
-/** Bo'sh holat — dashed hairline va bir qatorli faktik matn. */
-export function EmptyState({ children }: { children: ReactNode }): ReactNode {
+/**
+ * Bo'sh holat — dashed hairline, ixtiyoriy belgi, sarlavha va amal.
+ *
+ * Eng sodda ko'rinishi o'zgarmadi: faqat `children` berilsa avvalgidek
+ * bir qatorli markazlashgan matn chiqadi. `icon`/`title`/`action` — mijoz
+ * ilovasi uchun qo'shildi (loyiha egasi, 2026-08-17: "bo'sh holatlar
+ * dizayn qilinmagan"): u yerda bo'sh ro'yxat KO'P uchraydi va bir qator
+ * matn nima qilish kerakligini aytmaydi.
+ */
+export function EmptyState({
+  children,
+  icon,
+  title,
+  action,
+  style,
+}: {
+  children?: ReactNode;
+  /** Material Symbols nomi. */
+  icon?: string;
+  title?: ReactNode;
+  /** Tugma yoki havola — matn ostida. */
+  action?: ReactNode;
+  style?: CSSProperties;
+}): ReactNode {
   return (
     <div
       style={{
@@ -475,9 +497,19 @@ export function EmptyState({ children }: { children: ReactNode }): ReactNode {
         color: 'var(--text-muted)',
         font: 'var(--type-body-sm)',
         textAlign: 'center',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
+        ...style,
       }}
     >
+      {icon ? <Icon name={icon} size={22} color="var(--text-dim)" /> : null}
+      {title ? (
+        <span style={{ font: 'var(--type-section)', color: 'var(--text-title)' }}>{title}</span>
+      ) : null}
       {children}
+      {action}
     </div>
   );
 }

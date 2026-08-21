@@ -1,33 +1,36 @@
 import {
-  Button,
+  CLUB_TIMEZONE,
+  CyberLoader,
+  EmptyState,
   Icon,
   NOTIFY_BEFORE_MIN,
   NO_SHOW_MIN,
   Panel,
   StatusLine,
-  TextField,
 } from '@playbron/ui';
 import { getMyStats, type MyStatsDto } from '@playbron/api-client';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { LANGS, useI18n, useLocale, useT, type MsgKey } from '../i18n';
 import { api } from '../lib/api';
-import { LANGS } from '../mock/data';
 import { useProfile } from '../store/app';
 
 type Section = 'personal' | 'notify' | 'ui' | 'exit';
 
-const MENU: { id: Section; icon: string; label: string; tone?: string }[] = [
-  { id: 'personal', icon: 'badge', label: 'Shaxsiy ma’lumotlar' },
-  { id: 'notify', icon: 'notifications', label: 'Bildirishnomalar' },
-  { id: 'ui', icon: 'tune', label: 'Interfeys sozlamalari' },
-  { id: 'exit', icon: 'logout', label: 'Chiqish', tone: 'var(--red-100)' },
+const MENU: { id: Section; icon: string; label: MsgKey; tone?: string }[] = [
+  { id: 'personal', icon: 'badge', label: 'sectionPersonal' },
+  { id: 'notify', icon: 'notifications', label: 'sectionNotify' },
+  { id: 'ui', icon: 'tune', label: 'sectionInterface' },
+  { id: 'exit', icon: 'logout', label: 'sectionExit', tone: 'var(--red-100)' },
 ];
 
 /**
- * Profil — balans o'rniga. To'rt bo'limli menyu; bosilgan bo'lim joyida ochiladi,
- * shuning uchun Telegram BackButton mantig'i buzilmaydi.
+ * Profil. To'rt bo'limli menyu; bosilgan bo'lim joyida ochiladi, shuning
+ * uchun Telegram BackButton mantig'i buzilmaydi.
  */
 export function ProfileScreen(): ReactNode {
+  const t = useT();
+  const locale = useLocale();
   const state = useProfile();
   const profile = state.profile;
   const [open, setOpen] = useState<Section | null>(null);
@@ -36,6 +39,7 @@ export function ProfileScreen(): ReactNode {
   // bir xil "18 seans / 41 soat" ko'rinardi (loyiha egasining topilmasi,
   // 2026-08-16: "mijoz rolida seed va mock data qolib ketgan").
   const [stats, setStats] = useState<MyStatsDto | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   // «Chiqish» ochiladigan bo'lim emas — bosilishi bilan profildan chiqadi
   const expandable = (id: Section): boolean => id !== 'exit';
 
@@ -46,7 +50,10 @@ export function ProfileScreen(): ReactNode {
         if (!cancelled) setStats(data);
       })
       .catch(() => {
-        // Tarmoq xatosi — plitalar ko'rsatilmaydi (soxta nol emas)
+        // Tarmoq xatosi — plitalar o'rniga bo'sh holat (soxta nol emas)
+      })
+      .finally(() => {
+        if (!cancelled) setStatsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -55,17 +62,23 @@ export function ProfileScreen(): ReactNode {
 
   if (!profile) return null;
 
-  const statTiles = stats
+  const name = profile.name.trim() || t('customer');
+  const statTiles: { label: string; value: string }[] = stats
     ? [
-        { label: 'Seanslar', value: String(stats.sessions) },
-        { label: 'O‘ynagan soat', value: String(stats.hours) },
-        { label: 'Kutilmoqda', value: String(stats.upcoming) },
-        { label: 'Bekor qilingan', value: String(stats.cancelled) },
+        { label: t('statSessions'), value: String(stats.sessions) },
+        { label: t('statHours'), value: String(stats.hours) },
+        { label: t('statUpcoming'), value: String(stats.upcoming) },
+        { label: t('statCancelled'), value: String(stats.cancelled) },
       ]
     : [];
 
-  const registered = new Date(profile.registeredAt);
-  const since = `${String(registered.getDate()).padStart(2, '0')}-${String(registered.getMonth() + 1).padStart(2, '0')}-${registered.getFullYear()}`;
+  // Sana KLUB mintaqasida — brauzer zonasiga tayanmaydi (`CLAUDE.md` §Vaqt).
+  const since = new Intl.DateTimeFormat(locale, {
+    timeZone: CLUB_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(profile.registeredAt));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-panel)' }}>
@@ -86,7 +99,7 @@ export function ProfileScreen(): ReactNode {
               color: 'var(--text-title)',
             }}
           >
-            {profile.name.trim().charAt(0).toLocaleUpperCase('uz-UZ')}
+            {name.charAt(0).toLocaleUpperCase('uz-UZ')}
           </span>
 
           <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -99,56 +112,62 @@ export function ProfileScreen(): ReactNode {
                 textOverflow: 'ellipsis',
               }}
             >
-              {profile.name}
+              {name}
             </span>
             <span style={{ font: 'var(--type-data)', color: 'var(--text-muted)' }}>
-              {profile.phone}
+              {profile.phone || t('phoneMissing')}
             </span>
             <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-              {since} dan beri
+              {t('since', { date: since })}
             </span>
           </div>
         </div>
       </Panel>
 
-      {/* Ikki qatorli yorliq bo'lsa ham raqamlar bir sathda turadi.
-          Ko'rsatkichlar hali yuklanmagan bo'lsa panel UMUMAN chizilmaydi —
-          soxta nol ko'rsatishdan ko'ra ko'rsatmaslik. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap-tight)' }}>
-        {statTiles.map((stat) => (
-          <div
-            key={stat.label}
-            style={{
-              padding: 'var(--card-pad)',
-              background: 'var(--surface-card)',
-              border: '1px solid var(--line-1)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
-            <span
+      {statsLoading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0' }}>
+          <CyberLoader label={t('loading')} />
+        </div>
+      ) : statTiles.length === 0 ? (
+        <EmptyState icon="query_stats">{t('statsEmpty')}</EmptyState>
+      ) : (
+        // Ikki qatorli yorliq bo'lsa ham raqamlar bir sathda turadi.
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap-tight)' }}>
+          {statTiles.map((stat) => (
+            <div
+              key={stat.label}
               style={{
-                font: 'var(--type-label)',
-                letterSpacing: 'var(--ls-label)',
-                textTransform: 'uppercase',
-                color: 'var(--text-label)',
+                padding: 'var(--card-pad)',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--line-1)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
               }}
             >
-              {stat.label}
-            </span>
-            <span
-              style={{
-                marginTop: 'auto',
-                font: 'var(--fw-medium) var(--fs-2xl)/1 var(--font-mono)',
-                color: 'var(--text-title)',
-              }}
-            >
-              {stat.value}
-            </span>
-          </div>
-        ))}
-      </div>
+              <span
+                style={{
+                  font: 'var(--type-label)',
+                  letterSpacing: 'var(--ls-label)',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-label)',
+                }}
+              >
+                {stat.label}
+              </span>
+              <span
+                style={{
+                  marginTop: 'auto',
+                  font: 'var(--fw-medium) var(--fs-2xl)/1 var(--font-mono)',
+                  color: 'var(--text-title)',
+                }}
+              >
+                {stat.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-tight)' }}>
         {MENU.map((item) => {
@@ -158,7 +177,9 @@ export function ProfileScreen(): ReactNode {
               <button
                 type="button"
                 aria-expanded={expandable(item.id) ? on : undefined}
-                onClick={() => (expandable(item.id) ? setOpen(on ? null : item.id) : state.signOut())}
+                onClick={() =>
+                  expandable(item.id) ? setOpen(on ? null : item.id) : state.signOut()
+                }
                 style={{
                   cursor: 'pointer',
                   minHeight: 48,
@@ -175,7 +196,7 @@ export function ProfileScreen(): ReactNode {
                 }}
               >
                 <Icon name={item.icon} size={18} />
-                <span style={{ flex: 1, minWidth: 0 }}>{item.label}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>{t(item.label)}</span>
                 <Icon name={on && expandable(item.id) ? 'expand_less' : 'chevron_right'} size={18} />
               </button>
 
@@ -202,97 +223,78 @@ export function ProfileScreen(): ReactNode {
   );
 }
 
-/** 1 — Shaxsiy ma'lumotlar. */
+/**
+ * 1 — Shaxsiy ma'lumotlar. FAQAT KO'RSATISH.
+ *
+ * Avval bu yerda "Saqlash" tugmali forma turardi va bosilganda "Saqlandi"
+ * deb yozardi — aslida hech qayerga yubormasdi: `PATCH /me` endpoint'i
+ * YO'Q, ism va telefon botdagi `requestContact` orqali bir marta olinadi
+ * (DCR-002). Mijozga o'zgardi deb ko'rsatish soxta ma'lumotning o'zi edi.
+ */
 function PersonalSection(): ReactNode {
+  const t = useT();
   const profile = useProfile((state) => state.profile);
-  const update = useProfile((state) => state.update);
-
-  const [name, setName] = useState(profile?.name ?? '');
-  const [phone, setPhone] = useState(profile?.phone ?? '+998');
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  const save = (): void => {
-    if (name.trim().length < 2) {
-      setError('Ismingizni kiriting');
-      return;
-    }
-    if (!/^\+998\d{9}$/.test(phone.replace(/[\s()-]/g, ''))) {
-      setError('Telefon +998XXXXXXXXX shaklida bo‘lishi kerak');
-      return;
-    }
-    update({ name: name.trim(), phone: phone.replace(/[\s()-]/g, '') });
-    setError(null);
-    setSaved(true);
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
-      <TextField
-        label="Ism"
-        value={name}
-        onChange={(value) => {
-          setName(value);
-          setSaved(false);
+      <Field label={t('fieldName')} value={profile?.name.trim() || t('customer')} icon="person" />
+      <Field label={t('fieldPhone')} value={profile?.phone || t('phoneMissing')} icon="call" />
+      <StatusLine tone="neutral" icon="info" parts={[t('personalNote')]} />
+    </div>
+  );
+}
+
+function Field({ label, value, icon }: { label: string; value: string; icon: string }): ReactNode {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <span
+        style={{
+          font: 'var(--type-label)',
+          letterSpacing: 'var(--ls-label)',
+          textTransform: 'uppercase',
+          color: 'var(--text-label)',
         }}
-        icon="person"
-        placeholder="Aziz Karimov"
-      />
-      <TextField
-        label="Telefon"
-        value={phone}
-        onChange={(value) => {
-          setPhone(value);
-          setSaved(false);
-        }}
-        icon="call"
-        inputMode="tel"
-        placeholder="+998 90 123 45 67"
-        onSubmitKey={save}
-      />
-
-      {error ? <StatusLine tone="danger" icon="error" parts={error} /> : null}
-      {saved && !error ? (
-        <StatusLine tone="ok" icon="check_circle" parts="Saqlandi" />
-      ) : null}
-
-      <Button variant="primary" size="lg" notch block icon="check" onClick={save}>
-        Saqlash
-      </Button>
-
-      <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-        Telefon raqam bron tasdig‘i va klub bilan bog‘lanish uchun ishlatiladi.
+      >
+        {label}
       </span>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          minHeight: 'var(--field-h)',
+          padding: '5px 10px',
+          background: 'var(--surface-field)',
+          border: '1px solid var(--line-1)',
+        }}
+      >
+        <Icon name={icon} size={15} color="var(--text-dim)" />
+        <span style={{ minWidth: 0, font: 'var(--type-data)', color: 'var(--text-title)' }}>
+          {value}
+        </span>
+      </div>
     </div>
   );
 }
 
 /** 2 — Bildirishnomalar. */
 function NotifySection(): ReactNode {
+  const t = useT();
   const state = useProfile();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
       <Toggle
-        label="Seans ogohlantirishlari"
-        hint={`${NOTIFY_BEFORE_MIN.join(' va ')} daqiqa qolganda xabar keladi`}
+        label={t('toggleAlerts')}
+        hint={t('toggleAlertsHint', { minutes: NOTIFY_BEFORE_MIN.join(' / ') })}
         on={state.notify}
         onToggle={() => state.setNotify(!state.notify)}
-      />
-      <Toggle
-        label="Bron eslatmasi"
-        hint="Bron boshlanishidan oldin eslatib turadi"
-        on={state.remind}
-        onToggle={() => state.setRemind(!state.remind)}
       />
 
       <StatusLine
         tone="neutral"
         icon="info"
-        parts={[
-          `Kechikish limiti ${NO_SHOW_MIN} daqiqa`,
-          'Kelmasangiz bron to‘lovi qaytarilmaydi',
-        ]}
+        parts={[t('noShowNote', { minutes: NO_SHOW_MIN }), t('noShowHint')]}
       />
     </div>
   );
@@ -300,7 +302,10 @@ function NotifySection(): ReactNode {
 
 /** 3 — Interfeys sozlamalari. */
 function InterfaceSection(): ReactNode {
+  const t = useT();
   const state = useProfile();
+  const lang = useI18n((i18n) => i18n.lang);
+  const setLang = useI18n((i18n) => i18n.setLang);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap-block)' }}>
@@ -313,17 +318,17 @@ function InterfaceSection(): ReactNode {
             color: 'var(--text-label)',
           }}
         >
-          Til
+          {t('labelLanguage')}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {LANGS.map((lang) => {
-            const on = state.lang === lang.id;
+          {LANGS.map((option) => {
+            const on = lang === option.id;
             return (
               <button
-                key={lang.id}
+                key={option.id}
                 type="button"
                 aria-pressed={on}
-                onClick={() => state.setLang(lang.id)}
+                onClick={() => setLang(option.id)}
                 style={{
                   cursor: 'pointer',
                   height: 'var(--control-h)',
@@ -335,7 +340,7 @@ function InterfaceSection(): ReactNode {
                   transition: 'var(--t-control)',
                 }}
               >
-                {lang.label}
+                {option.label}
               </button>
             );
           })}
@@ -343,17 +348,13 @@ function InterfaceSection(): ReactNode {
       </div>
 
       <Toggle
-        label="Haptik javob"
-        hint="Ogohlantirishlarda tebranish"
+        label={t('toggleHaptics')}
+        hint={t('toggleHapticsHint')}
         on={state.haptics}
         onToggle={() => state.setHaptics(!state.haptics)}
       />
 
-      <StatusLine
-        tone="neutral"
-        icon="dark_mode"
-        parts={['Mavzu — doim qorong‘i', 'Telegram temasidan mustaqil']}
-      />
+      <StatusLine tone="neutral" icon="dark_mode" parts={[t('themeNote'), t('themeNoteHint')]} />
     </div>
   );
 }

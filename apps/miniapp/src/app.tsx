@@ -1,10 +1,11 @@
-import { Icon } from '@playbron/ui';
+import { CyberLoaderOverlay, Icon, Wordmark } from '@playbron/ui';
 import { type ReactNode } from 'react';
 
-import { CLK, HM, MENU, S, TABS, TAB_ROOT, TITLES, type ScreenId } from './mock/data';
-import { freeStations, isoDateOf, startInstantIso } from './lib/slots';
+import { useT, type Translate } from './i18n';
+import { clock, hhmm } from './lib/format';
+import { consoleForRequest, freeStations, isoDateOf, startInstantIso } from './lib/slots';
 import { useTelegramAuth } from './lib/auth';
-import { BillScreen } from './screens/bill';
+import { TABS, TAB_ROOT, TITLE_KEY } from './nav';
 import { BookingsScreen } from './screens/bookings';
 import { BootScreen } from './screens/boot';
 import { ClubScreen } from './screens/club';
@@ -20,7 +21,7 @@ import { useBooking } from './store/booking';
 /** Mijoz Mini App — `docs/designs/PlayBron Mijoz.dc.html` shelli. */
 export function App(): ReactNode {
   useClock();
-  const now = useNow();
+  const t = useT();
   const state = useApp();
   const profile = useProfile((current) => current.profile);
   const signedIn = useProfile((current) => current.signedIn);
@@ -28,11 +29,15 @@ export function App(): ReactNode {
   const boot = useTelegramAuth();
   const authenticated = boot.state === 'authenticated' && profile && signedIn;
   const bookingSubmitting = useBooking((s) => s.submitting);
+  const clubTimezone = useBooking(
+    (s) => s.clubs.find((club) => club.id === state.clubId)?.timezone,
+  );
+  const now = useNow(clubTimezone);
 
-  const main = mainButton(state, bookingSubmitting);
+  const main = mainButton(state, bookingSubmitting, t);
   const canBack = state.stack.length > 0;
   const activeTab = TAB_ROOT[state.screen] ?? state.screen;
-  const [title] = TITLES[state.screen];
+  const title = t(TITLE_KEY[state.screen]);
 
   // Telegram'ning MainButton va BackButton'i ATAYLAB ishlatilmaydi: ekranda
   // o'z tugmamiz va o'z header'imiz bor, ikkalasi birga chiqsa foydalanuvchi
@@ -53,19 +58,9 @@ export function App(): ReactNode {
         }}
       >
         {boot.state === 'checking' ? (
-          <main
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 'var(--gutter)',
-              font: 'var(--type-body-sm)',
-              color: 'var(--text-dim)',
-            }}
-          >
-            Yuklanmoqda…
-          </main>
+          // Konsoldagi yuklanish holatining o'zi — mijoz yuzasida ham
+          // bir xil (loyiha egasi, 2026-08-17: "yuklanishda loader yo'q").
+          <CyberLoaderOverlay label={t('loading')} />
         ) : authenticated ? (
           <>
             <header
@@ -84,7 +79,7 @@ export function App(): ReactNode {
                 <button
                   type="button"
                   onClick={state.back}
-                  aria-label="Orqaga"
+                  aria-label={t('back')}
                   style={{
                     cursor: 'pointer',
                     width: 30,
@@ -99,7 +94,11 @@ export function App(): ReactNode {
                 >
                   <Icon name="arrow_back" size={20} />
                 </button>
-              ) : null}
+              ) : (
+                // Belgi — konsoldagi bilan bitta komponent (`@playbron/ui`).
+                // Ichki ekranda «orqaga» tugmasiga joy beradi.
+                <Wordmark width={120} />
+              )}
 
               {/* Bir qatorli mobil header: faqat sarlavha — subtitr olib tashlandi */}
               <span
@@ -111,13 +110,14 @@ export function App(): ReactNode {
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  textAlign: canBack ? 'left' : 'right',
                 }}
               >
                 {title}
               </span>
 
               <span style={{ font: 'var(--type-data-xs)', color: 'var(--text-dim)' }}>
-                {CLK(now)}
+                {clock(now)}
               </span>
             </header>
 
@@ -128,6 +128,8 @@ export function App(): ReactNode {
                 minWidth: 0,
                 overflowY: 'auto',
                 overflowX: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
                 padding: 'var(--gutter)',
               }}
             >
@@ -135,9 +137,8 @@ export function App(): ReactNode {
               {state.screen === 'club' ? <ClubScreen /> : null}
               {state.screen === 'slots' ? <SlotsScreen /> : null}
               {state.screen === 'confirm' ? <ConfirmScreen /> : null}
-              {state.screen === 'qr' ? <SentScreen /> : null}
+              {state.screen === 'sent' ? <SentScreen /> : null}
               {state.screen === 'session' ? <SessionScreen /> : null}
-              {state.screen === 'bill' ? <BillScreen /> : null}
               {state.screen === 'bookings' ? <BookingsScreen /> : null}
               {state.screen === 'profile' ? <ProfileScreen /> : null}
             </main>
@@ -178,13 +179,14 @@ export function App(): ReactNode {
             >
               {TABS.map((tab) => {
                 const on = activeTab === tab.id;
+                const label = t(tab.label);
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => state.tab(tab.id)}
-                    aria-label={tab.label}
-                    title={tab.label}
+                    aria-label={label}
+                    title={label}
                     aria-current={on ? 'page' : undefined}
                     style={{
                       cursor: 'pointer',
@@ -222,21 +224,25 @@ interface MainAction {
 }
 
 /**
- * Prototipdagi `MAIN` jadvali — ekranga qarab MainButton.
+ * Ekranga qarab pastdagi asosiy amal.
  *
- * `club`/`slots`/`confirm`/`qr` — real bron oqimi (`store/booking.ts`),
- * qolgani hali mock (seans, bar, hisob — backend yo'q).
+ * Faqat REAL bron oqimi qoldi (`store/booking.ts`). Avvalgi "savatni
+ * yuborish" va "chekni yuklash" amallari mock bar/hisob ekranlariga
+ * tegishli edi — backendda ularning ekvivalenti yo'q, shuning uchun
+ * ekranlar bilan birga olib tashlandi.
  */
 function mainButton(
   state: ReturnType<typeof useApp.getState>,
   bookingSubmitting: boolean,
+  t: Translate,
 ): MainAction | null {
   const booking = useBooking.getState();
   const clubId = state.clubId;
   const stationScope = { room: state.room, console: state.console };
-  const club = clubId === null ? null : booking.clubs.find((c) => c.id === clubId) ?? null;
+  const club = clubId === null ? null : (booking.clubs.find((c) => c.id === clubId) ?? null);
   const timezone = club?.timezone ?? 'Asia/Tashkent';
-  const dayBookings = clubId === null ? [] : booking.dayBookings[isoDateOf(state.day, timezone)] ?? [];
+  const dayBookings =
+    clubId === null ? [] : (booking.dayBookings[isoDateOf(state.day, timezone)] ?? []);
   const closeMin = club?.closesAtMin ?? 0;
 
   const free = freeStations(
@@ -250,35 +256,33 @@ function mainButton(
   );
   const station = free.find((item) => item.id === state.station) ?? null;
 
-  const ordersAmount = Object.entries(state.cart).reduce(
-    (sum, [id, qty]) => sum + (MENU.find((item) => item.id === id)?.price ?? 0) * qty,
-    0,
-  );
-
   switch (state.screen) {
     case 'club':
-      return { label: 'Bron qilish', act: () => state.go('slots') };
+      return { label: t('bookAction'), act: () => state.go('slots') };
     case 'slots': {
       if (!station) {
-        return { label: 'Bo‘sh vaqtni tanlang', act: () => undefined, enabled: false };
+        return { label: t('pickFreeTime'), act: () => undefined, enabled: false };
       }
       // Konsolsiz xonada konsol tanlanmaguncha oldinga o'tkazmaymiz —
       // aks holda server 400 `CONSOLE_TYPE_REQUIRED` qaytarardi va mijoz
       // sababini bilmasdi (audit topilmasi, 2026-08-16).
       if (station.consoleType === null && !state.bookingConsole) {
-        return { label: 'Konsolni tanlang', act: () => undefined, enabled: false };
+        return { label: t('pickConsole'), act: () => undefined, enabled: false };
       }
+      // Summa YOZILMAYDI: oynaning haqiqiy narxini server tarif jadvali
+      // bo'yicha hisoblaydi (`bookings/pricing.py`), `rate × soat` esa
+      // tarif kun ichida o'zgarsa unga teng bo'lmaydi.
       return {
-        label: `${HM(state.start)} → ${HM(state.start + state.hours * 60)} · ${S(station.rate * state.hours)} so‘m`,
+        label: `${hhmm(state.start)} → ${hhmm(state.start + state.hours * 60)}`,
         act: () => state.go('confirm'),
       };
     }
     case 'confirm':
       if (!station || clubId === null) {
-        return { label: 'Xona tanlanmagan', act: () => undefined, enabled: false };
+        return { label: t('roomNotSelected'), act: () => undefined, enabled: false };
       }
       return {
-        label: bookingSubmitting ? 'Yuborilmoqda…' : 'Bronni yuborish',
+        label: bookingSubmitting ? t('submitting') : t('submitBooking'),
         enabled: !bookingSubmitting,
         act: () => {
           if (useBooking.getState().submitting) return;
@@ -290,33 +294,25 @@ function mainButton(
               station.id,
               iso,
               state.hours,
-              // Xonada eski `consoleType` bo'lsa server o'shani ishlatadi
-              station.consoleType === null ? state.bookingConsole : undefined,
+              consoleForRequest(station, state.bookingConsole),
             )
             .then((ok) => {
-              if (ok) state.go('qr');
+              if (ok) {
+                // Yangi bron darhol «Bronlarim» va «Seans» ekranlarida
+                // ko'rinishi uchun ro'yxat qayta o'qiladi.
+                void useBooking.getState().loadMyBookings();
+                state.go('sent');
+              }
             });
         },
       };
-    case 'qr':
-      return { label: 'Bronlarim', act: () => state.tab('bookings') };
-    case 'session':
-      // Savat bo'sh bo'lsa yuboradigan narsa yo'q — tugma sababni aytadi
-      return ordersAmount > 0
-        ? {
-            label: `Buyurtmani yuborish · ${S(ordersAmount)} so‘m`,
-            act: state.sendOrder,
-          }
-        : { label: 'Savat bo‘sh', act: () => undefined, enabled: false };
-    case 'bill':
-      return state.payFinal === 'O‘tkazma' && state.receipt === 'none'
-        ? { label: 'Chekni yuklash', act: () => state.setReceipt('sent') }
-        : null;
+    case 'sent':
+      return { label: t('goBookings'), act: () => state.tab('bookings') };
     case 'bookings':
-      return { label: 'Yangi bron', act: () => state.tab('clubs') };
+      return { label: t('newBooking'), act: () => state.tab('clubs') };
     default:
       return null;
   }
 }
 
-export type { ScreenId };
+export type { ScreenId } from './nav';

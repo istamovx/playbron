@@ -7,6 +7,7 @@ so'rovi (2026-08-15).
 
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -701,12 +702,24 @@ async def test_extend_out_of_range_is_rejected(
     staff_h = await _staff_headers(client, world["club"])
     booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
 
+    # Klub chegarasi (`clubs.extend_max_hours`, sukut 3) SERVISDA
+    # tekshiriladi — DTO faqat DB darajasidagi qattiq chegarani biladi,
+    # chunki import paytidagi konstanta tenantga qarab o'zgara olmaydi.
     r = await client.post(
         f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
         json={"extra_hours": 10},
         headers=staff_h,
     )
-    assert r.status_code == 422, r.text  # Pydantic `le=EXTEND_MAX_HOURS`
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "EXTEND_RANGE_INVALID"
+
+    # Qattiq chegaradan oshsa Pydantic to'xtatadi
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 13},
+        headers=staff_h,
+    )
+    assert r.status_code == 422, r.text
 
 
 @skip_no_db
@@ -884,3 +897,394 @@ async def test_cancel_already_closed_booking_is_rejected(
     )
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "BILL_ALREADY_CLOSED"
+
+
+@asynccontextmanager
+async def _tariff(
+    club_id: int, *, from_min: int, to_min: int, price: int
+) -> AsyncIterator[None]:
+    """Klubga vaqtincha tarif qo'yadi va chiqishda o'chiradi.
+
+    Uchala tarif testi bir xil o'rnatish/tozalash blokini takrorlagan edi —
+    farqi faqat qatordagi qiymatlar.
+    """
+    engine = _owner_engine()
+
+    async def run(sql: str, params: dict[str, object]) -> None:
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "tariffs"):
+                await conn.execute(text(sql), params)
+        # `rls_bypass()` DDL bajardi — ilova hovuzining bayonot keshi
+        # eskiradi (`world` fixture'idagi bilan bir xil sabab).
+        await core_db.dispose()
+
+    await run(
+        "INSERT INTO tariffs (club_id, name, from_min, to_min, price_per_hour)"
+        " VALUES (:c, 'Sinov', :f, :t, :p)",
+        {"c": club_id, "f": from_min, "t": to_min, "p": price},
+    )
+    try:
+        yield
+    finally:
+        await run("DELETE FROM tariffs WHERE club_id = :c", {"c": club_id})
+        await engine.dispose()
+
+
+@skip_no_db
+async def test_tariff_overrides_station_rate(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Tarif bor bo'lsa narx `stations.rate` dan EMAS, tarifdan olinadi.
+
+    Klubda tarif yo'q bo'lsa eski xatti-harakat saqlanadi (stansiya
+    narxi) — buni qolgan barcha testlar allaqachon qamrab olgan.
+    """
+    async with _tariff(world["club"], from_min=0, to_min=1440, price=55_000):
+        customer_h = await _customer_headers(client)
+        r = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings",
+            json={"station_id": world["station"], "starts_at": _starts(3), "hours": 2},
+            headers=customer_h,
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        # Stansiya narxi 40 000 — agar u ishlatilsa 80 000 chiqardi
+        assert body["play_amount"] == 110_000
+        assert body["rate_snapshot"] == 55_000
+
+
+@skip_no_db
+async def test_booking_is_rejected_when_tariffs_do_not_cover_the_window(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Tarif bor, lekin oynani qoplamaydi — JIMGINA stansiya narxiga
+    tushib ketilmaydi, xodim buni ko'rib tuzatishi kerak."""
+    # Bitta daqiqalik oyna — deyarli hech qachon mos kelmaydi
+    async with _tariff(world["club"], from_min=0, to_min=1, price=55_000):
+        customer_h = await _customer_headers(client)
+        r = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings",
+            json={"station_id": world["station"], "starts_at": _starts(5), "hours": 2},
+            headers=customer_h,
+        )
+        assert r.status_code == 422, r.text
+        assert r.json()["error"]["code"] == "NO_TARIFF_FOR_SLOT"
+
+
+@skip_no_db
+async def test_extend_reprices_the_booking(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Uzaytirish oynani o'zgartiradi — demak summa ham qayta hisoblanadi.
+
+    `play_amount` saqlangan ustun: `rate_snapshot * hours` kabi o'zini o'zi
+    tuzatmaydi. Yangilanmasa kassa va hisobot uzaytirishdan OLDINGI
+    summani abadiy ko'rsatardi.
+    """
+    async with _tariff(world["club"], from_min=0, to_min=1440, price=55_000):
+        staff_h = await _staff_headers(client, world["club"])
+        created = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/staff",
+            json={
+                "station_id": world["station"],
+                "starts_at": _starts(2),
+                "hours": 2,
+                "guest_name": "Mehmon",
+                "guest_phone": "+998901234567",
+            },
+            headers=staff_h,
+        )
+        assert created.status_code == 201, created.text
+        booking_id = int(created.json()["id"])
+        assert created.json()["play_amount"] == 110_000
+
+        extended = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+            json={"extra_hours": 1},
+            headers=staff_h,
+        )
+        assert extended.status_code == 200, extended.text
+
+        detail = await client.get(
+            f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+        )
+        assert detail.json()["hours"] == 3
+        assert detail.json()["play_amount"] == 165_000, (
+            "uzaytirilgandan keyin summa eski qiymatda qoldi"
+        )
+
+
+@skip_no_db
+async def test_quote_returns_tariff_price_without_creating_a_booking(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Mijoz summani bron qilishdan OLDIN ko'radi.
+
+    Tarif vaqtga qarab o'zgargani uchun klient uni o'zi hisoblab bera
+    olmaydi — usiz jami summa faqat bron qilingandan keyin ma'lum bo'lardi.
+    """
+    async with _tariff(world["club"], from_min=0, to_min=1440, price=55_000):
+        customer_h = await _customer_headers(client)
+        payload = {"station_id": world["station"], "starts_at": _starts(4), "hours": 2}
+
+        quote = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/quote", json=payload, headers=customer_h
+        )
+        assert quote.status_code == 200, quote.text
+        assert quote.json()["play_amount"] == 110_000
+
+        # Hech narsa band qilinmagan — o'sha vaqtga bron HALI mumkin
+        created = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings", json=payload, headers=customer_h
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["play_amount"] == quote.json()["play_amount"]
+
+
+@skip_no_db
+async def test_quote_rejects_a_window_no_tariff_covers(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Narx so'rovi bron yaratish bilan BIR XIL validatsiyadan o'tadi —
+    aks holda mijoz narxni ko'rib, bron bosganda xatoga uchrardi."""
+    async with _tariff(world["club"], from_min=0, to_min=1, price=55_000):
+        customer_h = await _customer_headers(client)
+        r = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/quote",
+            json={"station_id": world["station"], "starts_at": _starts(6), "hours": 2},
+            headers=customer_h,
+        )
+        assert r.status_code == 422, r.text
+        assert r.json()["error"]["code"] == "NO_TARIFF_FOR_SLOT"
+
+
+async def _set_tariff_price(club_id: int, price: int) -> None:
+    """Klubning tarifini JONLI o'zgartiradi — egasi narx ko'targan holat."""
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "tariffs"):
+            await conn.execute(
+                text("UPDATE tariffs SET price_per_hour = :p WHERE club_id = :c"),
+                {"p": price, "c": club_id},
+            )
+    await core_db.dispose()
+    await engine.dispose()
+
+
+@skip_no_db
+async def test_extend_prices_only_the_added_hours(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Uzaytirish O'YNALGAN soatlarni QAYTA narxlamaydi.
+
+    Ilgari butun oyna hozirgi tarif jadvali bo'yicha qayta hisoblanardi:
+    egasi kechqurungi tarifni ko'tarsa, allaqachon o'ynalgan soatlar ham
+    yangi narxga ko'chib, mijoz kelishilgandan boshqa summa to'lardi.
+    """
+    async with _tariff(world["club"], from_min=0, to_min=1440, price=55_000):
+        staff_h = await _staff_headers(client, world["club"])
+        created = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/staff",
+            json={
+                "station_id": world["station"],
+                "starts_at": _starts(2),
+                "hours": 2,
+                "guest_name": "Mehmon",
+                "guest_phone": "+998901234567",
+            },
+            headers=staff_h,
+        )
+        assert created.status_code == 201, created.text
+        booking_id = int(created.json()["id"])
+        assert created.json()["play_amount"] == 110_000
+
+        # Egasi narxni KO'TARDI — bu faqat YANGI soatlarga tegishli
+        await _set_tariff_price(world["club"], 90_000)
+
+        extended = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+            json={"extra_hours": 1},
+            headers=staff_h,
+        )
+        assert extended.status_code == 200, extended.text
+
+        detail = await client.get(
+            f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+        )
+        assert detail.json()["play_amount"] == 200_000, (
+            "o'ynalgan 2 soat yangi tarif bo'yicha qayta narxlangan"
+        )
+        # Snapshot bron paytidagi soatlik narxda qoladi
+        assert detail.json()["rate_snapshot"] == 55_000
+
+
+@skip_no_db
+async def test_extend_works_while_the_station_is_under_maintenance(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Ta'mirga qo'yilgan stansiyadagi JONLI seans uzaytiriladi.
+
+    Stansiya holati YANGI bron uchun to'siq, davom etayotgani uchun emas:
+    pult buzilgani uchun stansiya `maintenance` ga o'tkazilsa ham, o'sha
+    paytda o'ynayotgan mijozga bir soat qo'shib bo'lishi kerak.
+    """
+    staff_h = await _staff_headers(client, world["club"])
+    created = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/staff",
+        json={
+            "station_id": world["station"],
+            "starts_at": _starts(2),
+            "hours": 1,
+            "guest_name": "Mehmon",
+            "guest_phone": "+998901234567",
+        },
+        headers=staff_h,
+    )
+    assert created.status_code == 201, created.text
+    booking_id = int(created.json()["id"])
+
+    patched = await client.patch(
+        f"/api/v1/clubs/{world['club']}/stations/{world['station']}",
+        json={"room_label": "Standart", "rate": 40000, "status": "maintenance"},
+        headers=staff_h,
+    )
+    assert patched.status_code == 200, patched.text
+
+    extended = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1},
+        headers=staff_h,
+    )
+    assert extended.status_code == 200, extended.text
+    assert extended.json()["hours"] == 2
+
+
+@skip_no_db
+async def test_new_station_gets_a_room_so_room_scoped_tariffs_apply(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """API orqali yaratilgan stansiya `rooms` bilan bog'lanadi.
+
+    `0033` mavjud stansiyalarni ko'chirgan, lekin `room_id` ni yozadigan
+    kod yo'q edi: yangi stansiyada u `NULL` qolib, xonaga bog'langan tarif
+    (`tariffs.room_kind`) JIMGINA e'tiborsiz qolardi — VIP xona umumiy
+    narxda hisoblanardi.
+    """
+    staff_h = await _staff_headers(client, world["club"])
+    station = await client.post(
+        f"/api/v1/clubs/{world['club']}/stations",
+        json={"code": "VIP-9", "room_label": "VIP", "rate": 40000},
+        headers=staff_h,
+    )
+    assert station.status_code == 201, station.text
+    station_id = int(station.json()["id"])
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "tariffs"):
+            await conn.execute(
+                text(
+                    "INSERT INTO tariffs (club_id, name, from_min, to_min, price_per_hour,"
+                    " room_kind) VALUES (:c, 'VIP', 0, 1440, 70000, 'VIP')"
+                ),
+                {"c": world["club"]},
+            )
+    await core_db.dispose()
+    try:
+        customer_h = await _customer_headers(client)
+        quote = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/quote",
+            json={
+                "station_id": station_id,
+                "starts_at": _starts(5),
+                "hours": 2,
+                # Yangi stansiyada `console_type` YO'Q (reja #38) — mijoz
+                # uni bron/narx so'rovida o'zi tanlaydi.
+                "console_type": "ps5",
+            },
+            headers=customer_h,
+        )
+        assert quote.status_code == 200, quote.text
+        assert quote.json()["play_amount"] == 140_000, (
+            "xonaga bog'langan tarif qo'llanmadi — stansiya `rooms` ga bog'lanmagan"
+        )
+    finally:
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "tariffs", "stations", "bookings"):
+                await conn.execute(
+                    text("DELETE FROM bookings WHERE station_id = :s"), {"s": station_id}
+                )
+                await conn.execute(text("DELETE FROM stations WHERE id = :s"), {"s": station_id})
+                await conn.execute(
+                    text("DELETE FROM tariffs WHERE club_id = :c"), {"c": world["club"]}
+                )
+        await core_db.dispose()
+        await engine.dispose()
+
+
+@asynccontextmanager
+async def _foreign_station(owner_id: int) -> AsyncIterator[tuple[int, int]]:
+    """Boshqa tashkilotning klubi va stansiyasi — tenancy tekshiruvi uchun."""
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "organizations", "clubs", "stations"):
+            org_id = await conn.scalar(
+                text(
+                    "INSERT INTO organizations (owner_user_id, name, status, plan_code)"
+                    " VALUES (:u, 'Begona Org', 'active', 'gold') RETURNING id"
+                ),
+                {"u": owner_id},
+            )
+            club_id = await conn.scalar(
+                text(
+                    "INSERT INTO clubs (org_id, name, status, opens_at_min, closes_at_min)"
+                    " VALUES (:o, 'Begona Club', 'active', 0, 1440) RETURNING id"
+                ),
+                {"o": org_id},
+            )
+            station_id = await conn.scalar(
+                text(
+                    "INSERT INTO stations (club_id, code, room_label, console_type, rate)"
+                    " VALUES (:c, 'FRN-1', 'Standart', 'ps5', 40000) RETURNING id"
+                ),
+                {"c": club_id},
+            )
+    await core_db.dispose()
+    try:
+        yield int(club_id), int(station_id)
+    finally:
+        async with engine.begin() as conn:
+            async with rls_bypass(conn, "organizations"):
+                await conn.execute(text("DELETE FROM organizations WHERE id = :i"), {"i": org_id})
+        await core_db.dispose()
+        await engine.dispose()
+
+
+@skip_no_db
+async def test_quote_does_not_price_another_clubs_station(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Boshqa klubning stansiyasi uchun narx berilmaydi."""
+    async with _foreign_station(world["owner"]) as (_, foreign_station):
+        customer_h = await _customer_headers(client)
+        r = await client.post(
+            f"/api/v1/clubs/{world['club']}/bookings/quote",
+            json={"station_id": foreign_station, "starts_at": _starts(5), "hours": 2},
+            headers=customer_h,
+        )
+        assert r.status_code == 404, r.text
+
+
+@skip_no_db
+async def test_quote_requires_a_customer_token(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """Xodim tokeni mijoz endpoint'ini ocholmaydi."""
+    staff_h = await _staff_headers(client, world["club"])
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/quote",
+        json={"station_id": world["station"], "starts_at": _starts(5), "hours": 2},
+        headers=staff_h,
+    )
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "CUSTOMER_TOKEN_REQUIRED"

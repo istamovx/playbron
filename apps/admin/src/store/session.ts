@@ -13,12 +13,19 @@ import { api } from '../lib/api';
  * (`docs/05-auth-redesign.md` §11.1).
  */
 
-export type Role = 'STAFF' | 'CLUB_ADMIN' | 'SUPER_ADMIN';
+/**
+ * Klub roli — `CLAUDE.md` §Domen glossariyi: `memberships.role` ∈ `OWNER` | `ADMIN` | `STAFF`.
+ *
+ * Platforma huquqi bu turga KIRMAYDI — u tenant roli emas, alohida
+ * `Session.isSuperAdmin` bayrog'i orqali tashiladi (`CLAUDE.md` §Platform).
+ * Bir necha klubda a'zolik bo'lganda eng yuqori rol tanlanadi — `topRole()`.
+ */
+export type Role = 'STAFF' | 'ADMIN' | 'OWNER';
 
 export const ROLE_LABEL: Record<Role, string> = {
   STAFF: 'Xodim',
-  CLUB_ADMIN: 'Klub admini',
-  SUPER_ADMIN: 'Super admin',
+  ADMIN: 'Admin',
+  OWNER: 'Egasi',
 };
 
 export interface Session {
@@ -106,10 +113,10 @@ interface SessionState {
   prune: () => void;
 }
 
-/** Eng yuqori rol — bir necha klubda a'zolik bo'lishi mumkin. */
-function topRole(memberships: ApiMembership[], superAdmin: boolean): Role {
-  if (superAdmin) return 'SUPER_ADMIN';
-  if (memberships.some((m) => m.role === 'OWNER' || m.role === 'ADMIN')) return 'CLUB_ADMIN';
+/** Eng yuqori rol — bir necha klubda a'zolik bo'lishi mumkin. Platforma huquqi bu yerga kirmaydi. */
+function topRole(memberships: ApiMembership[]): Role {
+  if (memberships.some((m) => m.role === 'OWNER')) return 'OWNER';
+  if (memberships.some((m) => m.role === 'ADMIN')) return 'ADMIN';
   return 'STAFF';
 }
 
@@ -118,7 +125,7 @@ function toStoreSession(body: ApiSession): Session {
     userId: body.user.id,
     name: [body.user.first_name, body.user.last_name].filter(Boolean).join(' ').trim(),
     login: body.user.login,
-    role: topRole(body.memberships, body.is_super_admin),
+    role: topRole(body.memberships),
     expiresAt: body.refresh_expires_at,
     clubs: body.memberships.map((m) => ({ id: m.club_id, name: m.club_name, role: m.role })),
     isSuperAdmin: body.is_super_admin,
@@ -233,10 +240,7 @@ export const useSession = create<SessionState>()((set, get) => ({
           userId: me.id,
           name: [me.first_name, me.last_name].filter(Boolean).join(' ').trim(),
           login: me.login,
-          role: topRole(
-            me.clubs.map((c) => ({ club_id: c.id, club_name: c.name, role: c.role })),
-            me.is_super_admin,
-          ),
+          role: topRole(me.clubs.map((c) => ({ club_id: c.id, club_name: c.name, role: c.role }))),
           expiresAt: stored.refreshExpiresAt,
           clubs: me.clubs.map((c) => ({ id: c.id, name: c.name, role: c.role })),
           isSuperAdmin: me.is_super_admin,

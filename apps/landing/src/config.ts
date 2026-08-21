@@ -47,12 +47,12 @@ export const SITE = {
   /** Ilova boti — xodim va klub admini ilovani shu botdan ochadi. */
   appBot: 'https://t.me/playbronappbot',
 
-  // TODO: haqiqiy aloqa ma'lumotlari bilan almashtiring
+  // TODO: haqiqiy email kelganda almashtiring
   email: 'info@playbron.uz',
-  phone: '+998 90 000 00 00',
+  phone: '+998 91 791 11 22',
 
   /** `tel:` havolasi uchun — faqat raqam. */
-  phoneHref: '+998900000000',
+  phoneHref: '+998917911122',
 } as const;
 
 /** Loyiha ishga tushgan yil — copyright oralig'ining boshi. */

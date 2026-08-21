@@ -21,6 +21,10 @@ interface TelegramButton {
 
 interface TelegramWebApp {
   initData: string;
+  /** Imzosiz nusxa — SHAXSNI TASDIQLASH uchun ISHLATILMAYDI (buni faqat
+   * server `initData` imzosidan biladi). Faqat interfeys tilini taxmin
+   * qilishga yaraydi: yolg'on til hech qanday xavf tug'dirmaydi. */
+  initDataUnsafe?: { user?: { language_code?: string } };
   colorScheme: 'light' | 'dark';
   themeParams: Record<string, string>;
   MainButton: TelegramButton;

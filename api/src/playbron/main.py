@@ -14,6 +14,7 @@ from playbron.core.config import settings
 from playbron.core.super_admin_bootstrap import sync_super_admin_password
 from playbron.modules.auth import botlogin
 from playbron.modules.auth.router import router as auth_router
+from playbron.modules.bookings import reminders
 from playbron.modules.bookings.router import router as bookings_router
 from playbron.modules.bot import router as bot_router_setup
 from playbron.modules.bot.router import router as bot_router
@@ -87,7 +88,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         public_url = settings.public_url or os.environ.get("RENDER_EXTERNAL_URL", "")
         await register_webhooks(public_url)
 
+    # Fon vazifasi — bron eslatmasi. Ishga tushmaslik shartlari
+    # `reminders.start()` ichida (test muhiti, token yo'qligi).
+    reminder_task = reminders.start()
+
     yield
+
+    await reminders.stop(reminder_task)
     await db.dispose()
     await redis.close()
 
