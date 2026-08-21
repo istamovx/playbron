@@ -1817,6 +1817,10 @@ export interface PlatformOrgDto {
   clubStatus: string | null;
   stationsCount: number;
   bookings30d: number;
+  /** Klub tushumi — SURUVCHI oyna (`bookings_30d` bilan bir xil naqsh), so'mda. */
+  revenue7d: number;
+  revenue30d: number;
+  revenue365d: number;
   /** So'nggi qo'lda kiritilgan to'lov summasi — hech qachon to'lanmagan bo'lsa `null`. */
   lastPaymentAmount: number | null;
   lastPaymentAt: string | null;
@@ -1837,6 +1841,9 @@ interface PlatformOrgApi {
   club_status: string | null;
   stations_count: number;
   bookings_30d: number;
+  revenue_7d: number;
+  revenue_30d: number;
+  revenue_365d: number;
   last_payment_amount: number | null;
   last_payment_at: string | null;
   plan_expires_at: string | null;
@@ -1855,6 +1862,9 @@ const fromPlatformOrgApi = (row: PlatformOrgApi): PlatformOrgDto => ({
   clubStatus: row.club_status,
   stationsCount: row.stations_count,
   bookings30d: row.bookings_30d,
+  revenue7d: row.revenue_7d,
+  revenue30d: row.revenue_30d,
+  revenue365d: row.revenue_365d,
   lastPaymentAmount: row.last_payment_amount,
   lastPaymentAt: row.last_payment_at,
   planExpiresAt: row.plan_expires_at,
@@ -2010,6 +2020,9 @@ export interface PlatformOrgClubDto {
   phone: string | null;
   stationsCount: number;
   bookings30d: number;
+  revenue7d: number;
+  revenue30d: number;
+  revenue365d: number;
 }
 
 export interface PlatformOrgPaymentDto {
@@ -2060,6 +2073,9 @@ interface PlatformOrgDetailApi {
     phone: string | null;
     stations_count: number;
     bookings_30d: number;
+    revenue_7d: number;
+    revenue_30d: number;
+    revenue_365d: number;
   }>;
   payments: Array<{
     id: number;
@@ -2099,6 +2115,9 @@ export const getPlatformOrg = async (api: ApiClient, orgId: number): Promise<Pla
       phone: c.phone,
       stationsCount: c.stations_count,
       bookings30d: c.bookings_30d,
+      revenue7d: c.revenue_7d,
+      revenue30d: c.revenue_30d,
+      revenue365d: c.revenue_365d,
     })),
     payments: row.payments.map((p) => ({
       id: p.id,

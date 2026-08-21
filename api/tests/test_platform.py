@@ -249,6 +249,13 @@ async def test_super_admin_lists_organizations(
     assert row_a["club_id"] == world["club_a"]
     assert row_a["owner_login"] == OWNER_A_LOGIN
     assert row_a["stations_count"] >= 1
+    # Klub tushumi — loyiha egasining so'rovi (2026-08-20): super admin
+    # bron tafsilotini emas, faqat SUMMANI ko'radi. `world` klub_a uchun
+    # 30 000 so'mlik bitta CONFIRMED bron yaratadi, 7/30/365 kunlik
+    # oynaning hammasi shu bronni qamraydi.
+    assert row_a["revenue_7d"] >= 30_000
+    assert row_a["revenue_30d"] >= 30_000
+    assert row_a["revenue_365d"] >= 30_000
 
 
 @skip_no_db
@@ -274,6 +281,7 @@ async def test_super_admin_opens_org_detail(
     assert any(c["club_id"] == world["club_a"] for c in clubs)
     club_a = next(c for c in clubs if c["club_id"] == world["club_a"])
     assert club_a["stations_count"] >= 1, "stations platform policy'si yo'q — Stansiya 0 bo'ldi"
+    assert club_a["revenue_30d"] >= 30_000
 
     assert any(s["login"] == OWNER_A_LOGIN for s in body["staff"]), (
         "memberships platform policy'si yo'q — Xodimlar ro'yxati bo'sh"
