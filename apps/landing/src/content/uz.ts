@@ -10,25 +10,33 @@
 
 import { STATS } from '../config';
 
-/** Board mockup'idagi stansiya holati — CSS klassiga shu qiymat bo'yicha ulanadi. */
-export type StationState = 'free' | 'busy' | 'soon' | 'booked';
+/**
+ * Board mockup'idagi stansiya holati — `apps/admin/src/screens/live-board.tsx`
+ * bilan bir xil uchta holat (band/bo'sh/ta'mirda). CSS klassiga shu qiymat
+ * bo'yicha ulanadi.
+ */
+export type StationState = 'free' | 'busy' | 'maintenance';
 
 export interface MockStation {
   name: string;
-  room: string;
+  meta: string;
   state: StationState;
-  time: string;
+  /** Band bo'lsa — «Ism · tugash vaqti» tayyor matn. Bo'sh/ta'mirda bo'lsa yo'q. */
+  guestLine?: string;
 }
 
 const stations: MockStation[] = [
-  { name: 'PS5 · 01', room: 'VIP 1', state: 'busy', time: '1:24' },
-  { name: 'PS5 · 02', room: 'VIP 1', state: 'busy', time: '0:47' },
-  { name: 'PS5 · 03', room: 'Zal', state: 'soon', time: '0:12' },
-  { name: 'PS5 · 04', room: 'Zal', state: 'free', time: '—' },
-  { name: 'PS4 · 05', room: 'Zal', state: 'busy', time: '2:05' },
-  { name: 'PS4 · 06', room: 'Zal', state: 'booked', time: '19:00' },
-  { name: 'PS5 · 07', room: 'VIP 2', state: 'busy', time: '0:33' },
-  { name: 'PS5 · 08', room: 'VIP 2', state: 'free', time: '—' },
+  { name: 'PS5 · 01', meta: 'VIP 1 · PS5 · 25 000/soat', state: 'busy', guestLine: 'Alisher · 18:40 gacha' },
+  { name: 'PS5 · 02', meta: 'VIP 1 · PS5 · 25 000/soat', state: 'free' },
+  { name: 'PS4 · 03', meta: 'Zal · PS4 · 18 000/soat', state: 'busy', guestLine: 'Jasur · 19:10 gacha' },
+  { name: 'PS4 · 04', meta: 'Zal · PS4 · 18 000/soat', state: 'maintenance' },
+  { name: 'PS5 · 05', meta: 'Zal · PS5 · 25 000/soat', state: 'free' },
+  {
+    name: 'PS5 Pro · 06',
+    meta: 'VIP 2 · PS5 Pro · 30 000/soat',
+    state: 'busy',
+    guestLine: 'Dilnoza · 20:00 gacha',
+  },
 ];
 
 export const uz = {
@@ -101,66 +109,81 @@ export const uz = {
     eyebrow: 'Nimalar bera olamiz',
     title: 'Klub ishining har bir bo‘g‘ini',
     text: 'Bron qabul qilishdan sof foyda hisobigacha — orada Excel yo‘q.',
-    items: [
+    groups: [
       {
-        icon: 'smartphone',
-        title: 'Telegram’da bron',
-        text: 'Mijoz botni ochadi, bo‘sh sana va vaqtni ko‘radi, necha soatga olishini tanlaydi. Ilova o‘rnatish shart emas.',
+        title: 'Mijoz va bron',
+        items: [
+          {
+            icon: 'smartphone',
+            title: 'Telegram’da bron',
+            text: 'Mijoz botni ochadi, bo‘sh sana va vaqtni ko‘radi, necha soatga olishini tanlaydi. Ilova o‘rnatish shart emas.',
+          },
+          {
+            icon: 'grid_view',
+            title: 'Jonli board',
+            text: 'Barcha stansiyalar bitta ekranda: kim o‘ynayapti, qancha vaqt qoldi, qaysi joy bo‘sh. Taymer o‘zi yuradi.',
+          },
+          {
+            icon: 'lock',
+            title: 'Ikkilangan bron imkonsiz',
+            text: 'To‘qnashuv ma’lumotlar bazasi darajasida bloklanadi — ikki kishi bir vaqtga bitta joyni ololmaydi.',
+          },
+          {
+            icon: 'payments',
+            title: '1 soatlik oldindan to‘lov',
+            text: 'Depozit yo‘q. Mijoz bron uchun 1 soatlik summani to‘laydi: kelsa hisobiga qo‘shiladi, kelmasa klubda qoladi.',
+          },
+        ],
       },
       {
-        icon: 'grid_view',
-        title: 'Jonli board',
-        text: 'Barcha stansiyalar bitta ekranda: kim o‘ynayapti, qancha vaqt qoldi, qaysi joy bo‘sh. Taymer o‘zi yuradi.',
+        title: 'Kassa va moliya',
+        items: [
+          {
+            icon: 'point_of_sale',
+            title: 'Kassa',
+            text: 'O‘yin vaqti va bufet bitta hisobda. Hisob yopilganda mahsulot qoldig‘i o‘zi kamayadi.',
+          },
+          {
+            icon: 'inventory_2',
+            title: 'Mahsulot reestri',
+            text: 'Kirim, sotuv, qoldiq bitta joyda. Tannarx va foyda hisobi Platinium’dan boshlab.',
+          },
+          {
+            icon: 'analytics',
+            title: 'Hisobot',
+            text: 'Kunlik, haftalik, oylik va yillik daromad. Bandlik foizi, o‘rtacha chek, xona va smena kesimida.',
+          },
+          {
+            icon: 'account_balance_wallet',
+            title: 'Xarajatlar',
+            text: 'Elektr, suv, ijara, ish haqi — kiritilgan xarajat daromaddan ayriladi. Sof foyda taxmin emas.',
+          },
+        ],
       },
       {
-        icon: 'lock',
-        title: 'Ikkilangan bron imkonsiz',
-        text: 'To‘qnashuv ma’lumotlar bazasi darajasida bloklanadi — ikki kishi bir vaqtga bitta joyni ololmaydi.',
-      },
-      {
-        icon: 'payments',
-        title: '1 soatlik oldindan to‘lov',
-        text: 'Depozit yo‘q. Mijoz bron uchun 1 soatlik summani to‘laydi: kelsa hisobiga qo‘shiladi, kelmasa klubda qoladi.',
-      },
-      {
-        icon: 'point_of_sale',
-        title: 'Kassa',
-        text: 'O‘yin vaqti va bufet bitta hisobda. Hisob yopilganda mahsulot qoldig‘i o‘zi kamayadi.',
-      },
-      {
-        icon: 'inventory_2',
-        title: 'Mahsulot reestri',
-        text: 'Kirim, sotuv, qoldiq bitta joyda. Tannarx va foyda hisobi Platinium’dan boshlab.',
-      },
-      {
-        icon: 'analytics',
-        title: 'Hisobot',
-        text: 'Kunlik, haftalik, oylik va yillik daromad. Bandlik foizi, o‘rtacha chek, xona va smena kesimida.',
-      },
-      {
-        icon: 'account_balance_wallet',
-        title: 'Xarajatlar',
-        text: 'Elektr, suv, ijara, ish haqi — kiritilgan xarajat daromaddan ayriladi. Sof foyda taxmin emas.',
-      },
-      {
-        icon: 'groups',
-        title: 'Xodimlar va smena',
-        text: 'Kim qancha sotdi, smena qanday yopildi. Kirish Telegram orqali — parol yo‘q, unutiladigan narsa ham yo‘q.',
-      },
-      {
-        icon: 'block',
-        title: 'Qora ro‘yxat',
-        text: 'Vaqt tugagach 10 daqiqa kutiladi. Kelmagan mijoz belgilanadi va keyingi bronida ko‘rinadi.',
-      },
-      {
-        icon: 'apartment',
-        title: 'Ko‘p klub',
-        text: 'Filiallar bitta hisobda, orasida bir bosishda o‘tiladi. Klub almashtirgich Platinium tarifidan.',
-      },
-      {
-        icon: 'shield',
-        title: 'Ma’lumot ajratilgan',
-        text: 'Har klubning ma’lumoti baza darajasida izolyatsiya qilingan. Qo‘shni klub sizning raqamlaringizni ko‘rmaydi.',
+        title: 'Jamoa va boshqaruv',
+        items: [
+          {
+            icon: 'groups',
+            title: 'Xodimlar va smena',
+            text: 'Kim qancha sotdi, smena qanday yopildi. Kirish Telegram orqali — parol yo‘q, unutiladigan narsa ham yo‘q.',
+          },
+          {
+            icon: 'block',
+            title: 'Qora ro‘yxat',
+            text: 'Vaqt tugagach 10 daqiqa kutiladi. Kelmagan mijoz belgilanadi va keyingi bronida ko‘rinadi.',
+          },
+          {
+            icon: 'apartment',
+            title: 'Ko‘p klub',
+            text: 'Filiallar bitta hisobda, orasida bir bosishda o‘tiladi. Klub almashtirgich Platinium tarifidan.',
+          },
+          {
+            icon: 'shield',
+            title: 'Ma’lumot ajratilgan',
+            text: 'Har klubning ma’lumoti baza darajasida izolyatsiya qilingan. Qo‘shni klub sizning raqamlaringizni ko‘rmaydi.',
+          },
+        ],
       },
     ],
   },
@@ -171,25 +194,23 @@ export const uz = {
     text: 'Bitta dizayn tizimi uch yuzada: klub egasi kabinetida, xodim ilovasida va Telegram Mini App’da.',
 
     board: {
-      title: 'Jonli board',
-      caption: 'Xodim ekrani — barcha stansiya bitta joyda, taymer bilan',
+      title: 'Live board',
+      caption: 'Xodim ekrani — barcha stansiya bitta joyda, real vaqtda',
       brandRole: 'Xodim',
-      nav: ['Board', 'Timeline', 'Buyurtmalar', 'Kassa', 'Hisobot'],
-      pageTitle: 'JONLI BOARD',
-      meta: ['Cyber Arena · Chilonzor', 'Smena: 12:00 — 24:00'],
-      kpis: [
-        { label: 'Bugungi tushum', value: '4 850 000', unit: 'so‘m' },
-        { label: 'Bandlik', value: '72', unit: '%' },
-        { label: 'Aktiv seans', value: '6/8', unit: '' },
-        { label: 'O‘rtacha chek', value: '84 000', unit: 'so‘m' },
+      nav: ['Live board', 'Timeline', 'Buyurtmalar', 'Bronlar', 'Kassa', 'Smena', 'Qora ro‘yxat'],
+      pageTitle: 'LIVE BOARD',
+      meta: ['Cyber Arena', 'Xonalar holati va taymerlar'],
+      // 3 ta metrika — `apps/admin/src/screens/live-board.tsx::MetricCell` bilan bir xil.
+      metrics: [
+        { label: 'Band', value: '3 / 6' },
+        { label: 'Bo‘sh', value: '2' },
+        { label: 'Ta’mirda', value: '1' },
       ],
       statusFree: 'Bo‘sh',
-      statusBusy: 'O‘yinda',
-      statusSoon: 'Tugayapti',
-      statusBooked: 'Bron',
+      statusBusy: 'Band',
+      statusMaintenance: 'Ta’mirda',
       stations,
-      chartTitle: 'Bugungi bandlik',
-      chartHours: ['12', '14', '16', '18', '20', '22'],
+      openAction: 'Hisob ochish',
     },
 
     pos: {

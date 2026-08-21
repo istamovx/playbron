@@ -14,18 +14,25 @@ interface Props {
 const { c } = Astro.props;
 const b = c.screens.board;
 
-/** Ikonka — matn emas, shuning uchun i18n resursida emas, shu yerda. */
-const NAV_ICONS = ['grid_view', 'view_timeline', 'receipt_long', 'point_of_sale', 'analytics'];
+/**
+ * Ikonka — matn emas, shuning uchun i18n resursida emas, shu yerda.
+ * `apps/admin/src/mock/data.ts::NAV_STAFF` bilan bir xil tartibda.
+ */
+const NAV_ICONS = [
+  'grid_view',
+  'calendar_view_week',
+  'receipt_long',
+  'event_available',
+  'point_of_sale',
+  'savings',
+  'person_off',
+];
 
 const STATE_LABEL: Record<StationState, string> = {
   free: b.statusFree,
   busy: b.statusBusy,
-  soon: b.statusSoon,
-  booked: b.statusBooked,
+  maintenance: b.statusMaintenance,
 };
-
-/** Ustun balandligi — ko'rgazmali ma'lumot, foizda. */
-const BARS = [34, 46, 58, 72, 95, 66];
 ---
 
 <div class="pbl-app">
@@ -60,13 +67,10 @@ const BARS = [34, 46, 58, 72, 95, 66];
 
       <div class="pbl-kpis">
         {
-          b.kpis.map((kpi) => (
+          b.metrics.map((metric) => (
             <div class="pbl-kpi">
-              <span>{kpi.label}</span>
-              <b>
-                {kpi.value}
-                {kpi.unit && <i>{kpi.unit}</i>}
-              </b>
+              <span>{metric.label}</span>
+              <b>{metric.value}</b>
             </div>
           ))
         }
@@ -78,28 +82,23 @@ const BARS = [34, 46, 58, 72, 95, 66];
             <div class="pbl-station" data-state={station.state}>
               <div class="pbl-station__top">
                 <span class="pbl-station__name">{station.name}</span>
-                <span class="pbl-station__time">{station.time}</span>
+                <span class="pbl-station__state">
+                  <i></i>
+                  {STATE_LABEL[station.state]}
+                </span>
               </div>
-              <span class="pbl-station__room">{station.room}</span>
-              <span class="pbl-station__state">
-                <i></i>
-                {STATE_LABEL[station.state]}
-              </span>
+              <span class="pbl-station__room">{station.meta}</span>
+              <span class="pbl-station__divider" aria-hidden="true"></span>
+              {station.guestLine ? (
+                <span class="pbl-station__guest">{station.guestLine}</span>
+              ) : station.state === 'maintenance' ? (
+                <span class="pbl-station__guest">—</span>
+              ) : (
+                <span class="pbl-station__cta">{b.openAction}</span>
+              )}
             </div>
           ))
         }
-      </div>
-
-      <div class="pbl-chart">
-        <div class="pbl-chart__title">{b.chartTitle}</div>
-        <div class="pbl-bars">
-          {
-            BARS.map((height, index) => (
-              <i style={`height:${height}%;animation-delay:${index * 70}ms`} />
-            ))
-          }
-        </div>
-        <div class="pbl-hours">{b.chartHours.map((hour) => <span>{hour}</span>)}</div>
       </div>
     </div>
   </div>
