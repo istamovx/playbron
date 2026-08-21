@@ -753,18 +753,6 @@ export function PlatformClubsScreen(): ReactNode {
               ),
             },
             {
-              // Bron soni emas — tushum. Super admin uchun bron tafsiloti
-              // emas, klub qancha topayotgani qiziq (loyiha egasi, 2026-08-20).
-              key: 'revenue30d',
-              header: '30 kun tushum',
-              align: 'right',
-              render: (row) => (
-                <span style={{ font: 'var(--type-data)', color: 'var(--text-title)' }}>
-                  {S(row.revenue30d)} so‘m
-                </span>
-              ),
-            },
-            {
               key: 'actions',
               header: '',
               align: 'right',
@@ -868,9 +856,7 @@ function ClubsCardList({ clubs }: { clubs: PlatformOrgClubDto[] }): ReactNode {
           </div>
           <div style={{ display: 'flex', gap: 16, paddingTop: 6, borderTop: '1px solid var(--line-1)' }}>
             <CardStat label="Stansiya" value={String(row.stationsCount)} />
-            <CardStat label="7 kun tushum" value={`${S(row.revenue7d)} so‘m`} />
-            <CardStat label="30 kun tushum" value={`${S(row.revenue30d)} so‘m`} />
-            <CardStat label="365 kun tushum" value={`${S(row.revenue365d)} so‘m`} />
+            <CardStat label="30 kun bron" value={String(row.bookings30d)} />
           </div>
         </div>
       ))}
