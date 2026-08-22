@@ -1,10 +1,13 @@
 import {
   addShiftMovement,
+  ApiError,
   cancelBooking,
+  closeBill,
   confirmBooking,
   createExpense,
   closeShift,
   extendBooking,
+  getBill,
   openShift,
   rejectBooking,
 } from '@playbron/api-client';
@@ -42,6 +45,24 @@ export const COMMAND_EXECUTORS: {
     cancelBooking(api, payload.clubId, payload.bookingId, payload.reason, key),
   BOOKING_EXTEND: (payload, key) =>
     extendBooking(api, payload.clubId, payload.bookingId, payload.extraHours, key, payload.expectedVersion),
+  BILL_CLOSE: async (payload, key) => {
+    // Navbatga qo'yilgan payt bilan sinxronlash payti orasida hisob
+    // summasi o'zgargan bo'lishi mumkin (masalan boshqa xodim bar
+    // buyurtma qo'shgan) — bunday holda chegirma/qarz/tip sababi endi
+    // noto'g'ri summaga tegishli bo'lib qoladi. `BOOKING_EXTEND`ning
+    // `expectedVersion` naqshiga o'xshab, yopishdan OLDIN joriy summani
+    // qayta so'raymiz va farq bo'lsa `VERSION_CONFLICT` bilan to'xtatamiz —
+    // `syncEngine.ts::classify()` buni allaqachon CONFLICT holatiga
+    // o'tkazadi, xodim ekranda qayta ko'rib chiqadi.
+    const live = await getBill(api, payload.clubId, payload.bookingId);
+    if (live.total !== payload.expectedTotal) {
+      throw new ApiError(409, {
+        code: 'VERSION_CONFLICT',
+        message: 'Hisob summasi navbatga qo‘yilgandan beri o‘zgargan',
+      });
+    }
+    return closeBill(api, payload.clubId, payload.bookingId, payload.body, key);
+  },
 };
 
 const LABELS: Record<CommandAction, string> = {
@@ -53,6 +74,7 @@ const LABELS: Record<CommandAction, string> = {
   BOOKING_REJECT: 'Bronni rad etish',
   BOOKING_CANCEL: 'Bronni bekor qilish',
   BOOKING_EXTEND: 'Bronni uzaytirish',
+  BILL_CLOSE: 'Hisobni yopish',
 };
 
 export function labelFor(action: CommandAction): string {

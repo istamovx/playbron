@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useT, type MsgKey } from '../i18n';
 import { api } from '../lib/api';
 import { S } from '../mock/data';
+import { runCommand } from '../offline/syncEngine';
 import { useBoard } from '../store/board';
 import { useSession } from '../store/session';
 
@@ -187,25 +188,51 @@ export function PosScreen(): ReactNode {
         return;
       }
 
-      const result = await closeBill(
-        api,
-        clubId,
-        selected.id,
-        {
-          paymentMethod: payment,
-          paidAmount: paid,
-          shortfallReason: shortfall > 0 && shortfallReason !== null ? shortfallReason : undefined,
-          overpayReason: overpay > 0 && overpayReason !== null ? overpayReason : undefined,
-        },
-        crypto.randomUUID(),
-      );
-      if (result.awaitingProof) {
-        // O'tkazma + botga ulangan mijoz — hisob HALI OCHIQ, chek
-        // kutilmoqda (reja #37). Kartochka ro'yxatidan ham chiqarilmaydi.
-        setBill(result);
-        toast.success('Mijozga chek so‘raldi — javob kutilmoqda');
+      const closeBody = {
+        paymentMethod: payment,
+        paidAmount: paid,
+        shortfallReason: shortfall > 0 && shortfallReason !== null ? shortfallReason : undefined,
+        overpayReason: overpay > 0 && overpayReason !== null ? overpayReason : undefined,
+      };
+
+      // TRANSFER bot orqali chek talab qiladi — tabiatan onlayn jarayon,
+      // offline navbatga qo'yilmaydi (`offline/types.ts::BillClosePayload`
+      // izohi). Faqat CASH offline outbox orqali o'tadi.
+      if (payment === 'TRANSFER') {
+        const result = await closeBill(api, clubId, selected.id, closeBody, crypto.randomUUID());
+        if (result.awaitingProof) {
+          // O'tkazma + botga ulangan mijoz — hisob HALI OCHIQ, chek
+          // kutilmoqda (reja #37). Kartochka ro'yxatidan ham chiqarilmaydi.
+          setBill(result);
+          toast.success('Mijozga chek so‘raldi — javob kutilmoqda');
+          return;
+        }
+        setClosedSummary({ station: selected.stationCode, bill: result, paid });
+        setSelectedId(null);
+        setBill(null);
+        toast.success('Hisob yopildi');
+        await reload();
         return;
       }
+
+      const outcome = await runCommand(
+        'BILL_CLOSE',
+        {
+          clubId,
+          bookingId: selected.id,
+          body: { ...closeBody, paymentMethod: 'CASH' as const },
+          expectedTotal: fresh.total,
+        },
+        { clubId, userId: session?.userId ?? null },
+      );
+      if (!outcome.synced) {
+        setSelectedId(null);
+        setBill(null);
+        toast.success(t('offlineQueuedToast'));
+        await reload();
+        return;
+      }
+      const result = outcome.result;
       setClosedSummary({ station: selected.stationCode, bill: result, paid });
       setSelectedId(null);
       setBill(null);

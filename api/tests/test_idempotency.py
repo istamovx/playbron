@@ -432,6 +432,66 @@ async def test_pos_endpoints_replay_on_same_key(
 
 
 @skip_no_db
+async def test_close_bill_replay_does_not_double_pay(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`bookings/{id}/close` — offline sync'da eng katta pul xavfi: tarmoq
+    uzilib klient bir xil kalit bilan qayta yuborsa, ikkinchi `payments`
+    FINAL qatori YOZILMASLIGI kerak (admin offline outbox shu endpoint'ga
+    tayanadi — `BILL_CLOSE` amali)."""
+    staff_h = await _staff_headers(client, world["club"])
+    customer_h = await _customer_headers(client, telegram_id=970_000_444)
+
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(4), "hours": 2},
+        headers=customer_h,
+    )
+    assert r.status_code == 201, r.text
+    booking_id = r.json()["id"]
+
+    confirm = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/confirm", headers=staff_h
+    )
+    assert confirm.status_code == 204, confirm.text
+
+    shift = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts", json={"opening_cash": 0}, headers=staff_h
+    )
+    assert shift.status_code == 201, shift.text
+
+    # `stations.rate` = 40000, 2 soat → play_amount = 80000 (`world` fixture).
+    close_key = str(uuid.uuid4())
+    close_body = {"payment_method": "CASH", "paid_amount": 80000}
+    c1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/close",
+        json=close_body,
+        headers={**staff_h, "Idempotency-Key": close_key},
+    )
+    assert c1.status_code == 200, c1.text
+    c2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/close",
+        json=close_body,
+        headers={**staff_h, "Idempotency-Key": close_key},
+    )
+    assert c2.status_code == 200, c2.text
+    assert c1.json() == c2.json()
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "payments"):
+            payment_count = await conn.scalar(
+                text(
+                    "SELECT count(*) FROM payments"
+                    " WHERE booking_id = :b AND kind = 'FINAL'"
+                ),
+                {"b": booking_id},
+            )
+    await engine.dispose()
+    assert payment_count == 1, f"close_bill replay ikkinchi to'lov yozdi — {payment_count} ta"
+
+
+@skip_no_db
 async def test_booking_lifecycle_endpoints_replay_on_same_key(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:
