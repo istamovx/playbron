@@ -1,4 +1,11 @@
-import type { ExpenseCreateIn, ExpenseDto, ShiftDto } from '@playbron/api-client';
+import type {
+  BillDto,
+  ExpenseCreateIn,
+  ExpenseDto,
+  OverpayReason,
+  ShiftDto,
+  ShortfallReason,
+} from '@playbron/api-client';
 
 /**
  * Offline Sync Layer — turlar.
@@ -26,7 +33,8 @@ export type CommandAction =
   | 'BOOKING_CONFIRM'
   | 'BOOKING_REJECT'
   | 'BOOKING_EXTEND'
-  | 'BOOKING_CANCEL';
+  | 'BOOKING_CANCEL'
+  | 'BILL_CLOSE';
 
 export type OutboxStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'CONFLICT';
 
@@ -107,6 +115,21 @@ export interface BookingExtendPayload {
   expectedVersion?: number;
 }
 
+/** Faqat CASH — TRANSFER bot chek talab qiladi, tabiatan onlayn (pos.tsx). */
+export interface BillClosePayload {
+  clubId: number;
+  bookingId: number;
+  body: {
+    paymentMethod: 'CASH';
+    paidAmount: number;
+    shortfallReason?: ShortfallReason;
+    overpayReason?: OverpayReason;
+  };
+  /** Xodim ekranda ko'rgan summa — sync vaqtida joriy summa bilan
+   * solishtiriladi (`commands.ts::BILL_CLOSE`); mos kelmasa CONFLICT. */
+  expectedTotal: number;
+}
+
 export interface CommandPayloadMap {
   SHIFT_OPEN: ShiftOpenPayload;
   SHIFT_MOVEMENT: ShiftMovementPayload;
@@ -116,6 +139,7 @@ export interface CommandPayloadMap {
   BOOKING_REJECT: BookingRejectPayload;
   BOOKING_CANCEL: BookingCancelPayload;
   BOOKING_EXTEND: BookingExtendPayload;
+  BILL_CLOSE: BillClosePayload;
 }
 
 export interface ExtendResult {
@@ -135,4 +159,5 @@ export interface CommandResultMap {
   BOOKING_REJECT: void;
   BOOKING_CANCEL: void;
   BOOKING_EXTEND: ExtendResult;
+  BILL_CLOSE: BillDto;
 }
