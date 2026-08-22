@@ -749,22 +749,39 @@ export interface MyStatsDto {
 export const getMyStats = (api: ApiClient): Promise<MyStatsDto> =>
   api.get<MyStatsDto>('/me/stats');
 
-export const confirmBooking = (api: ApiClient, clubId: number, bookingId: number): Promise<void> =>
-  api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/confirm`);
+export const confirmBooking = (
+  api: ApiClient,
+  clubId: number,
+  bookingId: number,
+  idempotencyKey?: string,
+): Promise<void> =>
+  api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/confirm`, undefined, { idempotencyKey });
 
 export const rejectBooking = (
   api: ApiClient,
   clubId: number,
   bookingId: number,
   reason?: string,
-): Promise<void> => api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/reject`, { reason });
+  idempotencyKey?: string,
+): Promise<void> =>
+  api.post<void>(
+    `/clubs/${clubId}/bookings/${bookingId}/reject`,
+    { reason },
+    { idempotencyKey },
+  );
 
 export const cancelBooking = (
   api: ApiClient,
   clubId: number,
   bookingId: number,
   reason?: string,
-): Promise<void> => api.post<void>(`/clubs/${clubId}/bookings/${bookingId}/cancel`, { reason });
+  idempotencyKey?: string,
+): Promise<void> =>
+  api.post<void>(
+    `/clubs/${clubId}/bookings/${bookingId}/cancel`,
+    { reason },
+    { idempotencyKey },
+  );
 
 export interface OrderItemDto {
   productName: string;
@@ -787,6 +804,9 @@ export interface BookingDetailDto {
   playAmount: number;
   ordersAmount: number;
   total: number;
+  /** Optimistik konkurrensiya — `extendBooking`ga `expectedVersion`
+   * sifatida qaytariladi (`0041_booking_version_command_id.py`). */
+  version: number;
 }
 
 interface BookingDetailApi {
@@ -804,6 +824,7 @@ interface BookingDetailApi {
   play_amount: number;
   orders_amount: number;
   total: number;
+  version: number;
 }
 
 export const getBookingDetail = async (
@@ -831,6 +852,7 @@ export const getBookingDetail = async (
     playAmount: row.play_amount,
     ordersAmount: row.orders_amount,
     total: row.total,
+    version: row.version,
   };
 };
 
@@ -839,6 +861,7 @@ interface ExtendBookingApi {
   hours: number;
   starts_at: string;
   ends_at: string;
+  version: number;
 }
 
 export const extendBooking = async (
@@ -846,11 +869,23 @@ export const extendBooking = async (
   clubId: number,
   bookingId: number,
   extraHours: number,
-): Promise<{ id: number; hours: number; startsAt: string; endsAt: string }> => {
-  const row = await api.post<ExtendBookingApi>(`/clubs/${clubId}/bookings/${bookingId}/extend`, {
-    extra_hours: extraHours,
-  });
-  return { id: row.id, hours: row.hours, startsAt: row.starts_at, endsAt: row.ends_at };
+  idempotencyKey?: string,
+  /** `getBookingDetail().version` dan — berilsa server joriy versiya bilan
+   * solishtiradi, mos kelmasa `409 VERSION_CONFLICT` (audit §15). */
+  expectedVersion?: number,
+): Promise<{ id: number; hours: number; startsAt: string; endsAt: string; version: number }> => {
+  const row = await api.post<ExtendBookingApi>(
+    `/clubs/${clubId}/bookings/${bookingId}/extend`,
+    { extra_hours: extraHours, expected_version: expectedVersion },
+    { idempotencyKey },
+  );
+  return {
+    id: row.id,
+    hours: row.hours,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    version: row.version,
+  };
 };
 
 export interface StaffBookingIn {
@@ -1456,15 +1491,20 @@ export const createExpense = async (
   api: ApiClient,
   clubId: number,
   body: ExpenseCreateIn,
+  idempotencyKey?: string,
 ): Promise<ExpenseDto> => {
-  const row = await api.post<ExpenseApi>(`/clubs/${clubId}/expenses`, {
-    spent_on: body.spentOn,
-    category: body.category,
-    amount: body.amount,
-    note: body.note ?? null,
-    method: body.method ?? null,
-    shift_id: body.shiftId ?? null,
-  });
+  const row = await api.post<ExpenseApi>(
+    `/clubs/${clubId}/expenses`,
+    {
+      spent_on: body.spentOn,
+      category: body.category,
+      amount: body.amount,
+      note: body.note ?? null,
+      method: body.method ?? null,
+      shift_id: body.shiftId ?? null,
+    },
+    { idempotencyKey },
+  );
   return fromExpenseApi(row);
 };
 
@@ -1592,8 +1632,13 @@ export const openShift = async (
   api: ApiClient,
   clubId: number,
   openingCash: number,
+  idempotencyKey?: string,
 ): Promise<ShiftDto> => {
-  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts`, { opening_cash: openingCash });
+  const row = await api.post<ShiftApi>(
+    `/clubs/${clubId}/shifts`,
+    { opening_cash: openingCash },
+    { idempotencyKey },
+  );
   return fromShiftApi(row);
 };
 
@@ -1602,8 +1647,11 @@ export const addShiftMovement = async (
   clubId: number,
   shiftId: number,
   body: { kind: 'IN' | 'OUT'; amount: number; reason: string },
+  idempotencyKey?: string,
 ): Promise<ShiftDto> => {
-  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts/${shiftId}/movements`, body);
+  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts/${shiftId}/movements`, body, {
+    idempotencyKey,
+  });
   return fromShiftApi(row);
 };
 
@@ -1612,10 +1660,13 @@ export const closeShift = async (
   clubId: number,
   shiftId: number,
   countedCash: number,
+  idempotencyKey?: string,
 ): Promise<ShiftDto> => {
-  const row = await api.post<ShiftApi>(`/clubs/${clubId}/shifts/${shiftId}/close`, {
-    counted_cash: countedCash,
-  });
+  const row = await api.post<ShiftApi>(
+    `/clubs/${clubId}/shifts/${shiftId}/close`,
+    { counted_cash: countedCash },
+    { idempotencyKey },
+  );
   return fromShiftApi(row);
 };
 

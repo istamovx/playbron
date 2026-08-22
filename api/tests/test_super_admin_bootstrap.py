@@ -75,9 +75,11 @@ def restore_settings() -> AsyncIterator[None]:
     """Sinovlararo `settings` global holatini tozalaydi."""
     original_password = settings.super_admin_password
     original_logins = settings.super_admin_logins
+    original_reset = settings.super_admin_password_reset
     yield
     settings.super_admin_password = original_password
     settings.super_admin_logins = original_logins
+    settings.super_admin_password_reset = original_reset
 
 
 @skip_no_db
@@ -116,12 +118,15 @@ async def test_sets_password_for_configured_login(account: int) -> None:
 
 @skip_no_db
 async def test_unchanged_password_does_not_revoke_sessions(account: int) -> None:
-    """Ikkinchi marta bir xil parol bilan chaqirilsa — sessiyalar OMON qoladi.
+    """RESET yoqilgan holatda ham bir xil parol bilan chaqirilsa —
+    sessiyalar OMON qoladi.
 
-    Aks holda har start/deploy'da super admin chiqarib yuborilardi.
+    Aks holda `SUPER_ADMIN_PASSWORD_RESET=1` doim yoqilgan qolib ketsa,
+    har start/deploy'da super admin chiqarib yuborilardi.
     """
     settings.super_admin_logins = LOGIN
     settings.super_admin_password = SecretStr(PASSWORD)
+    settings.super_admin_password_reset = True
 
     engine = _owner_engine()
     async with engine.begin() as conn:
@@ -160,8 +165,10 @@ async def test_unchanged_password_does_not_revoke_sessions(account: int) -> None
 
 @skip_no_db
 async def test_changed_password_revokes_old_sessions(account: int) -> None:
+    """RESET yoqilganda va parol haqiqatan o'zgarganda — eski sessiyalar bekor qilinadi."""
     settings.super_admin_logins = LOGIN
     settings.super_admin_password = SecretStr(PASSWORD)
+    settings.super_admin_password_reset = True
 
     engine = _owner_engine()
     async with engine.begin() as conn:
@@ -196,6 +203,83 @@ async def test_changed_password_revokes_old_sessions(account: int) -> None:
     await engine.dispose()
 
     assert revoked is not None
+
+
+@skip_no_db
+async def test_already_bootstrapped_login_ignores_new_password_without_reset(
+    account: int,
+) -> None:
+    """Audit §9 ("faqat birinchi parol o'rnatish"): parol ALLAQACHON
+    o'rnatilgan login uchun `SUPER_ADMIN_PASSWORD_RESET` berilmasa —
+    o'zgaruvchi INERT, eski parol saqlanadi, sessiyalar tegilmaydi."""
+    settings.super_admin_logins = LOGIN
+    settings.super_admin_password_reset = False
+
+    engine = _owner_engine()
+    original_hash = await hash_password("boshlang'ich mustahkam parol")
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "staff_credentials", "refresh_tokens"):
+            await conn.execute(
+                text(
+                    "INSERT INTO staff_credentials (user_id, password_hash, must_change)"
+                    " VALUES (:uid, :hash, false)"
+                ),
+                {"uid": account, "hash": original_hash},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO refresh_tokens"
+                    " (user_id, token_hash, kind, chain_started_at, expires_at)"
+                    " VALUES (:uid, 'probe-hash-sab-inert', 'staff', now(),"
+                    "         now() + interval '1 day')"
+                ),
+                {"uid": account},
+            )
+
+    settings.super_admin_password = SecretStr(PASSWORD)  # BOSHQA parol
+    await sync_super_admin_password()
+
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "staff_credentials", "refresh_tokens"):
+            current_hash = await conn.scalar(
+                text("SELECT password_hash FROM staff_credentials WHERE user_id = :uid"),
+                {"uid": account},
+            )
+            revoked = await conn.scalar(
+                text(
+                    "SELECT revoked_at FROM refresh_tokens"
+                    " WHERE user_id = :uid AND token_hash = 'probe-hash-sab-inert'"
+                ),
+                {"uid": account},
+            )
+    await engine.dispose()
+
+    assert current_hash == original_hash, "RESET'siz mavjud parol qayta yozildi"
+    assert revoked is None, "RESET'siz sessiya bekor qilindi"
+
+
+@skip_no_db
+async def test_bootstrap_writes_audit_event(account: int) -> None:
+    """Audit §9: har muvaffaqiyatli bootstrap `auth_events`ga yoziladi."""
+    settings.super_admin_logins = LOGIN
+    settings.super_admin_password = SecretStr(PASSWORD)
+
+    await sync_super_admin_password()
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "auth_events"):
+            row = await conn.execute(
+                text(
+                    "SELECT event FROM auth_events"
+                    " WHERE user_id = :uid AND event = 'super_admin_password_bootstrap'"
+                ),
+                {"uid": account},
+            )
+            found = row.first()
+    await engine.dispose()
+
+    assert found is not None, "bootstrap audit_events'ga yozilmadi"
 
 
 @skip_no_db

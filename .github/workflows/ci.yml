@@ -23,9 +23,17 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # `VITE_API_URL` — CI build hech qayerga deploy qilinmaydi, faqat
+      # kompilyatsiyani tekshiradi, shuning uchun qiymat o'zi ahamiyatsiz.
+      # Lekin `vite.config.ts` endi bo'lmasa BUILD'ni to'xtatadi (audit:
+      # "missing VITE_API_URL → build FAIL", prod localhost'ga tushib
+      # qolmasin) — CI shu invariantni haqiqiy prod build'day sinaydi.
       - run: pnpm build
+        env:
+          VITE_API_URL: https://api.playbron.uz/api/v1
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm test
 
   # API testlari ilgari CI'da UMUMAN yurmagan: `pnpm-workspace.yaml` faqat
   # `apps/*` va `packages/*` ni qamraydi, `api/` da `package.json` yo'q, ya'ni

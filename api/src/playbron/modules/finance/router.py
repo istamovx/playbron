@@ -9,16 +9,21 @@ o'qishidan farqi shu.
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Path
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playbron.core import context, queue
+from playbron.core import context, idempotency, queue
 from playbron.core.errors import Forbidden
 from playbron.deps import db, require_admin, require_staff
 from playbron.modules.finance import reports, service, shifts
 
 router = APIRouter(prefix="/clubs", tags=["finance"])
+
+EXPENSE_CREATE_ROUTE = "POST /expenses"
+SHIFT_OPEN_ROUTE = "POST /shifts"
+SHIFT_MOVEMENT_ROUTE = "POST /shifts/{shift_id}/movements"
+SHIFT_CLOSE_ROUTE = "POST /shifts/{shift_id}/close"
 
 
 def _assert_path_matches_header(club_id: int) -> None:
@@ -82,19 +87,37 @@ async def create_expense(
     body: ExpenseCreateIn,
     club_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ExpenseOut:
     _assert_path_matches_header(club_id)
+    user_id = int(context.current().user_id or 0)
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=EXPENSE_CREATE_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return ExpenseOut(**outcome.replay["body"])
+
     row = await service.create_expense(
         session,
         club_id=club_id,
-        created_by=int(context.current().user_id or 0),
+        created_by=user_id,
         spent_on=body.spent_on,
         category=body.category,
         amount=body.amount,
         note=body.note,
         method=body.method,
         shift_id=body.shift_id,
+        command_id=idempotency_key,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=row)
     return ExpenseOut(**row)
 
 
@@ -212,14 +235,32 @@ async def open_shift(
     body: OpenShiftIn,
     club_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ShiftOut:
     _assert_path_matches_header(club_id)
+    staff_id = int(context.current().user_id or 0)
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=SHIFT_OPEN_ROUTE,
+        club_id=club_id,
+        user_id=staff_id,
+        path_params={},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return ShiftOut(**outcome.replay["body"])
+
     row = await shifts.open_shift(
         session,
         club_id=club_id,
-        staff_id=int(context.current().user_id or 0),
+        staff_id=staff_id,
         opening_cash=body.opening_cash,
+        command_id=idempotency_key,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=row)
     return ShiftOut(**row)
 
 
@@ -234,8 +275,24 @@ async def add_shift_movement(
     club_id: Annotated[int, Path()],
     shift_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ShiftOut:
     _assert_path_matches_header(club_id)
+    user_id = int(context.current().user_id or 0)
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=SHIFT_MOVEMENT_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"shift_id": shift_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        response.status_code = outcome.replay["status"]
+        return ShiftOut(**outcome.replay["body"])
+
     row = await shifts.record_movement(
         session,
         club_id=club_id,
@@ -243,8 +300,10 @@ async def add_shift_movement(
         kind=body.kind,
         amount=body.amount,
         reason=body.reason,
-        created_by=int(context.current().user_id or 0),
+        created_by=user_id,
+        command_id=idempotency_key,
     )
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=201, response_body=row)
     return ShiftOut(**row)
 
 
@@ -259,20 +318,40 @@ async def close_shift(
     shift_id: Annotated[int, Path()],
     session: Annotated[AsyncSession, Depends(db)],
     background: BackgroundTasks,
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ShiftOut:
     _assert_path_matches_header(club_id)
+    user_id = int(context.current().user_id or 0)
+    outcome = await idempotency.begin(
+        session,
+        key=idempotency_key,
+        route=SHIFT_CLOSE_ROUTE,
+        club_id=club_id,
+        user_id=user_id,
+        path_params={"shift_id": shift_id},
+        body=body.model_dump(mode="json"),
+    )
+    if outcome.replay is not None:
+        # Takroriy so'rovda `variance_alert` navbatga QAYTA qo'yilmaydi —
+        # birinchi urinishda allaqachon yuborilgan (yoki yuborilmoqda).
+        response.status_code = outcome.replay["status"]
+        return ShiftOut(**outcome.replay["body"])
+
     row = await shifts.close_shift(
         session,
         club_id=club_id,
         shift_id=shift_id,
         counted_cash=body.counted_cash,
-        closed_by=int(context.current().user_id or 0),
+        closed_by=user_id,
+        command_id=idempotency_key,
     )
     # Katta farq xabari — javob va COMMIT'dan KEYIN navbatga (BackgroundTasks):
     # rollback bo'lsa egaga yolg'on xabar ketmaydi. Navbat best-effort.
     alert = row.pop("variance_alert", None)
     if alert:
         background.add_task(queue.enqueue, "notify_shift_variance", club_id, shift_id, alert)
+    await idempotency.finish(session, row_id=outcome.row_id, status_code=200, response_body=row)
     return ShiftOut(**row)
 
 

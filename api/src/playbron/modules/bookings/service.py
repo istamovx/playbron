@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core.audit import log_action
-from playbron.core.errors import PG_UNIQUE_VIOLATION, AppError, Forbidden, NotFound
+from playbron.core.errors import PG_UNIQUE_VIOLATION, AppError, Conflict, Forbidden, NotFound
 from playbron.core.text import clean_name
 from playbron.modules.bookings import notify, pricing
 from playbron.modules.bot.contact import normalize_phone
@@ -1428,6 +1428,7 @@ async def _load_booking_for_staff(session: AsyncSession, club_id: int, booking_i
                 # seansni uzaytirib bo'lmasdi.
                 "SELECT b.id, b.club_id, b.station_id, s.code AS station_code, b.status, b.hours,"
                 "       b.rate_snapshot, b.play_amount, b.console_type, b.closed_at, b.customer_id,"
+                "       b.version,"
                 "       lower(b.period) AS starts_at, upper(b.period) AS ends_at,"
                 "       COALESCE(b.guest_name, u.display_name, u.first_name) AS guest_label,"
                 "       u.telegram_id AS customer_telegram_id,"
@@ -1496,6 +1497,9 @@ async def get_booking_detail(
         "play_amount": play_amount,
         "orders_amount": orders_amount,
         "total": play_amount + orders_amount,
+        # Optimistik konkurrensiya — `extend_booking()`ga `expected_version`
+        # sifatida qaytariladi (`0041_booking_version_command_id.py`).
+        "version": int(booking.version),
     }
 
 
@@ -1508,9 +1512,24 @@ EXTEND_HARD_MAX_HOURS = 12
 
 
 async def extend_booking(
-    session: AsyncSession, *, club_id: int, booking_id: int, staff_id: int, extra_hours: int
+    session: AsyncSession,
+    *,
+    club_id: int,
+    booking_id: int,
+    staff_id: int,
+    extra_hours: int,
+    expected_version: int | None = None,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     """Mijoz iltimosiga ko'ra vaqtni uzaytirish.
+
+    `expected_version` — ixtiyoriy optimistik konkurrensiya (`0041_booking_
+    version_command_id.py`, audit §15). `confirm`/`reject`/`cancel` allaqachon
+    `status` state-machine bilan himoyalangan — ikki xodim parallel `extend`
+    va `cancel` qilsa, ikkinchisi `status != CONFIRMED`ga uriladi. Lekin ikki
+    xodim BIR VAQTDA ikkalasi ham `extend` qilsa (status o'zgarmaydi), bu
+    tabiiy g'ov ishlamaydi — shu holat uchun `version` kerak. Berilmasa,
+    eski (tekshiruvsiz) xatti-harakat saqlanadi — eski klient bilan mos.
 
     Bandlik to'qnashuvi maxsus tekshirilmaydi — `bookings_no_overlap` EXCLUDE
     konstreyni `period` YANGILANGANDA ham ishlaydi (faqat INSERT'da emas),
@@ -1566,24 +1585,45 @@ async def extend_booking(
     )
     play_amount = int(booking.play_amount) + extra_amount
 
-    row = (
-        await session.execute(
-            text(
-                "UPDATE bookings SET hours = :hours, play_amount = :play,"
-                " period = tstzrange(lower(period), upper(period) + make_interval(hours => :extra))"
-                " WHERE id = :id"
-                " RETURNING lower(period) AS starts_at, upper(period) AS ends_at"
-            ),
-            {
-                "id": booking_id,
-                "hours": new_hours,
-                "extra": extra_hours,
-                "play": play_amount,
-            },
+    # `expected_version` berilsa — `WHERE` shartiga qo'shiladi. Buni
+    # oldindan `SELECT`+solishtirish bilan emas, aynan shu `UPDATE ...
+    # WHERE version = :expected`ning o'zi bilan tekshirish kerak: aks
+    # holda SELECT va UPDATE orasidagi oynada boshqa tranzaksiya ulgurib
+    # o'zgartirib qo'yishi mumkin (klassik TOCTOU). 0 qator qaytsa — versiya
+    # allaqachon boshqa xodim tomonidan oshirilgan.
+    params: dict[str, Any] = {
+        "id": booking_id,
+        "hours": new_hours,
+        "extra": extra_hours,
+        "play": play_amount,
+    }
+    # Ikkala variant ham TO'LIQ, o'zgarmas satr literali — S608 (SQL
+    # in'yeksiya) heuristikasi runtime satr birlashtirishga sinaladi, shu
+    # sabab qism-qismdan yig'ish emas, ikkita tayyor satr tanlanadi.
+    if expected_version is not None:
+        params["expected_version"] = expected_version
+        stmt = text(
+            "UPDATE bookings SET hours = :hours, play_amount = :play,"
+            " period = tstzrange(lower(period), upper(period) + make_interval(hours => :extra))"
+            " WHERE id = :id AND version = :expected_version"
+            " RETURNING lower(period) AS starts_at, upper(period) AS ends_at, version"
         )
-    ).first()
-    if row is None:  # amalda yuz bermaydi — yuqorida topilgani tasdiqlangan
-        raise NotFound("Bron topilmadi")
+    else:
+        stmt = text(
+            "UPDATE bookings SET hours = :hours, play_amount = :play,"
+            " period = tstzrange(lower(period), upper(period) + make_interval(hours => :extra))"
+            " WHERE id = :id"
+            " RETURNING lower(period) AS starts_at, upper(period) AS ends_at, version"
+        )
+
+    row = (await session.execute(stmt, params)).first()
+    if row is None:
+        if expected_version is not None:
+            raise Conflict(
+                "Bron boshqa xodim tomonidan allaqachon o'zgartirilgan — sahifani yangilang",
+                code="VERSION_CONFLICT",
+            )
+        raise NotFound("Bron topilmadi")  # amalda yuz bermaydi — yuqorida topilgani tasdiqlangan
 
     await log_action(
         action="booking_extended",
@@ -1594,6 +1634,7 @@ async def extend_booking(
             "new_hours": new_hours,
             "play_amount": play_amount,
         },
+        command_id=command_id,
     )
 
     return {
@@ -1601,11 +1642,18 @@ async def extend_booking(
         "hours": new_hours,
         "starts_at": row.starts_at.isoformat(),
         "ends_at": row.ends_at.isoformat(),
+        "version": int(row.version),
     }
 
 
 async def cancel_confirmed_booking(
-    session: AsyncSession, *, club_id: int, booking_id: int, staff_id: int, reason: str | None
+    session: AsyncSession,
+    *,
+    club_id: int,
+    booking_id: int,
+    staff_id: int,
+    reason: str | None,
+    command_id: str | None = None,
 ) -> None:
     """Mijoz kelmagan holatda xodim CONFIRMED bronni bekor qiladi.
 
@@ -1639,6 +1687,7 @@ async def cancel_confirmed_booking(
         target=booking.station_code,
         club_id=club_id,
         after={"reason": clean_reason},
+        command_id=command_id,
     )
 
     if booking.customer_id is not None:

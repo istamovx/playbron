@@ -48,7 +48,8 @@ interface ApiMembership {
 interface ApiSession {
   access_token: string;
   access_expires_at: string;
-  refresh_token: string;
+  /** `null` — xodim javobida token endi HttpOnly cookie'da (audit §10). */
+  refresh_token: string | null;
   refresh_expires_at: string;
   user: { id: number; first_name: string; last_name: string | null; login: string | null };
   memberships: ApiMembership[];

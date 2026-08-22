@@ -429,3 +429,214 @@ async def test_pos_endpoints_replay_on_same_key(
             )
     await engine.dispose()
     assert order_count == 1, f"order create replay ishlamadi — {order_count} order yaratildi"
+
+
+@skip_no_db
+async def test_booking_lifecycle_endpoints_replay_on_same_key(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`confirm`/`reject`/`extend`/`cancel` — offline-sync uchun kengaytirilgan
+    idempotency (`playbron-security-offline-10-10-audit.md` §14). Har biri
+    bitta replay bilan tekshiriladi: ikkinchi so'rov xatosiz qaytadi va
+    holat/DB qatori faqat BIR marta o'zgaradi."""
+    staff_h = await _staff_headers(client, world["club"])
+    customer_h = await _customer_headers(client, telegram_id=970_000_333)
+
+    # ── confirm ──
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(4), "hours": 2},
+        headers=customer_h,
+    )
+    assert r.status_code == 201, r.text
+    booking_id = r.json()["id"]
+
+    confirm_key = str(uuid.uuid4())
+    c1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/confirm",
+        headers={**staff_h, "Idempotency-Key": confirm_key},
+    )
+    assert c1.status_code == 204, c1.text
+    c2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/confirm",
+        headers={**staff_h, "Idempotency-Key": confirm_key},
+    )
+    assert c2.status_code == 204, c2.text
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "bookings"):
+            status = await conn.scalar(
+                text("SELECT status FROM bookings WHERE id = :b"), {"b": booking_id}
+            )
+    await engine.dispose()
+    assert status == "CONFIRMED"
+
+    # ── extend ──
+    extend_key = str(uuid.uuid4())
+    e1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1},
+        headers={**staff_h, "Idempotency-Key": extend_key},
+    )
+    assert e1.status_code == 200, e1.text
+    e2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1},
+        headers={**staff_h, "Idempotency-Key": extend_key},
+    )
+    assert e2.status_code == 200, e2.text
+    assert e1.json() == e2.json(), "extend replay javobi birinchisidan farq qildi"
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "bookings"):
+            hours = await conn.scalar(
+                text("SELECT hours FROM bookings WHERE id = :b"), {"b": booking_id}
+            )
+    await engine.dispose()
+    assert hours == 3, f"extend takroriy so'rovda ikki marta bajarilib ketdi — hours={hours}"
+
+    # ── cancel (CONFIRMED holatdan) ──
+    cancel_key = str(uuid.uuid4())
+    x1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/cancel",
+        json={"reason": "Mijoz kelmadi"},
+        headers={**staff_h, "Idempotency-Key": cancel_key},
+    )
+    assert x1.status_code == 204, x1.text
+    x2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/cancel",
+        json={"reason": "Mijoz kelmadi"},
+        headers={**staff_h, "Idempotency-Key": cancel_key},
+    )
+    assert x2.status_code == 204, x2.text
+
+    # ── reject (yangi PENDING bron) ──
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings",
+        json={"station_id": world["station"], "starts_at": _starts(9), "hours": 1},
+        headers=customer_h,
+    )
+    assert r.status_code == 201, r.text
+    pending_id = r.json()["id"]
+
+    reject_key = str(uuid.uuid4())
+    j1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{pending_id}/reject",
+        json={"reason": "Joy yo'q"},
+        headers={**staff_h, "Idempotency-Key": reject_key},
+    )
+    assert j1.status_code == 204, j1.text
+    j2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{pending_id}/reject",
+        json={"reason": "Joy yo'q"},
+        headers={**staff_h, "Idempotency-Key": reject_key},
+    )
+    assert j2.status_code == 204, j2.text
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        # `bookings.customer_id` FK `ON DELETE` qoidasi yo'q (`0009_bookings.py`)
+        # — mijozni o'chirishdan OLDIN uning bronlarini o'chirish shart, aks
+        # holda FK buziladi (world fixture o'zi keyinroq faqat `world['club']`
+        # bo'yicha o'chiradi, mijoz qatorini emas).
+        async with rls_bypass(conn, "bookings", "users"):
+            await conn.execute(
+                text("DELETE FROM bookings WHERE club_id = :c AND customer_id IS NOT NULL"),
+                {"c": world["club"]},
+            )
+            await conn.execute(
+                text("DELETE FROM users WHERE telegram_id = 970000333 AND kind = 'customer'")
+            )
+    await engine.dispose()
+
+
+@skip_no_db
+async def test_shift_and_expense_endpoints_replay_on_same_key(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`shifts` (open/movement/close) va `expenses` create — offline-sync
+    uchun kengaytirilgan idempotency (`playbron-security-offline-10-10-audit.md`
+    §14). Har biri bitta replay bilan tekshiriladi."""
+    staff_h = await _staff_headers(client, world["club"])
+
+    open_key = str(uuid.uuid4())
+    s1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts",
+        json={"opening_cash": 50_000},
+        headers={**staff_h, "Idempotency-Key": open_key},
+    )
+    assert s1.status_code == 201, s1.text
+    s2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts",
+        json={"opening_cash": 50_000},
+        headers={**staff_h, "Idempotency-Key": open_key},
+    )
+    assert s2.status_code == 201, s2.text
+    assert s1.json() == s2.json(), "shift open replay javobi birinchisidan farq qildi"
+    shift_id = s1.json()["id"]
+
+    movement_key = str(uuid.uuid4())
+    m1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts/{shift_id}/movements",
+        json={"kind": "IN", "amount": 10_000, "reason": "Sinov kirim"},
+        headers={**staff_h, "Idempotency-Key": movement_key},
+    )
+    assert m1.status_code == 201, m1.text
+    m2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts/{shift_id}/movements",
+        json={"kind": "IN", "amount": 10_000, "reason": "Sinov kirim"},
+        headers={**staff_h, "Idempotency-Key": movement_key},
+    )
+    assert m2.status_code == 201, m2.text
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "shift_cash_movements"):
+            movement_count = await conn.scalar(
+                text("SELECT count(*) FROM shift_cash_movements WHERE shift_id = :s"),
+                {"s": shift_id},
+            )
+    await engine.dispose()
+    assert movement_count == 1, f"movement takroriy yozildi — {movement_count} qator"
+
+    expense_key = str(uuid.uuid4())
+    x1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/expenses",
+        json={"spent_on": str(datetime.now(UTC).date()), "category": "Boshqa", "amount": 5_000},
+        headers={**staff_h, "Idempotency-Key": expense_key},
+    )
+    assert x1.status_code == 201, x1.text
+    x2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/expenses",
+        json={"spent_on": str(datetime.now(UTC).date()), "category": "Boshqa", "amount": 5_000},
+        headers={**staff_h, "Idempotency-Key": expense_key},
+    )
+    assert x2.status_code == 201, x2.text
+    assert x1.json() == x2.json(), "expense replay javobi birinchisidan farq qildi"
+
+    engine = _owner_engine()
+    async with engine.begin() as conn:
+        async with rls_bypass(conn, "expenses"):
+            expense_count = await conn.scalar(
+                text("SELECT count(*) FROM expenses WHERE club_id = :c AND category = 'Boshqa'"),
+                {"c": world["club"]},
+            )
+    await engine.dispose()
+    assert expense_count == 1, f"expense takroriy yozildi — {expense_count} qator"
+
+    close_key = str(uuid.uuid4())
+    cl1 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts/{shift_id}/close",
+        json={"counted_cash": 60_000},
+        headers={**staff_h, "Idempotency-Key": close_key},
+    )
+    assert cl1.status_code == 200, cl1.text
+    cl2 = await client.post(
+        f"/api/v1/clubs/{world['club']}/shifts/{shift_id}/close",
+        json={"counted_cash": 60_000},
+        headers={**staff_h, "Idempotency-Key": close_key},
+    )
+    assert cl2.status_code == 200, cl2.text
+    assert cl1.json() == cl2.json(), "shift close replay javobi birinchisidan farq qildi"

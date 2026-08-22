@@ -20,6 +20,14 @@ export interface ClientOptions {
   clubId?: () => number | null;
   /** Sessiya butunlay tugaganda chaqiriladi (UI kirish ekraniga qaytadi). */
   onSignedOut?: () => void;
+  /**
+   * Xodim (konsol) refresh tokeni HttpOnly cookie'da (audit §10) —
+   * `true` bo'lsa `fetch()` `credentials: 'include'` bilan yuboriladi va
+   * `refresh()`/`signOut()` tanaga xom tokenni QO'SHMAYDI (cookie o'zi
+   * yetadi). Mijoz (Mini App) uchun `false` (sukut) — bugungidek body
+   * orqali, cookie umuman ishlatilmaydi.
+   */
+  cookieRefresh?: boolean;
 }
 
 export interface RequestOptions {
@@ -144,6 +152,10 @@ export class ApiClient {
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal,
+        // Faqat xodim (konsol) rejimida — refresh tokeni HttpOnly cookie'da,
+        // brauzer uni shu bayroqsiz umuman yubormaydi. Mijozda (Mini App)
+        // kerak emas: cookie'ning o'zi yo'q, bekorga CORS sirtini kengaytiradi.
+        credentials: this.options.cookieRefresh ? 'include' : 'omit',
       });
     } catch (cause) {
       // Chaqiruvchining O'ZI bekor qilgan so'rov — xato emas
@@ -203,7 +215,8 @@ export class ApiClient {
 export interface SessionResponse {
   access_token: string;
   access_expires_at: string;
-  refresh_token: string;
+  /** `null` — xodim sessiyasida, token HttpOnly cookie'da (audit §10). */
+  refresh_token: string | null;
   refresh_expires_at: string;
 }
 

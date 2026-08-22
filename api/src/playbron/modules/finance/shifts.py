@@ -222,7 +222,12 @@ async def list_open_shifts(session: AsyncSession, club_id: int) -> list[dict[str
 
 
 async def open_shift(
-    session: AsyncSession, *, club_id: int, staff_id: int, opening_cash: int
+    session: AsyncSession,
+    *,
+    club_id: int,
+    staff_id: int,
+    opening_cash: int,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     if opening_cash < 0:
         raise AppError("Boshlang'ich kassa manfiy bo'lmasin", code="OPENING_CASH_INVALID")
@@ -248,6 +253,7 @@ async def open_shift(
         target=str(shift_id),
         club_id=club_id,
         after={"opening_cash": opening_cash},
+        command_id=command_id,
     )
 
     shift = await _load_shift(session, club_id, shift_id)
@@ -263,6 +269,7 @@ async def record_movement(
     amount: int,
     reason: str,
     created_by: int,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     if kind not in ("IN", "OUT"):
         raise AppError("Noma'lum harakat turi", code="KIND_INVALID")
@@ -296,6 +303,7 @@ async def record_movement(
         target=reason,
         club_id=club_id,
         after={"shift_id": shift_id, "amount": amount},
+        command_id=command_id,
     )
 
     shift = await _load_shift(session, club_id, shift_id)
@@ -303,7 +311,13 @@ async def record_movement(
 
 
 async def close_shift(
-    session: AsyncSession, *, club_id: int, shift_id: int, counted_cash: int, closed_by: int
+    session: AsyncSession,
+    *,
+    club_id: int,
+    shift_id: int,
+    counted_cash: int,
+    closed_by: int,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     if counted_cash < 0:
         raise AppError("Sanalgan summa manfiy bo'lmasin", code="COUNTED_CASH_INVALID")
@@ -328,6 +342,7 @@ async def close_shift(
         target=str(shift_id),
         club_id=club_id,
         after={"counted_cash": counted_cash, "variance": detail["variance"]},
+        command_id=command_id,
     )
 
     # Katta farq — egaga xabar (B3). Payload SHU YERDA yig'iladi (worker

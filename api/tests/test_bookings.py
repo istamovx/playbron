@@ -696,6 +696,57 @@ async def test_staff_extends_confirmed_booking(
 
 
 @skip_no_db
+async def test_extend_expected_version_detects_conflict(
+    client: httpx.AsyncClient, world: dict[str, int]
+) -> None:
+    """`expected_version` — optimistik konkurrensiya (audit §15,
+    `0041_booking_version_command_id.py`). Berilmasa eski xatti-harakat;
+    mos kelmasa — `409 VERSION_CONFLICT`, bron o'zgarmaydi."""
+    staff_h = await _staff_headers(client, world["club"])
+    booking_id = await _walkin_booking(client, staff_h, world["club"], world["station"])
+
+    detail = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert detail.status_code == 200, detail.text
+    version = detail.json()["version"]
+    assert version == 1
+
+    # Eski (tekshiruvsiz) mijoz — `expected_version` yubormaydi, ishlaydi.
+    r = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1},
+        headers=staff_h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 2
+
+    # Endi eskirgan (1-versiyali) mijoz xuddi shu bronni uzaytirmoqchi —
+    # boshqa xodim allaqachon uzaytirgan, konflikt aniqlanishi kerak.
+    stale = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1, "expected_version": version},
+        headers=staff_h,
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["error"]["code"] == "VERSION_CONFLICT"
+
+    detail2 = await client.get(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/detail", headers=staff_h
+    )
+    assert detail2.json()["hours"] == 2, "rad etilgan konfliktli so'rov baribir qo'llanib ketdi"
+
+    # To'g'ri (yangilangan) versiya bilan — ishlaydi.
+    ok = await client.post(
+        f"/api/v1/clubs/{world['club']}/bookings/{booking_id}/extend",
+        json={"extra_hours": 1, "expected_version": 2},
+        headers=staff_h,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["version"] == 3
+
+
+@skip_no_db
 async def test_extend_out_of_range_is_rejected(
     client: httpx.AsyncClient, world: dict[str, int]
 ) -> None:

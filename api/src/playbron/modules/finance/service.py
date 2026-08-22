@@ -67,6 +67,7 @@ async def create_expense(
     note: str | None,
     method: str | None = None,
     shift_id: int | None = None,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     category = clean_name(category, limit=CATEGORY_MAX) or "Boshqa"
     if amount <= 0:
@@ -132,6 +133,7 @@ async def create_expense(
         target=category,
         club_id=club_id,
         after={"spent_on": spent_on.isoformat(), "category": category, "amount": amount},
+        command_id=command_id,
     )
 
     return {

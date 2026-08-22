@@ -332,6 +332,25 @@ const STRINGS = {
     ru: 'Целое неотрицательное число',
     en: 'Must be a whole, non-negative number',
   },
+
+  // ── Offline sinxronizatsiya — `offline/` moduli, audit §25 ────────────
+  offlineSyncing: { uz: 'Yuborilmoqda', ru: 'Отправка', en: 'Syncing' },
+  offlinePendingLabel: { uz: 'Navbatda', ru: 'В очереди', en: 'Pending' },
+  offlineFailedLabel: { uz: 'Xato', ru: 'Ошибка', en: 'Failed' },
+  offlineConflictLabel: { uz: 'Ziddiyat', ru: 'Конфликт', en: 'Conflict' },
+  offlineDrawerTitle: { uz: 'Sinxronizatsiya', ru: 'Синхронизация', en: 'Sync' },
+  offlineNoItems: { uz: 'Navbat bo‘sh', ru: 'Очередь пуста', en: 'Queue is empty' },
+  offlineDismiss: { uz: 'Yopish', ru: 'Закрыть', en: 'Dismiss' },
+  offlineQueuedToast: {
+    uz: 'Lokal saqlandi — internet qaytganda yuboriladi',
+    ru: 'Сохранено локально — отправится при восстановлении связи',
+    en: 'Saved locally — will send once connection returns',
+  },
+  offlineConflictNote: {
+    uz: 'Boshqa xodim shu amalni allaqachon bajargan bo‘lishi mumkin. Ekranni yangilang va kerak bo‘lsa qaytadan bajaring.',
+    ru: 'Другой сотрудник мог уже выполнить это действие. Обновите экран и при необходимости повторите.',
+    en: 'Another staff member may have already done this. Refresh the screen and redo it if needed.',
+  },
 } as const satisfies Record<string, Record<Lang, string>>;
 
 export type MsgKey = keyof typeof STRINGS;

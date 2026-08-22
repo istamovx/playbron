@@ -1,6 +1,5 @@
 import {
   ApiError,
-  createExpense,
   errorText,
   listExpenses,
   listOpenShifts,
@@ -27,6 +26,7 @@ import { useT, type MsgKey } from '../../i18n';
 import { api } from '../../lib/api';
 import { EXPENSE_CATS, EXPENSES_INIT, type Expense as LegacyExpense } from '../../mock/club';
 import { S } from '../../mock/data';
+import { runCommand } from '../../offline/syncEngine';
 import { useBoard } from '../../store/board';
 import { useSession } from '../../store/session';
 import { useClub } from '../../store/club';
@@ -240,12 +240,17 @@ export function ExpensesScreen(): ReactNode {
           continue;
         }
         try {
-          await createExpense(api, clubId, {
-            spentOn,
-            category: row.cat,
-            amount: row.amount,
-            note: row.note.trim() || null,
-          });
+          // Queue orqali ham o'tadi: throw qilmasa (offline bo'lsa ham
+          // navbatga tushadi) — qator "ko'chirilgan" deb belgilanadi, chunki
+          // IndexedDB'da durable, ertami-kechmi serverga yetadi.
+          await runCommand(
+            'EXPENSE_CREATE',
+            {
+              clubId,
+              body: { spentOn, category: row.cat, amount: row.amount, note: row.note.trim() || null },
+            },
+            { clubId, userId: session?.userId ?? null },
+          );
           markMigrated(row.id);
           migrated += 1;
         } catch {
@@ -306,15 +311,22 @@ export function ExpensesScreen(): ReactNode {
     setError(null);
     try {
       if (draft.id === null) {
-        await createExpense(api, clubId, {
-          spentOn: draft.spentOn,
-          category: draft.category,
-          amount,
-          note: draft.note.trim() || null,
-          method: draft.method || null,
-          shiftId: draft.method === 'CASH' ? draft.shiftId : null,
-        });
-        toast.success('Xarajat qo‘shildi');
+        const outcome = await runCommand(
+          'EXPENSE_CREATE',
+          {
+            clubId,
+            body: {
+              spentOn: draft.spentOn,
+              category: draft.category,
+              amount,
+              note: draft.note.trim() || null,
+              method: draft.method || null,
+              shiftId: draft.method === 'CASH' ? draft.shiftId : null,
+            },
+          },
+          { clubId, userId: session?.userId ?? null },
+        );
+        toast.success(outcome.synced ? 'Xarajat qo‘shildi' : t('offlineQueuedToast'));
       } else {
         await updateExpense(api, clubId, draft.id, {
           spentOn: draft.spentOn,

@@ -107,14 +107,20 @@ class Settings(BaseSettings):
 
     # Loyiha egasining ANIQ so'rovi bilan qo'shilgan — standart yo'l EMAS.
     # Standart: `scripts/set_staff_password.py`, parol stdin'dan, hech qayerda
-    # saqlanmaydi (`docs/05-auth-redesign.md` §5.6). Bu maydon esa parolni
-    # Render dashboard'ining "Environment" bo'limida DOIMIY saqlaydi — u yerni
-    # ochgan har kim ko'radi va konteyner inspeksiyasida ham chiqadi.
-    # Qabul qilingan chunki: (a) Render bepul rejasida Shell yo'q, bazaga
-    # tashqi ulanish esa har safar IP allowlist bilan o'ynashni talab qiladi;
-    # (b) loyiha egasi xavfni bilib turib tanladi (`super_admin_bootstrap.py`
-    # ga qarang). Bo'sh bo'lsa — funksiya butunlay o'chiq.
+    # saqlanmaydi (`docs/05-auth-redesign.md` §5.6). Render bepul rejasida
+    # Shell yo'q, shuning uchun BIR MARTALIK bootstrap sifatida qabul
+    # qilingan (2026-08-22, audit §9 bo'yicha qayta ko'rib chiqilgan qaror —
+    # avval doimiy sync edi, endi FAQAT birinchi parol o'rnatishda ishlaydi,
+    # `super_admin_bootstrap.py`ga qarang). Bo'sh bo'lsa — funksiya butunlay o'chiq.
     super_admin_password: SecretStr = SecretStr("")
+    # `True` bo'lmasa, `staff_credentials` allaqachon mavjud super adminning
+    # paroli `super_admin_password` orqali QAYTA yozilmaydi — o'zgaruvchi
+    # o'sha loginlar uchun INERT bo'lib qoladi (bootstrap allaqachon tugagan).
+    # Qo'lda parolni tiklash kerak bo'lsa: ikkalasini ham — yangi
+    # `SUPER_ADMIN_PASSWORD` QIYMATI va `SUPER_ADMIN_PASSWORD_RESET=1` —
+    # birga o'rnatib qayta deploy qilinadi, muvaffaqiyatli bo'lgach ikkalasi
+    # ham Render dashboard'idan OLIB TASHLANADI.
+    super_admin_password_reset: bool = False
 
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
@@ -188,5 +194,16 @@ if not _is_local:
         raise RuntimeError("DEBUG prod'da yoqilgan bo‘lmasligi kerak")
     if any("localhost" in origin or "127.0.0.1" in origin for origin in settings.cors_origin_list):
         raise RuntimeError("CORS_ORIGINS prod uchun sozlanmagan (localhost qolgan)")
+    if not settings.platform_ip_allowlist.strip():
+        # Hozircha CRASH emas — bo'sh bo'lsa /platform/* xatti-harakati o'zgarmaydi
+        # (deps.py::require_super_admin, allowlist bo'sh bo'lsa cheklamaydi).
+        # IP ro'yxati ma'lum bo'lgach bu ogohlantirish RuntimeError'ga aylantiriladi.
+        import warnings
+
+        warnings.warn(
+            "PLATFORM_IP_ALLOWLIST prod'da bo'sh — /platform/* har qanday IP'dan "
+            "ochiq (faqat super-admin auth bilan cheklangan)",
+            stacklevel=2,
+        )
 
 __all__ = ["Settings", "get_settings", "settings", "Field"]

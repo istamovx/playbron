@@ -1,17 +1,17 @@
 import {
-  confirmBooking,
   createStaffBooking,
   errorText,
   listPendingBookings,
   listStations,
-  rejectBooking,
   type PendingBookingDto,
   type StationDto,
 } from '@playbron/api-client';
 import { Button, DatePicker, Modal, Panel, Select, StatusLine, TextField, TimeSelect, toast } from '@playbron/ui';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { useT } from '../i18n';
 import { api } from '../lib/api';
+import { runCommand } from '../offline/syncEngine';
 import { useBoard } from '../store/board';
 import { useSession } from '../store/session';
 
@@ -101,6 +101,7 @@ function stationLabelOf(s: StationDto): string {
  *      (`docs`dagi so'rov: "xodim qog'ozbozlikdan qutiladi")
  */
 export function BookingsScreen(): ReactNode {
+  const t = useT();
   const session = useSession((state) => state.session);
   // Ko'p klublik almashtirgich hali yo'q (`store/board.ts::activeClubId`
   // birinchi klubga `App()`da sinxronlanadi) — birinchi a'zolik yetarli.
@@ -144,9 +145,17 @@ export function BookingsScreen(): ReactNode {
     if (clubId === null) return;
     setActing(id);
     try {
-      if (kind === 'confirm') await confirmBooking(api, clubId, id);
-      else await rejectBooking(api, clubId, id);
-      toast.success(kind === 'confirm' ? 'Bron tasdiqlandi' : 'Bron rad etildi');
+      const outcome =
+        kind === 'confirm'
+          ? await runCommand('BOOKING_CONFIRM', { clubId, bookingId: id }, { clubId, userId: session?.userId ?? null })
+          : await runCommand(
+              'BOOKING_REJECT',
+              { clubId, bookingId: id },
+              { clubId, userId: session?.userId ?? null },
+            );
+      toast.success(
+        !outcome.synced ? t('offlineQueuedToast') : kind === 'confirm' ? 'Bron tasdiqlandi' : 'Bron rad etildi',
+      );
       await reload();
     } catch (cause) {
       const message = errorText(cause);
