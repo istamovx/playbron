@@ -338,6 +338,9 @@ memberships'dan o'qiydi (qimmat saboq: §4.1 ga qo'shildi).
    O'zbekistonda IPv6 qamrovi juda past, aks holda ilova
    foydalanuvchilarga umuman ochilmaydi.
 5. **Storage Box** — zaxiraning tashqi nusxasi uchun (~€3.20/oy).
+6. **Staging pentest** — `docs/staging-pentest-runbook.md`dagi 17 bosqichni
+   ijro etish: alohida staging muhiti + inson pentester (yoki vakolatli
+   tashqi xizmat) va yozma vakolat kerak, Claude Code buni bajarolmaydi.
 
 ---
 
@@ -353,3 +356,4 @@ memberships'dan o'qiydi (qimmat saboq: §4.1 ga qo'shildi).
 | `deploy/README.md` | VPS'ga ko'chish |
 | `deploy/backup/README.md` | Zaxira va tiklash |
 | `api/scripts/check_render_shape.py` | Deploy oldidan majburiy tekshiruv |
+| `docs/staging-pentest-runbook.md` | Vakolatli staging pentest — 17 bosqich, PlayBron'ga moslashtirilgan |
