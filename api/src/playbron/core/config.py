@@ -107,14 +107,20 @@ class Settings(BaseSettings):
 
     # Loyiha egasining ANIQ so'rovi bilan qo'shilgan — standart yo'l EMAS.
     # Standart: `scripts/set_staff_password.py`, parol stdin'dan, hech qayerda
-    # saqlanmaydi (`docs/05-auth-redesign.md` §5.6). Bu maydon esa parolni
-    # Render dashboard'ining "Environment" bo'limida DOIMIY saqlaydi — u yerni
-    # ochgan har kim ko'radi va konteyner inspeksiyasida ham chiqadi.
-    # Qabul qilingan chunki: (a) Render bepul rejasida Shell yo'q, bazaga
-    # tashqi ulanish esa har safar IP allowlist bilan o'ynashni talab qiladi;
-    # (b) loyiha egasi xavfni bilib turib tanladi (`super_admin_bootstrap.py`
-    # ga qarang). Bo'sh bo'lsa — funksiya butunlay o'chiq.
+    # saqlanmaydi (`docs/05-auth-redesign.md` §5.6). Render bepul rejasida
+    # Shell yo'q, shuning uchun BIR MARTALIK bootstrap sifatida qabul
+    # qilingan (2026-08-22, audit §9 bo'yicha qayta ko'rib chiqilgan qaror —
+    # avval doimiy sync edi, endi FAQAT birinchi parol o'rnatishda ishlaydi,
+    # `super_admin_bootstrap.py`ga qarang). Bo'sh bo'lsa — funksiya butunlay o'chiq.
     super_admin_password: SecretStr = SecretStr("")
+    # `True` bo'lmasa, `staff_credentials` allaqachon mavjud super adminning
+    # paroli `super_admin_password` orqali QAYTA yozilmaydi — o'zgaruvchi
+    # o'sha loginlar uchun INERT bo'lib qoladi (bootstrap allaqachon tugagan).
+    # Qo'lda parolni tiklash kerak bo'lsa: ikkalasini ham — yangi
+    # `SUPER_ADMIN_PASSWORD` QIYMATI va `SUPER_ADMIN_PASSWORD_RESET=1` —
+    # birga o'rnatib qayta deploy qilinadi, muvaffaqiyatli bo'lgach ikkalasi
+    # ham Render dashboard'idan OLIB TASHLANADI.
+    super_admin_password_reset: bool = False
 
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 

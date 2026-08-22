@@ -108,15 +108,21 @@ services:
       - key: ADMIN_BOT_TOKEN
         sync: false
 
-      # Loyiha egasining ANIQ so'rovi bilan — standart yo'l EMAS. Standart:
-      # `api/scripts/set_staff_password.py` (parol stdin'dan, hech qayerda
-      # saqlanmaydi). Bu yerdagi qiymat esa Dashboard'da DOIMIY turadi va
-      # uni ochgan har kim ko'radi. Faqat `SUPER_ADMIN_LOGINS`dagi loginlarga
-      # qo'llanadi, o'zgarmagan bo'lsa qayta yozilmaydi (sessiyalar bekor
-      # bo'lmaydi). To'liq izoh: `api/src/playbron/core/super_admin_bootstrap.py`.
-      # Kiritilgach: parolni tasdiqlab, shu qatorni Dashboard'dan o'chirish
-      # tavsiya etiladi (funksiyaning o'zi buni MAJBURLAMAYDI).
+      # BIR MARTALIK bootstrap (2026-08-22'da qayta ko'rib chiqilgan —
+      # audit §9). Faqat `SUPER_ADMIN_LOGINS`dagi login hali paroli YO'Q
+      # bo'lsa ishlaydi; parol allaqachon o'rnatilgan bo'lsa bu qiymat
+      # INERT — pastdagi `SUPER_ADMIN_PASSWORD_RESET=1` aniq berilmasa
+      # hech narsa qilmaydi. To'liq izoh:
+      # `api/src/playbron/core/super_admin_bootstrap.py`.
+      # Kiritilgach (loglarda "o'rnatildi"/"qayta o'rnatildi" ko'ringach):
+      # ikkalasini ham Dashboard'dan OLIB TASHLASH tavsiya etiladi —
+      # bootstrap tugagach ular endi kerak emas.
       - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      # Mavjud parolni QO'LDA tiklash kerak bo'lgandagina '1' qilib
+      # qo'yiladi — yuqoridagi yangi qiymat bilan birga. Sukut holatda
+      # yo'q/bo'sh (reset o'chiq).
+      - key: SUPER_ADMIN_PASSWORD_RESET
         sync: false
 
       # /platform/* uchun IP allowlist. Bo'sh bo'lsa `core/config.py` faqat
