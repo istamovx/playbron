@@ -1,8 +1,6 @@
 import {
   ApiError,
-  cancelBooking,
   errorText,
-  extendBooking,
   getBookingDetail,
   listLiveStations,
   type BookingDetailDto,
@@ -11,7 +9,9 @@ import {
 import { Button, Grid, MetricCell, Modal, Panel, StatusLine, TextField, toast } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
+import { useT } from '../i18n';
 import { api } from '../lib/api';
+import { runCommand } from '../offline/syncEngine';
 import { S } from '../mock/data';
 import { useBoard, useNow } from '../store/board';
 import { useSession } from '../store/session';
@@ -263,6 +263,8 @@ export function BookingDetailPanel({
   onChanged: () => void;
   onClose: () => void;
 }): ReactNode {
+  const t = useT();
+  const session = useSession((state) => state.session);
   const [detail, setDetail] = useState<BookingDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -290,14 +292,21 @@ export function BookingDetailPanel({
   const extend = async (hours: number): Promise<void> => {
     setBusy(true);
     try {
-      await extendBooking(api, clubId, bookingId, hours, crypto.randomUUID(), detail?.version);
-      toast.success(`${hours} soatga uzaytirildi`);
+      const outcome = await runCommand(
+        'BOOKING_EXTEND',
+        { clubId, bookingId, extraHours: hours, expectedVersion: detail?.version },
+        { clubId, userId: session?.userId ?? null },
+      );
+      toast.success(outcome.synced ? `${hours} soatga uzaytirildi` : t('offlineQueuedToast'));
       await load();
       onChanged();
     } catch (cause) {
       // `VERSION_CONFLICT` (409) — boshqa xodim shu bronni allaqachon
       // o'zgartirgan (audit §15/16). Xodimga tushunarli xabar bilan eng
       // so'nggi holatni qayta yuklaymiz — jimgina ustidan yozib yubormaymiz.
+      // Onlayn holatda `runCommand()` buni ODDIY tashlaydi (navbatga
+      // yozilmaydi) — banner'da ko'rinmaydi, chunki xodim buni DARHOL
+      // shu yerda ko'rmoqda.
       if (cause instanceof ApiError && cause.code === 'VERSION_CONFLICT') {
         toast.error('Bron boshqa xodim tomonidan o‘zgartirilgan — yangilandi, qayta urinib ko‘ring');
         await load();
@@ -312,8 +321,12 @@ export function BookingDetailPanel({
   const cancel = async (): Promise<void> => {
     setBusy(true);
     try {
-      await cancelBooking(api, clubId, bookingId, cancelReason.trim() || undefined, crypto.randomUUID());
-      toast.success('Bron bekor qilindi');
+      const outcome = await runCommand(
+        'BOOKING_CANCEL',
+        { clubId, bookingId, reason: cancelReason.trim() || undefined },
+        { clubId, userId: session?.userId ?? null },
+      );
+      toast.success(outcome.synced ? 'Bron bekor qilindi' : t('offlineQueuedToast'));
       onChanged();
       onClose();
     } catch (cause) {

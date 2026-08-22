@@ -33,6 +33,7 @@ jobs:
           VITE_API_URL: https://api.playbron.uz/api/v1
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm test
 
   # API testlari ilgari CI'da UMUMAN yurmagan: `pnpm-workspace.yaml` faqat
   # `apps/*` va `packages/*` ni qamraydi, `api/` da `package.json` yo'q, ya'ni

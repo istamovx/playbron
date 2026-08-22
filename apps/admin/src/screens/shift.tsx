@@ -1,16 +1,11 @@
-import {
-  addShiftMovement,
-  closeShift,
-  errorText,
-  getCurrentShift,
-  openShift,
-  type ShiftDto,
-} from '@playbron/api-client';
+import { errorText, getCurrentShift, type ShiftDto } from '@playbron/api-client';
 import { Button, CyberLoaderOverlay, Modal, Panel, StatTile, StatusLine, TextField, toast } from '@playbron/ui';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
+import { useT } from '../i18n';
 import { api } from '../lib/api';
 import { S } from '../mock/data';
+import { runCommand } from '../offline/syncEngine';
 import { useBoard } from '../store/board';
 import { useSession } from '../store/session';
 
@@ -32,6 +27,7 @@ import { useSession } from '../store/session';
 type MovementKind = 'IN' | 'OUT';
 
 export function ShiftScreen(): ReactNode {
+  const t = useT();
   const session = useSession((state) => state.session);
   // Faol klub — header'dagi almashtirgichdan (`store/board.ts::activeClubId`);
   // hali sinxronlanmagan bo'lsa (App() darhol sozlaydi) birinchi a'zolikka tushadi.
@@ -79,8 +75,12 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      await openShift(api, clubId, Math.round(opening), crypto.randomUUID());
-      toast.success('Smena ochildi');
+      const outcome = await runCommand(
+        'SHIFT_OPEN',
+        { clubId, openingCash: Math.round(opening) },
+        { clubId, userId: session?.userId ?? null },
+      );
+      toast.success(outcome.synced ? 'Smena ochildi' : t('offlineQueuedToast'));
       setOpenDraft(null);
       await reload();
     } catch (cause) {
@@ -106,18 +106,24 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      await addShiftMovement(
-        api,
-        clubId,
-        shift.id,
+      const outcome = await runCommand(
+        'SHIFT_MOVEMENT',
         {
+          clubId,
+          shiftId: shift.id,
           kind: movementDraft.kind,
           amount: Math.round(amount),
           reason: movementDraft.reason.trim(),
         },
-        crypto.randomUUID(),
+        { clubId, userId: session?.userId ?? null },
       );
-      toast.success(movementDraft.kind === 'IN' ? 'Kirim qo‘shildi' : 'Chiqim qo‘shildi');
+      toast.success(
+        outcome.synced
+          ? movementDraft.kind === 'IN'
+            ? 'Kirim qo‘shildi'
+            : 'Chiqim qo‘shildi'
+          : t('offlineQueuedToast'),
+      );
       setMovementDraft(null);
       await reload();
     } catch (cause) {
@@ -139,11 +145,17 @@ export function ShiftScreen(): ReactNode {
     setSubmitting(true);
     setFormError(null);
     try {
-      const closed = await closeShift(api, clubId, shift.id, Math.round(counted), crypto.randomUUID());
+      const outcome = await runCommand(
+        'SHIFT_CLOSE',
+        { clubId, shiftId: shift.id, countedCash: Math.round(counted) },
+        { clubId, userId: session?.userId ?? null },
+      );
       toast.success(
-        closed.variance === 0
-          ? 'Smena yopildi — kassa mos keldi'
-          : `Smena yopildi — farq ${S(closed.variance ?? 0)} so‘m`,
+        !outcome.synced
+          ? t('offlineQueuedToast')
+          : outcome.result.variance === 0
+            ? 'Smena yopildi — kassa mos keldi'
+            : `Smena yopildi — farq ${S(outcome.result.variance ?? 0)} so‘m`,
       );
       setCloseDraft(null);
       await reload();

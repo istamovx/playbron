@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router';
 
 import { CLK, NAV_ADMIN, NAV_STAFF, NAV_SUPER_ADMIN, TITLES } from './mock/data';
+import { OfflineBanner } from './components/OfflineBanner';
+import { startConnectivityWatch } from './offline/connectivity';
+import { startSyncEngine } from './offline/syncEngine';
 import { DashboardScreen } from './screens/admin/dashboard';
 import { ExpensesScreen } from './screens/admin/expenses';
 import { PricingScreen } from './screens/admin/pricing';
@@ -96,6 +99,22 @@ export function App(): ReactNode {
     if (activeClubId !== null && session.clubs.some((c) => c.id === activeClubId)) return;
     setActiveClub(session.clubs[0]?.id ?? null);
   }, [session, activeClubId, setActiveClub]);
+
+  // Offline Sync Layer — ilova hayoti davomida BIR MARTA ishga tushadi.
+  // `session?.userId`ga bog'liq (butun `session` ob'ektiga emas): token
+  // yangilanishi (`prune`/`restore`) yangi ob'ekt yasaydi, lekin foydalanuvchi
+  // O'ZGARMAYDI — aks holda har refresh'da navbat/connectivity tinglovchisi
+  // keraksiz qayta ishga tushib qolardi.
+  const userId = session?.userId ?? null;
+  useEffect(() => {
+    if (userId === null) return;
+    const stopConnectivity = startConnectivityWatch();
+    const stopSync = startSyncEngine();
+    return () => {
+      stopConnectivity();
+      stopSync();
+    };
+  }, [userId]);
 
   // Narxlar — mahsulotlardan keyin: ikkalasi ham katalog boshqaruvi.
   const adminItems: AppNavItem[] = NAV_ADMIN.flatMap((item) =>
@@ -252,12 +271,15 @@ export function App(): ReactNode {
             </div>
 
             {compact ? (
-              <MobileHeaderMenu
-                time={CLK(now)}
-                name={session.name}
-                onSignOut={signOut}
-                onTelegramLink={() => setTelegramOpen(true)}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <OfflineBanner />
+                <MobileHeaderMenu
+                  time={CLK(now)}
+                  name={session.name}
+                  onSignOut={signOut}
+                  onTelegramLink={() => setTelegramOpen(true)}
+                />
+              </div>
             ) : (
               <div
                 style={{
@@ -269,6 +291,10 @@ export function App(): ReactNode {
                   flexShrink: 1,
                 }}
               >
+                <OfflineBanner />
+
+                <div style={{ width: 1, height: 30, background: 'var(--line-1)' }} />
+
                 <div
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}
                 >
