@@ -299,6 +299,11 @@ async def rotate_refresh(
         # sakrashi bo'lardi (har bir kirish/yangilash yo'lida qo'shimcha
         # round-trip).
         "entitlements": entitlements,
+        # `router.py::refresh()` shu bilan taqdim etilgan token TURI
+        # kutilgan transport (cookie=staff, body=customer) bilan mos
+        # kelishini tekshiradi — mos kelmasa boshqa auditoriya sessiyasi
+        # noto'g'ri cookie'ga yozilib qolishi mumkin edi.
+        "kind": stored.kind,
     }
 
 

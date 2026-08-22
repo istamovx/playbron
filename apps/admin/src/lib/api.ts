@@ -28,4 +28,9 @@ export const api = new ApiClient({
   baseUrl: apiBaseUrl,
   store: browserStore('playbron.session', localStorage),
   clubId: () => useBoard.getState().activeClubId,
+  // Refresh tokeni HttpOnly cookie'da (audit §10, `pb_staff_refresh` —
+  // `api/src/playbron/modules/auth/router.py`) — `localStorage`da endi
+  // faqat access token va muddat belgilari, XSS orqali sessiya butunlay
+  // o'g'irlanmaydi (faqat qisqa muddatli access token bilan cheklanadi).
+  cookieRefresh: true,
 });

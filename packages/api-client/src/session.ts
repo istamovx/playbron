@@ -8,7 +8,10 @@
 export interface Session {
   accessToken: string;
   accessExpiresAt: string;
-  refreshToken: string;
+  /** `null` — xodim (STAFF) sessiyasida: token brauzer o'qiy olmaydigan
+   * HttpOnly cookie'da (`api/src/playbron/modules/auth/router.py`,
+   * audit §10). Mijoz (Mini App) uchun bugungidek har doim to'ldirilgan. */
+  refreshToken: string | null;
   refreshExpiresAt: string;
 }
 
@@ -35,8 +38,13 @@ export function browserStore(key: string, storage: Storage): SessionStore {
         const raw = storage.getItem(key);
         if (!raw) return null;
         const parsed = JSON.parse(raw) as Partial<Session>;
-        if (!parsed.accessToken || !parsed.refreshToken) return null;
-        return parsed as Session;
+        // `refreshToken` ENDI shart emas — xodim sessiyasida u har doim
+        // `null` (HttpOnly cookie'da). Mijozda bugungidek to'ldirilgan
+        // bo'lishini `accessToken` bilan birga tekshirish shart emas —
+        // backend uni har doim beradi, bu yerda faqat buzilgan yozuvni
+        // (masalan qo'lda o'zgartirilgan `localStorage`) ushlaymiz.
+        if (!parsed.accessToken || !parsed.accessExpiresAt || !parsed.refreshExpiresAt) return null;
+        return { ...parsed, refreshToken: parsed.refreshToken ?? null } as Session;
       } catch {
         // Buzilgan yozuv — tozalab, qaytadan kirishga yo'l ochamiz
         storage.removeItem(key);

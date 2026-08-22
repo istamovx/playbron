@@ -4,14 +4,14 @@ import logging
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from playbron.core import context, telegram_api
 from playbron.core.audit import log_auth_event
-from playbron.core.config import settings
+from playbron.core.config import LOCAL_ENVS, settings
 from playbron.core.errors import NotFound, Unauthorized
 from playbron.core.http import client_ip
 from playbron.core.security import AUDIENCE_STAFF, constant_time_equal, now
@@ -44,7 +44,13 @@ class WidgetIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str = Field(min_length=10)
+    # Xodim (konsol) uchun ixtiyoriy — token `pb_staff_refresh` HttpOnly
+    # cookie'da keladi, `packages/api-client` bu maydonni `null` yuboradi
+    # (audit §10, faqat ADMIN konsoli — mijoz/Mini App bugungidek haqiqiy
+    # qiymat bilan davom etadi, `docs/05-auth-redesign.md`dagi to'liq H-4
+    # reja ATAYLAB qamrab olinmagan: OTP/device-binding shu o'zgarishga
+    # kirmaydi).
+    refresh_token: str | None = Field(default=None, min_length=10)
 
 
 class MembershipOut(BaseModel):
@@ -68,7 +74,10 @@ class UserOut(BaseModel):
 class SessionOut(BaseModel):
     access_token: str
     access_expires_at: datetime
-    refresh_token: str
+    # `None` — faqat xodim (STAFF) sessiyasida, token cookie'ga yozilgan
+    # va javob tanasida QAYTARILMAYDI (`_issue_staff_session()`). Mijoz
+    # (customer) uchun bugungidek har doim to'ldirilgan.
+    refresh_token: str | None
     refresh_expires_at: datetime
     user: UserOut
     memberships: list[MembershipOut]
@@ -110,6 +119,61 @@ def _to_session(payload: dict[str, Any]) -> SessionOut:
         is_super_admin=payload["is_super_admin"],
         entitlements=payload.get("entitlements"),
     )
+
+
+# ── Xodim refresh tokeni — HttpOnly cookie (audit §10) ─────────────────────
+#
+# Faqat STAFF auditoriyasi. Mijoz/Mini App bugungidek javob tanasidagi
+# `refresh_token`ni ishlatadi — `apps/miniapp` bu cookie'ni HECH QACHON
+# o'rnatmaydi/o'qimaydi, shuning uchun bu yerdagi o'zgarish unga tegmaydi.
+#
+# `Domain` ATAYLAB yo'q (host-only): cookie faqat `api.playbron.uz`ga
+# tegishli — brauzer uni SHU HOST'ga qilingan har qanday so'rovda (qaysi
+# sahifadan chaqirilishidan qat'i nazar, `credentials: 'include'` bilan)
+# yuboradi; `app.playbron.uz` sahifasining o'ziga esa umuman KO'RINMAYDI
+# (JS o'qiy olmaydi — HttpOnly'ning ma'nosi shu).
+#
+# `SameSite=Lax` — cross-site POST (masalan boshqa saytdan forma orqali
+# CSRF) cookie'ni UMUMAN yubormaydi; faqat top-level GET navigatsiyasida
+# yuboriladi, bu yerda ahamiyatsiz (bu endpoint faqat POST).
+STAFF_REFRESH_COOKIE = "pb_staff_refresh"
+_STAFF_REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def _set_staff_refresh_cookie(response: Response, token: str, *, super_admin: bool) -> None:
+    ttl = settings.sa_refresh_ttl_sec if super_admin else settings.refresh_ttl_sec
+    response.set_cookie(
+        STAFF_REFRESH_COOKIE,
+        token,
+        max_age=ttl,
+        path=_STAFF_REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=settings.env not in LOCAL_ENVS,
+        samesite="lax",
+    )
+
+
+def _clear_staff_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        STAFF_REFRESH_COOKIE,
+        path=_STAFF_REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=settings.env not in LOCAL_ENVS,
+        samesite="lax",
+    )
+
+
+def _issue_staff_session(response: Response, out: SessionOut) -> SessionOut:
+    """Xodim sessiyasi uchun umumiy so'nggi qadam: token cookie'ga
+    ko'chiriladi va javob tanasidan olib tashlanadi."""
+    if out.refresh_token is None:
+        # Bu yerga FAQAT yangi chiqarilgan (`issue_tokens()`) token bilan
+        # kelinadi — bo'sh bo'lsa chaqiruvchi kod xato ketgan, `assert`
+        # emas (u `-O` bilan o'chib qolishi mumkin) — aniq xato kerak.
+        raise RuntimeError("_issue_staff_session(): refresh_token yo'q")
+    _set_staff_refresh_cookie(response, out.refresh_token, super_admin=out.is_super_admin)
+    out.refresh_token = None
+    return out
 
 
 IP_MAX_LEN = 45  # `refresh_tokens.ip` ustuni kengligi (IPv6 + zona)
@@ -165,14 +229,37 @@ async def sign_in_widget(
 async def refresh(
     body: RefreshIn,
     request: Request,
+    response: Response,
     session: Annotated[AsyncSession, Depends(public_db)],
     user_agent: Annotated[str | None, Header()] = None,
 ) -> SessionOut:
+    # Body TO'LDIRILGAN bo'lsa har doim USTUVOR — mijoz (Mini App) doim
+    # haqiqiy `refresh_token` yuboradi. Faqat body BO'SH bo'lganda cookie'ga
+    # qaraladi (xodim konsoli — `packages/api-client` cookie rejimida body'ni
+    # ATAYLAB bo'sh qoldiradi). Aks holda bir brauzerda ikkalasi ham ochiq
+    # bo'lsa (masalan klub egasi ham xodim, ham mijoz sifatida sinasa),
+    # mijoz sahifasidagi chaqiruv xodimning cookie'sini "o'g'irlab" qo'yardi.
+    from_cookie = not body.refresh_token
+    presented = body.refresh_token or request.cookies.get(STAFF_REFRESH_COOKIE)
+    if not presented:
+        raise Unauthorized("Refresh token yo'q", code="REFRESH_INVALID")
+
     ua, ip = _client(request, user_agent)
-    payload = await service.rotate_refresh(
-        session, presented=body.refresh_token, user_agent=ua, ip=ip
-    )
-    return _to_session(payload)
+    payload = await service.rotate_refresh(session, presented=presented, user_agent=ua, ip=ip)
+
+    # Himoya qatlami: `pb_staff_refresh` cookie'siga faqat STAFF turdagi
+    # token yozilishi kerak. Bu invariant amalda faqat `_issue_staff_session()`
+    # orqali saqlanadi (mijoz kodi bu cookie'ni hech qachon o'rnatmaydi),
+    # lekin server o'zi ham tekshiradi — aks holda kelajakda cookie
+    # nomi qayta ishlatilsa yoki qo'lda noto'g'ri qiymat qo'yilsa, mijoz
+    # tokeni "xodim sessiyasi" sifatida javob qaytarilib ketardi.
+    if from_cookie and payload["kind"] != AUDIENCE_STAFF:
+        raise Unauthorized("Noto'g'ri turdagi refresh token", code="REFRESH_INVALID")
+
+    out = _to_session(payload)
+    if from_cookie:
+        return _issue_staff_session(response, out)
+    return out
 
 
 class StaffLoginIn(BaseModel):
@@ -186,6 +273,7 @@ class StaffLoginIn(BaseModel):
 async def staff_login(
     body: StaffLoginIn,
     request: Request,
+    response: Response,
     session: Annotated[AsyncSession, Depends(public_db)],
     user_agent: Annotated[str | None, Header()] = None,
 ) -> SessionOut:
@@ -217,7 +305,7 @@ async def staff_login(
 
     out = _to_session(payload)
     out.must_change_password = payload["must_change_password"]
-    return out
+    return _issue_staff_session(response, out)
 
 
 class OwnerSignupIn(BaseModel):
@@ -276,6 +364,7 @@ def _top_role(memberships: list[dict[str, Any]], super_admin: bool) -> str:
 async def change_password(
     body: PasswordChangeIn,
     request: Request,
+    response: Response,
     session: Annotated[AsyncSession, Depends(db)],
     _: Annotated[dict[str, Any], Depends(current_claims)],
     user_agent: Annotated[str | None, Header()] = None,
@@ -319,7 +408,7 @@ async def change_password(
         ip=client_ip(request),
     )
 
-    return _to_session(
+    out = _to_session(
         {
             **issued,
             "user": user,
@@ -328,6 +417,7 @@ async def change_password(
             "entitlements": entitlements,
         }
     )
+    return _issue_staff_session(response, out)
 
 
 class StartIn(BaseModel):
@@ -642,12 +732,20 @@ async def dev_login(
 @router.post("/logout", status_code=204)
 async def logout(
     body: RefreshIn,
+    request: Request,
+    response: Response,
     # `db` — `current_claims` dan **keyin** ochiladigan sessiya. `public_db` bo'lsa
     # tranzaksiya token ochilishidan oldin boshlanib, `app.user_id` 0 qolardi va
     # RLS `WITH CHECK` yozishga yo'l bermasdi.
     session: Annotated[AsyncSession, Depends(db)],
 ) -> None:
-    await service.sign_out(session, refresh_token=body.refresh_token)
+    # `refresh()`dagi bilan bir xil ustuvorlik — body to'ldirilgan bo'lsa
+    # ustuvor, faqat bo'sh bo'lsa cookie'ga qaraladi.
+    presented = body.refresh_token or request.cookies.get(STAFF_REFRESH_COOKIE)
+    if presented:
+        await service.sign_out(session, refresh_token=presented)
+    if not body.refresh_token and request.cookies.get(STAFF_REFRESH_COOKIE):
+        _clear_staff_refresh_cookie(response)
     # `/logout` xodim VA mijoz uchun umumiy — hodisa nomi shuning uchun
     # "staff_" bilan boshlanmaydi (mijozda `club_id` bo'lmaydi, RLS orqali
     # klub egasiga baribir ko'rinmaydi).
